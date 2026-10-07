@@ -1,0 +1,171 @@
+/* EPUB 3.3: https://www.w3.org/TR/epub-33/#sec-css */
+/* Body metrics and colors are controlled by the reading system. */
+body {
+  overflow-wrap: break-word;
+}
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  text-align: start;
+  break-after: avoid;
+  page-break-after: avoid;
+}
+h1 {
+  font-size: 1.8em;
+  margin-top: 1em;
+  margin-bottom: 1em;
+}
+h2 {
+  font-size: 1.4em;
+  margin-top: 1.5em;
+}
+h3 {
+  font-size: 1.2em;
+}
+p {
+  orphans: 2;
+  widows: 2;
+}
+html[lang] p.chapter-meta {
+  text-indent: 0;
+  margin: 0 0 1.5em;
+}
+strong,
+b {
+  font-weight: bold;
+}
+em,
+i {
+  font-style: italic;
+}
+del,
+s {
+  text-decoration: line-through;
+}
+img,
+svg {
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+figure > img {
+  display: block;
+  margin: 0 auto;
+}
+img.inline-image {
+  display: inline;
+  width: auto;
+  height: 1em;
+  vertical-align: middle;
+}
+figure {
+  margin: 1em 0;
+}
+figcaption,
+caption {
+  font-size: 0.9em;
+  text-align: start;
+  margin-bottom: 0.5em;
+}
+blockquote {
+  margin: 1em 1em;
+  padding: 0.25em 0.75em;
+  border-left: 0.15em solid;
+  text-indent: 0;
+}
+[dir="rtl"] blockquote {
+  border-left: 0;
+  border-right: 0.15em solid;
+}
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: monospace;
+  margin: 1em 0;
+}
+code {
+  font-family: monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+table {
+  border-collapse: collapse;
+  max-width: 100%;
+}
+th,
+td {
+  border: 0.06em solid;
+  padding: 0.35em;
+  text-align: start;
+  vertical-align: top;
+}
+th.align-left,
+td.align-left {
+  text-align: left;
+}
+th.align-center,
+td.align-center {
+  text-align: center;
+}
+th.align-right,
+td.align-right {
+  text-align: right;
+}
+.table-container {
+  overflow-x: auto;
+  margin: 1em 0;
+}
+a {
+  color: inherit;
+  text-decoration: underline;
+  overflow-wrap: anywhere;
+}
+aside {
+  margin: 1em 0;
+  padding: 0.5em;
+  border: 0.06em solid;
+}
+.footnotes {
+  margin-top: 2em;
+}
+.pagebreak {
+  break-before: page;
+  page-break-before: always;
+}
+.poem {
+  white-space: pre-wrap;
+  text-indent: 0;
+}
+math {
+  max-width: 100%;
+}
+.math-display {
+  overflow-x: auto;
+  margin: 1em 0;
+}
+.vertical {
+  writing-mode: vertical-rl;
+}
+.vertical figure > img {
+  margin: auto 0;
+}
+.vertical blockquote {
+  border-left: 0;
+  border-right: 0;
+  border-top: 0.15em solid;
+}
+hr {
+  border: 0;
+  border-top: 0.06em solid;
+  margin: 1.5em 0;
+}
+nav ol {
+  padding-inline-start: 1.5em;
+}
+nav a {
+  display: inline-block;
+  padding-block: 0.3em;
+}

@@ -1,0 +1,21 @@
+schemaVersion: 1
+book:
+  title: Small Systems, Clear Contracts
+  authors: [Quillbind Example Authors]
+  description: An original technical fixture covering code, mathematics, tables, figures, notes, citations, and cross references.
+  language: en
+  publication:
+    isbn: null
+  tags: [Technology.SoftwareEngineering]
+theme: technical
+chapters:
+  - chapters/01-contracts.md
+  - chapters/02-verification.md
+references:
+  - id: epub
+    text: W3C. EPUB 3.3 Recommendation.
+    url: https://www.w3.org/TR/epub-33/
+build:
+  epoch: 946684800
+  stripImageMetadata: false
+  optimizeImages: true

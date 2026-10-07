@@ -19,3 +19,7 @@ __pycache__/
 !scripts/**
 !skills/*/scripts/
 !skills/*/scripts/**
+!tools/quillbind/bin/
+!tools/quillbind/bin/**
+!tools/quillbind/scripts/
+!tools/quillbind/scripts/**

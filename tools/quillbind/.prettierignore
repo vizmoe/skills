@@ -1,0 +1,8 @@
+pnpm-lock.yaml
+standards/*.json
+examples/**/metadata/*.json
+tests/baselines/
+.cache/
+dist/
+node_modules/
+ci-output/

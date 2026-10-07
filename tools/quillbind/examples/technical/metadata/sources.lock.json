@@ -1,0 +1,38 @@
+{
+  "configHash": "856e8d96daac280c5c51eaf3bc5201efd3aa58c7ba10b2b5820fc54b7114b1a1",
+  "fields": {
+    "authors": "supplied",
+    "description": "supplied",
+    "isbn": "supplied",
+    "language": "supplied",
+    "tags": "supplied",
+    "title": "supplied"
+  },
+  "metadata": {
+    "authors": [
+      {
+        "name": "Quillbind Example Authors"
+      }
+    ],
+    "description": "An original technical fixture covering code, mathematics, tables, figures, notes, citations, and cross references.",
+    "identifier": {
+      "scheme": "uuid",
+      "value": "urn:uuid:22222222-2222-4222-8222-222222222222"
+    },
+    "language": "en",
+    "modified": "2000-01-01T00:00:00Z",
+    "publication": {
+      "isbn": null
+    },
+    "tags": [
+      {
+        "id": "Technology.SoftwareEngineering",
+        "label": "Software engineering"
+      }
+    ],
+    "title": "Small Systems, Clear Contracts"
+  },
+  "schemaVersion": 1,
+  "sources": [],
+  "taxonomyVersion": "1.0.0"
+}

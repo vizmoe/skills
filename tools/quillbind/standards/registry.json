@@ -1,0 +1,337 @@
+{
+  "schemaVersion": 1,
+  "target": "EPUB 3.3",
+  "checkedAt": "2026-09-05",
+  "errata": {
+    "url": "https://w3c.github.io/epub-specs/epub33/errata.html",
+    "checkedAt": "2026-09-05",
+    "note": "Index reviewed; live issue lists require GitHub API. No claim that there are zero open errata."
+  },
+  "sources": [
+    {
+      "id": "epub-33",
+      "title": "EPUB 3.3",
+      "url": "https://www.w3.org/TR/epub-33/",
+      "status": "Recommendation",
+      "publishedAt": "2026-01-13"
+    },
+    {
+      "id": "epub-rs-33",
+      "title": "EPUB Reading Systems 3.3",
+      "url": "https://www.w3.org/TR/epub-rs-33/",
+      "status": "Recommendation",
+      "publishedAt": "2024-10-17"
+    },
+    {
+      "id": "epub-a11y-11",
+      "title": "EPUB Accessibility 1.1",
+      "url": "https://www.w3.org/TR/epub-a11y-11/",
+      "status": "Recommendation",
+      "publishedAt": "2024-10-17"
+    },
+    {
+      "id": "epub-a11y-tech-11",
+      "title": "EPUB Accessibility Techniques 1.1",
+      "url": "https://www.w3.org/TR/epub-a11y-tech-11/",
+      "status": "Group Note",
+      "publishedAt": "2025-03-13"
+    },
+    {
+      "id": "wcag22",
+      "title": "WCAG 2.2",
+      "url": "https://www.w3.org/TR/WCAG22/",
+      "status": "Recommendation",
+      "publishedAt": "2024-12-12"
+    },
+    {
+      "id": "epub-ssv-11",
+      "title": "EPUB Structural Semantics 1.1",
+      "url": "https://www.w3.org/TR/epub-ssv-11/",
+      "status": "Group Note",
+      "publishedAt": "2026-05-28"
+    },
+    {
+      "id": "dpub-aria-11",
+      "title": "DPUB-ARIA 1.1",
+      "url": "https://www.w3.org/TR/dpub-aria-1.1/",
+      "status": "Recommendation",
+      "publishedAt": "2025-06-12"
+    },
+    {
+      "id": "html",
+      "title": "HTML",
+      "url": "https://html.spec.whatwg.org/multipage/",
+      "status": "Living Standard",
+      "publishedAt": "2026-09-04"
+    },
+    {
+      "id": "xml",
+      "title": "XML 1.0 Fifth Edition",
+      "url": "https://www.w3.org/TR/xml/",
+      "status": "Recommendation",
+      "publishedAt": "2008-11-26"
+    },
+    {
+      "id": "css-text-3",
+      "title": "CSS Text Level 3",
+      "url": "https://www.w3.org/TR/css-text-3/",
+      "status": "Candidate Recommendation Draft",
+      "publishedAt": "2026-08-14"
+    },
+    {
+      "id": "css-writing-modes-3",
+      "title": "CSS Writing Modes Level 3",
+      "url": "https://www.w3.org/TR/css-writing-modes-3/",
+      "status": "Recommendation",
+      "publishedAt": "2019-12-10"
+    },
+    {
+      "id": "css-break-3",
+      "title": "CSS Fragmentation Level 3",
+      "url": "https://www.w3.org/TR/css-break-3/",
+      "status": "Candidate Recommendation",
+      "publishedAt": "2018-12-04"
+    },
+    {
+      "id": "mathml3",
+      "title": "MathML 3 Second Edition",
+      "url": "https://www.w3.org/TR/MathML3/",
+      "status": "Recommendation",
+      "publishedAt": "2014-04-10"
+    },
+    {
+      "id": "commonmark",
+      "title": "CommonMark",
+      "url": "https://spec.commonmark.org/",
+      "status": "Published specification",
+      "publishedAt": null
+    },
+    {
+      "id": "bcp47",
+      "title": "RFC 5646 / BCP 47",
+      "url": "https://www.rfc-editor.org/rfc/rfc5646",
+      "status": "Best Current Practice",
+      "publishedAt": "2009-09"
+    },
+    {
+      "id": "unicode",
+      "title": "Unicode Normalization Forms 17.0 revision 57",
+      "url": "https://www.unicode.org/reports/tr15/",
+      "status": "Unicode Standard Annex",
+      "publishedAt": "2025-07-30"
+    },
+    {
+      "id": "isbn",
+      "title": "International ISBN Agency",
+      "url": "https://www.isbn-international.org/",
+      "status": "Official agency guidance",
+      "publishedAt": null
+    },
+    {
+      "id": "agent-skills",
+      "title": "Agent Skills",
+      "url": "https://agentskills.io/specification",
+      "status": "Published open specification",
+      "publishedAt": null
+    },
+    {
+      "id": "apple-books",
+      "title": "Apple Books Asset Guide 5.3.1",
+      "url": "https://help.apple.com/itc/booksassetguide/en.lproj/static.html",
+      "status": "Platform guidance",
+      "publishedAt": null
+    },
+    {
+      "id": "kindle",
+      "title": "Kindle Publishing Guidelines",
+      "url": "https://kdp.amazon.com/en_US/help/topic/GU72M65VRFPH43L6",
+      "status": "Platform guidance",
+      "publishedAt": null
+    },
+    {
+      "id": "kindle-text",
+      "title": "Kindle Reflowable Text",
+      "url": "https://kdp.amazon.com/en_US/help/topic/GH4DRT75GWWAGBTU",
+      "status": "Platform guidance",
+      "publishedAt": null
+    },
+    {
+      "id": "oreilly",
+      "title": "O’Reilly EPUB Submission Requirements",
+      "url": "https://submission-guides.oreilly.com/book-submissions/file_requirements.html",
+      "status": "Professional guidance",
+      "publishedAt": "2024-06-24"
+    },
+    {
+      "id": "lcc",
+      "title": "LCC Outline",
+      "url": "https://www.loc.gov/aba/cataloging/classification/lcco/",
+      "status": "Official classification outline",
+      "publishedAt": null
+    },
+    {
+      "id": "loc-api",
+      "title": "Library of Congress APIs",
+      "url": "https://www.loc.gov/apis/",
+      "status": "Official API documentation",
+      "publishedAt": null
+    },
+    {
+      "id": "playwright",
+      "title": "Playwright",
+      "url": "https://playwright.dev/docs/intro",
+      "status": "Official tooling documentation",
+      "publishedAt": null
+    },
+    {
+      "id": "playwright-snapshots",
+      "title": "Playwright Visual Comparisons",
+      "url": "https://playwright.dev/docs/test-snapshots",
+      "status": "Official tooling documentation",
+      "publishedAt": null
+    },
+    {
+      "id": "epub-34",
+      "title": "EPUB 3.4",
+      "url": "https://www.w3.org/TR/epub-34/",
+      "status": "Candidate Recommendation Draft (not production target)",
+      "publishedAt": "2026-08-03"
+    },
+    {
+      "id": "kindle-images",
+      "title": "Kindle Reflowable Images",
+      "url": "https://kdp.amazon.com/en_US/help/topic/G75V4YX5X8GRGXWV",
+      "status": "Platform guidance",
+      "publishedAt": null,
+      "checkedAt": "2026-09-05"
+    },
+    {
+      "id": "kindle-tables",
+      "title": "Kindle Reflowable Tables",
+      "url": "https://kdp.amazon.com/en_US/help/topic/GZ8BAXASXKB5JVML",
+      "status": "Platform guidance",
+      "publishedAt": null,
+      "checkedAt": "2026-09-05"
+    },
+    {
+      "id": "kindle-cover",
+      "title": "Kindle Cover Guidelines",
+      "url": "https://kdp.amazon.com/en_US/help/topic/G6GTK3T3NUHKLEFX",
+      "status": "Platform guidance",
+      "publishedAt": null,
+      "checkedAt": "2026-09-06"
+    },
+    {
+      "id": "png-3",
+      "title": "Portable Network Graphics Third Edition",
+      "url": "https://www.w3.org/TR/png-3/",
+      "status": "Recommendation",
+      "publishedAt": "2025-06-24",
+      "checkedAt": "2026-09-05"
+    },
+    {
+      "id": "webp-faq",
+      "title": "WebP FAQ",
+      "url": "https://developers.google.com/speed/webp/faq",
+      "status": "Official format documentation",
+      "publishedAt": null,
+      "checkedAt": "2026-09-05"
+    },
+    {
+      "id": "node-zlib",
+      "title": "Node.js zlib",
+      "url": "https://nodejs.org/api/zlib.html",
+      "status": "Official tooling documentation",
+      "publishedAt": null,
+      "checkedAt": "2026-09-05"
+    },
+    {
+      "id": "gfm",
+      "title": "GitHub Flavored Markdown 0.29-gfm",
+      "url": "https://github.github.com/gfm/",
+      "status": "Published specification",
+      "publishedAt": "2019-04-06",
+      "checkedAt": "2026-09-05"
+    },
+    {
+      "id": "cjk-markdown",
+      "title": "CJK-friendly Markdown extension",
+      "url": "https://github.com/tats-u/markdown-cjk-friendly",
+      "status": "Third-party parsing extension; not a CommonMark requirement",
+      "publishedAt": null,
+      "checkedAt": "2026-09-05"
+    },
+    {
+      "id": "astro-markdown",
+      "title": "Astro Markdown content",
+      "url": "https://docs.astro.build/en/guides/markdown-content/",
+      "status": "Official framework documentation",
+      "publishedAt": null,
+      "checkedAt": "2026-09-05"
+    },
+    {
+      "id": "github-slugger",
+      "title": "GitHub Slugger",
+      "url": "https://github.com/Flet/github-slugger",
+      "status": "Official library documentation",
+      "publishedAt": null,
+      "checkedAt": "2026-09-05"
+    },
+    {
+      "id": "hugo-markup",
+      "title": "Hugo markup configuration",
+      "url": "https://gohugo.io/configuration/markup/",
+      "status": "Official framework documentation",
+      "publishedAt": null,
+      "checkedAt": "2026-09-05"
+    },
+    {
+      "id": "python-markdown-footnotes",
+      "title": "Python-Markdown footnotes",
+      "url": "https://python-markdown.github.io/extensions/footnotes/",
+      "status": "Official extension documentation",
+      "publishedAt": null,
+      "checkedAt": "2026-09-05"
+    },
+    {
+      "id": "apple-footnotes",
+      "title": "Apple Books Pop-up Footnotes",
+      "url": "https://help.apple.com/itc/booksassetguide/en.lproj/itccf8ecf5c8.html",
+      "status": "Platform guidance",
+      "publishedAt": null,
+      "checkedAt": "2026-09-05"
+    },
+    {
+      "id": "kindle-links",
+      "title": "Kindle Hyperlink Guidelines",
+      "url": "https://kdp.amazon.com/en_US/help/topic/GQ6JQ7FM6C72HE4X",
+      "status": "Platform guidance",
+      "publishedAt": null,
+      "checkedAt": "2026-09-05"
+    },
+    {
+      "id": "apple-cover",
+      "title": "Apple Books Book Cover Art",
+      "url": "https://help.apple.com/itc/booksassetguide/en.lproj/static.html",
+      "status": "Platform guidance; 1400-pixel recommendation applies to marketing artwork",
+      "publishedAt": null,
+      "checkedAt": "2026-09-06"
+    },
+    {
+      "id": "apple-navigation",
+      "title": "Apple Books Navigation Document",
+      "url": "https://help.apple.com/itc/booksassetguide/en.lproj/itc0f175a5b9.html",
+      "status": "Platform guidance",
+      "publishedAt": null,
+      "checkedAt": "2026-09-06"
+    },
+    {
+      "id": "kindle-navigation",
+      "title": "Kindle Navigation Guidelines",
+      "url": "https://kdp.amazon.com/en_US/help/topic/GY3AD8C6C6GAG42N",
+      "status": "Platform guidance",
+      "publishedAt": null,
+      "checkedAt": "2026-09-06"
+    }
+  ]
+}

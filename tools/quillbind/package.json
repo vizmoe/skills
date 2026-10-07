@@ -1,0 +1,47 @@
+{
+  "name": "quillbind-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.25.0",
+  "engines": {
+    "node": "26.8.1"
+  },
+  "scripts": {
+    "quillbind": "tsx packages/cli/src/index.ts",
+    "build": "tsc -p tsconfig.build.json && node scripts/link-build.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "prettier --check . && eslint . && node scripts/check-locks.mjs",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit.test.ts",
+    "test:security": "vitest run tests/security.test.ts",
+    "test:integration": "vitest run tests/integration.test.ts",
+    "fixtures": "tsx scripts/fixtures.ts",
+    "verify": "tsx scripts/verify.ts",
+    "skill:validate": "python3 ../../scripts/validate_skills.py",
+    "skill:eval": "node --import tsx scripts/skill-evals.ts",
+    "tools:install": "node scripts/install-tools.mjs",
+    "qa:fixtures": "tsx scripts/qa-fixtures.ts",
+    "test:visual": "playwright test",
+    "baseline:candidate": "tsx scripts/baseline-candidate.ts",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@playwright/test": "1.63.0",
+    "@types/mdast": "4.0.4",
+    "@types/node": "26.4.1",
+    "@vitest/coverage-v8": "5.0.0",
+    "eslint": "10.10.0",
+    "fast-check": "4.9.0",
+    "globals": "17.12.0",
+    "prettier": "3.9.6",
+    "sharp": "0.35.4",
+    "tsx": "4.23.13",
+    "typescript": "npm:@typescript/typescript6@6.0.2",
+    "typescript-eslint": "8.70.0",
+    "vitest": "5.0.0",
+    "@typescript/native": "npm:typescript@7.0.2"
+  }
+}

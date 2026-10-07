@@ -1,0 +1,291 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "type": "number",
+      "const": 1
+    },
+    "book": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "authors": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "description": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        },
+        "publication": {
+          "type": "object",
+          "properties": {
+            "isbn": {
+              "type": ["string", "null"]
+            }
+          },
+          "required": ["isbn"],
+          "additionalProperties": false
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "title",
+        "authors",
+        "description",
+        "language",
+        "publication",
+        "tags"
+      ],
+      "additionalProperties": false
+    },
+    "theme": {
+      "type": "string",
+      "enum": ["literature", "technical"]
+    },
+    "markdown": {
+      "default": {
+        "cjkEmphasis": "auto",
+        "profile": "quillbind",
+        "chapterMetadata": {
+          "fields": ["author", "date", "source"],
+          "display": "byline"
+        }
+      },
+      "type": "object",
+      "properties": {
+        "cjkEmphasis": {
+          "default": "auto",
+          "type": "string",
+          "enum": ["auto", "on", "off"]
+        },
+        "profile": {
+          "default": "quillbind",
+          "type": "string",
+          "enum": ["quillbind", "blog"]
+        },
+        "chapterMetadata": {
+          "default": {
+            "fields": ["author", "date", "source"],
+            "display": "byline"
+          },
+          "type": "object",
+          "properties": {
+            "fields": {
+              "default": ["author", "date", "source"],
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["author", "date", "source"]
+              }
+            },
+            "display": {
+              "default": "byline",
+              "type": "string",
+              "enum": ["byline", "hidden"]
+            }
+          },
+          "required": ["fields", "display"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["cjkEmphasis", "profile", "chapterMetadata"],
+      "additionalProperties": false
+    },
+    "conversion": {
+      "type": "object",
+      "properties": {
+        "target": {
+          "type": "string",
+          "enum": ["simplified", "traditional", "china", "taiwan", "hongkong"]
+        }
+      },
+      "required": ["target"],
+      "additionalProperties": false
+    },
+    "qa": {
+      "type": "object",
+      "properties": {
+        "coverage": {
+          "default": "full",
+          "type": "string",
+          "enum": ["full", "stratified"]
+        },
+        "screenshots": {
+          "default": "failures-and-samples",
+          "type": "string",
+          "enum": ["failures-and-samples", "all"]
+        }
+      },
+      "required": ["coverage", "screenshots"],
+      "additionalProperties": false
+    },
+    "chapters": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "navigation": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/__schema0"
+      }
+    },
+    "direction": {
+      "default": "ltr",
+      "type": "string",
+      "enum": ["ltr", "rtl"]
+    },
+    "pageProgression": {
+      "type": "string",
+      "enum": ["ltr", "rtl", "default"]
+    },
+    "writingMode": {
+      "default": "horizontal-tb",
+      "type": "string",
+      "enum": ["horizontal-tb", "vertical-rl"]
+    },
+    "cover": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": ["path"],
+      "additionalProperties": false
+    },
+    "styles": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "fonts": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "family": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9 -]*$"
+          },
+          "license": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["path", "family", "license"],
+        "additionalProperties": false
+      }
+    },
+    "references": {
+      "default": [],
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][\\w-]*$"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          }
+        },
+        "required": ["id", "text"],
+        "additionalProperties": false
+      }
+    },
+    "build": {
+      "type": "object",
+      "properties": {
+        "epoch": {
+          "type": "integer",
+          "minimum": 315532800,
+          "maximum": 4354819198
+        },
+        "stripImageMetadata": {
+          "default": false,
+          "type": "boolean",
+          "const": false
+        },
+        "optimizeImages": {
+          "default": true,
+          "type": "boolean"
+        }
+      },
+      "required": ["epoch", "stripImageMetadata", "optimizeImages"],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "book",
+    "theme",
+    "markdown",
+    "chapters",
+    "direction",
+    "writingMode",
+    "styles",
+    "fonts",
+    "references",
+    "build"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string",
+              "minLength": 1
+            },
+            "children": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/__schema0"
+              }
+            }
+          },
+          "required": ["title", "children"],
+          "additionalProperties": false
+        }
+      ]
+    }
+  }
+}

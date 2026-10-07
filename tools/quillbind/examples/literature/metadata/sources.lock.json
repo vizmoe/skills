@@ -1,0 +1,38 @@
+{
+  "configHash": "c7c1bcc2db7a74aee92ef33052806246b06e34a07b6a5e98893d2d84fcf0ecd3",
+  "fields": {
+    "authors": "supplied",
+    "description": "supplied",
+    "isbn": "supplied",
+    "language": "supplied",
+    "tags": "supplied",
+    "title": "supplied"
+  },
+  "metadata": {
+    "authors": [
+      {
+        "name": "Quillbind 示例作者"
+      }
+    ],
+    "description": "用于验证中文章节、诗行、场景分隔和跨章链接的原创短篇示例。",
+    "identifier": {
+      "scheme": "uuid",
+      "value": "urn:uuid:11111111-1111-4111-8111-111111111111"
+    },
+    "language": "zh-Hans",
+    "modified": "2000-01-01T00:00:00Z",
+    "publication": {
+      "isbn": null
+    },
+    "tags": [
+      {
+        "id": "Literature.Essays",
+        "label": "Essays"
+      }
+    ],
+    "title": "山间来信"
+  },
+  "schemaVersion": 1,
+  "sources": [],
+  "taxonomyVersion": "1.0.0"
+}

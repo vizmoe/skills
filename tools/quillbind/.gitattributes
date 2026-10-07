@@ -1,0 +1,8 @@
+* text=auto eol=lf
+# Markdown hard line breaks use two intentional trailing spaces.
+*.md whitespace=-blank-at-eol
+*.epub binary
+*.png binary
+*.jpg binary
+*.woff2 binary
+*.ttf binary

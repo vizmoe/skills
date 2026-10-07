@@ -10,7 +10,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def prose(text: str) -> str:
-    return re.sub(r"(?ms)^\s*(```|~~~).*?^\s*\1\s*$", "", text)
+    text = re.sub(r"(?ms)^\s*(```|~~~).*?^\s*\1\s*$", "", text)
+    return re.sub(r"(`+).*?\1", "", text, flags=re.S)
 
 
 def anchors(text: str) -> set[str]:

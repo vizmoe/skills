@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="160" viewBox="0 0 600 160">
+  <title>Publication pipeline</title>
+  <rect width="600" height="160" fill="#fff"/>
+  <g fill="none" stroke="#333" stroke-width="2">
+    <rect x="10" y="40" width="150" height="70" rx="6"/>
+    <rect x="225" y="40" width="150" height="70" rx="6"/>
+    <rect x="440" y="40" width="150" height="70" rx="6"/>
+    <path d="M165 75h55l-10-8m10 8-10 8M380 75h55l-10-8m10 8-10 8"/>
+  </g>
+  <g fill="#222" font-family="sans-serif" font-size="20" text-anchor="middle">
+    <text x="85" y="82">Source</text>
+    <text x="300" y="82">Compiler</text>
+    <text x="515" y="82">Artifact</text>
+  </g>
+</svg>

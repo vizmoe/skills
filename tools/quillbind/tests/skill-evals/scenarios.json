@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "skill": "quillbind",
+  "scenarios": [
+    {
+      "id": "inspect-only",
+      "prompt": "只检查 {epub} 的书目、目录和阅读顺序，不要修改文件或生成新书。",
+      "expected": [
+        "read-only inspection",
+        "NAV or NCX and original metadata",
+        "no conformance claim"
+      ],
+      "protected": ["source EPUB and source tree"]
+    },
+    {
+      "id": "no-rebuild",
+      "prompt": "这本 {epub} 可能有排版问题，请检查结构。不要使用当前成品重建！",
+      "expected": [
+        "inspect or read-only audit",
+        "no build or repair call",
+        "input bytes and file tree unchanged"
+      ],
+      "protected": ["source EPUB and source tree"]
+    },
+    {
+      "id": "blog-preparation",
+      "prompt": "将 {raw} 的 Astro Markdown 按 {config} 的顺序准备为新项目 {output}，保留原文与图片，并检查脚注和跨章链接。暂时不用构建成品。",
+      "expected": [
+        "valid book.yaml",
+        "byte-preserving source preparation",
+        "blog profile",
+        "repeated footnotes and heading links"
+      ],
+      "protected": ["raw source files", "config input"]
+    },
+    {
+      "id": "properties-whitelist",
+      "prompt": "导入 {raw}，章节只显示作者、日期和原文。draft 和其他自定义 Properties 不应进入出版元数据；按 {config} 列出的顺序包括所有章节。",
+      "expected": [
+        "fixed Properties whitelist",
+        "all explicitly listed chapters",
+        "unknown properties absent from reports and XHTML"
+      ],
+      "protected": ["raw source files", "config input"]
+    },
+    {
+      "id": "isbn-null",
+      "prompt": "使用 {config} 和 {raw} 准备新书，isbn 为 null，不要再维护 status，也不要询问没有 ISBN 的额外确认。",
+      "expected": [
+        "ISBN-only publication config",
+        "persistent UUID",
+        "no ISBN decision needed"
+      ],
+      "protected": ["raw source files", "config input"]
+    },
+    {
+      "id": "author-preview",
+      "prompt": "按 {config} 将 {raw} 准备为 {output}，只生成一次作者排版预览。环境中没有发布验证器；保留已有成品和报告，并说明候选文件的发布检查状态。",
+      "expected": [
+        "preview succeeds without release validators",
+        "status preview and publicationReady false",
+        "releaseGates not-run",
+        "candidate path and SHA-256 match the generated EPUB",
+        "previous release artifact and reports unchanged"
+      ],
+      "protected": [
+        "raw source files",
+        "config input",
+        "previous release artifact and reports"
+      ]
+    },
+    {
+      "id": "missing-validator",
+      "prompt": "先检查 {epub}，然后用当前工具环境构建 {book}。如果验证工具缺失，清楚报告缺失项，不要跳过验证或将旧 EPUB 当成新结果。",
+      "expected": [
+        "inspection works without validators",
+        "build fails with environment error",
+        "later gates not-run",
+        "old artifact preserved"
+      ],
+      "protected": ["source EPUB", "raw source files", "previous artifact"]
+    },
+    {
+      "id": "unsupported-input",
+      "prompt": "将 {pdf} 直接交给 Quillbind 转换成 EPUB；如果这个输入不被支持，说明实际格式范围并保留原文件。",
+      "expected": [
+        "unsupported input is explicit",
+        "no fabricated conversion",
+        "no output book"
+      ],
+      "protected": ["original PDF"]
+    },
+    {
+      "id": "release-handoff",
+      "prompt": "根据 {config} 将 {raw} 制作为新书 {output}。完成后给我成品路径、哈希、清晰报告和仍需关注的事项。",
+      "expected": [
+        "all release gates execute",
+        "artifact hash matches summary",
+        "current run identity",
+        "separate conformance, accessibility, browser, platform and distribution results"
+      ],
+      "protected": ["raw source files", "config input"]
+    }
+  ]
+}

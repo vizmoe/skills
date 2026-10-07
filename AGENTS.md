@@ -5,3 +5,5 @@ Installable resources belong in `skills/<name>/`, with `SKILL.md` as the entrypo
 For Musagetes changes, run `python3 -B -m unittest discover -s tests/musagetes -v`. Read [behavior cases](tests/musagetes/skill-cases.md) when changing invocation or domain rules. Maintenance does not authorize operations on real music libraries.
 
 Musagetes resource paths are relative to its skill directory; music roots come from the caller, and runtime state stays inside the authorized root. `library_guard.py` and `music_rules.py` provide read-only checks, not transaction execution. Keep field definitions in `references/METADATA_WHITELIST.md`, completion semantics in `references/DELIVERY.md`, batch/recovery rules in `references/EXECUTION.md`, and machine interfaces in `references/TOOLS.md`. Update `metadata.version` when rules or runtime behavior change. Writable tools require corresponding transaction and recovery verification.
+
+For Quillbind runtime changes, follow [tools/quillbind/AGENTS.md](tools/quillbind/AGENTS.md) and its development guide. Skills installation and EPUB book publication are separate contracts; preserve every EPUB release gate.

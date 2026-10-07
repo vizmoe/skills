@@ -1,0 +1,17 @@
+schemaVersion: 1
+book:
+  title: Evaluation Reading Notes
+  authors: [Quillbind Evaluation]
+  description: Original short chapters used only to evaluate local book preparation and release reports.
+  language: en
+  publication:
+    isbn: null
+  tags: [Literature.Essays]
+theme: literature
+markdown:
+  profile: blog
+chapters:
+  - posts/first.md
+  - posts/second.md
+build:
+  epoch: 946684800

@@ -1,0 +1,23 @@
+/* Book navigation and the in-book cover; body chapter typography is separate. */
+nav[role="doc-toc"] > h1 {
+  text-align: center;
+}
+nav[role="doc-toc"] ol {
+  list-style-type: none;
+}
+nav[role="doc-toc"] > ol {
+  padding-inline-start: 0;
+}
+.cover-document body,
+.cover-document figure {
+  margin: 0;
+  padding: 0;
+}
+.cover-document img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100vh;
+  margin: 0 auto;
+}

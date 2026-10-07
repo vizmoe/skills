@@ -1,0 +1,22 @@
+FROM node:26.8.1-bookworm-slim@sha256:f105cb6a6b56d32ea0295fcd100e4f06afa29ac51396315497f37eb9dc2b2848 AS node
+FROM mcr.microsoft.com/playwright:v1.63.0-noble@sha256:a0f4498920a5dbac63196d9140ed738ef00470f27e2e74029abd8850b7bd5717
+COPY --from=node /usr/local/ /usr/local/
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV TZ=UTC LANG=C.UTF-8 LC_ALL=C.UTF-8
+WORKDIR /app/tools/quillbind
+RUN npm install --global pnpm@11.25.0 --ignore-scripts --no-audit --no-fund
+COPY tools/quillbind/package.json tools/quillbind/pnpm-lock.yaml tools/quillbind/pnpm-workspace.yaml ./
+COPY tools/quillbind/packages/core/package.json packages/core/package.json
+COPY tools/quillbind/packages/cli/package.json packages/cli/package.json
+RUN pnpm install --frozen-lockfile
+COPY tools/quillbind/scripts/install-tools.mjs tools/quillbind/scripts/install-tools.ts scripts/
+COPY tools/quillbind/packages/core/src/ packages/core/src/
+COPY tools/quillbind/standards/tools.lock.json standards/tools.lock.json
+RUN node scripts/install-tools.mjs
+COPY tools/quillbind/scripts/install-qa-fonts.mjs scripts/
+COPY tools/quillbind/standards/qa-fonts.lock.json standards/qa-fonts.lock.json
+RUN node scripts/install-qa-fonts.mjs /usr/local/share/fonts/quillbind
+COPY tools/quillbind/ ./
+COPY skills/quillbind/ /app/skills/quillbind/
+ENV CI=true QUILLBIND_QA_ENV=linux-arm64-noble-v2
+CMD ["pnpm", "verify"]

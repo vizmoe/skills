@@ -32,6 +32,12 @@ jobs:
               if [ -d playwright-report ]; then cp -R playwright-report /out/; fi
               exit "$status"
             '
+      - name: Make container reports readable by the runner
+        if: always()
+        run: |
+          if [ -d ci-output ]; then
+            sudo chown -R "$(id -u):$(id -g)" ci-output
+          fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:

@@ -1,0 +1,21 @@
+.local/
+.cache/
+.venv/
+node_modules/
+dist/
+coverage/
+test-results/
+playwright-report/
+ci-output/
+__pycache__/
+*.py[cod]
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# Runtime source directories may be excluded by developer-wide ignore files.
+!scripts/
+!scripts/**
+!skills/*/scripts/
+!skills/*/scripts/**

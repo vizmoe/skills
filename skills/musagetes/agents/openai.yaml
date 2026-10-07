@@ -1,0 +1,3 @@
+interface:
+  display_name: "Musagetes 音乐整理"
+  short_description: "按严格规范整理本地音乐、补全发行元数据并安全归档到专辑目录"

@@ -1,0 +1,17 @@
+schemaVersion: 1
+book:
+  title: 山间来信
+  authors: [Quillbind 示例作者]
+  description: 用于验证中文章节、诗行、场景分隔和跨章链接的原创短篇示例。
+  language: zh-Hans
+  publication:
+    isbn: null
+  tags: [Literature.Essays]
+theme: literature
+chapters:
+  - chapters/01-arrival.md
+  - chapters/02-river.md
+build:
+  epoch: 946684800
+  stripImageMetadata: false
+  optimizeImages: true

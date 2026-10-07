@@ -1,0 +1,520 @@
+{
+  "checkedAt": "2026-09-05",
+  "source": "https://registry.npmjs.org/",
+  "packages": [
+    {
+      "name": "zod",
+      "version": "4.5.4",
+      "license": "MIT",
+      "integrity": "sha512-sC95tT5iHHH9gtpj6A81kh+NEaRAUFN+qlUPDUbRfOMvNf5QCBqsb3WgvnpVtK5Y+4UfA6KqufotuTvMGiTlsA==",
+      "publishedAt": "2026-08-29T17:55:42.775Z",
+      "repository": {
+        "url": "git+https://github.com/colinhacks/zod.git",
+        "type": "git"
+      }
+    },
+    {
+      "name": "yaml",
+      "version": "2.9.0",
+      "license": "ISC",
+      "engines": {
+        "node": ">= 14.6"
+      },
+      "integrity": "sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA==",
+      "publishedAt": "2026-05-11T10:16:24.045Z",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/eemeli/yaml.git"
+      }
+    },
+    {
+      "name": "unified",
+      "version": "11.0.5",
+      "license": "MIT",
+      "integrity": "sha512-xKvGhPWw3k84Qjh8bI3ZeJjqnyadK+GEFtazSfZv/rKeTkTjOJho6mFqh2SM96iIcZokxiOpg78GazTSg8+KHA==",
+      "publishedAt": "2024-06-19T12:33:43.464Z",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/unifiedjs/unified.git"
+      }
+    },
+    {
+      "name": "remark-parse",
+      "version": "11.0.0",
+      "license": "MIT",
+      "integrity": "sha512-FCxlKLNGknS5ba/1lmpYijMUzX2esxW5xQqjWxw2eHFfS2MSdaHVINFmhjo+qN1WhZhNimq0dZATN9pH0IDrpA==",
+      "publishedAt": "2023-09-18T09:42:28.170Z",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/remarkjs/remark.git#main"
+      }
+    },
+    {
+      "name": "remark-gfm",
+      "version": "4.0.1",
+      "license": "MIT",
+      "integrity": "sha512-1quofZ2RQ9EWdeN34S79+KExV1764+wCUGop5CPL1WGdD0ocPpu91lzPGbwWMECpEpd42kJGQwzRfyov9j4yNg==",
+      "publishedAt": "2025-02-10T12:43:10.735Z",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/remarkjs/remark-gfm.git"
+      }
+    },
+    {
+      "name": "remark-math",
+      "version": "6.0.0",
+      "license": "MIT",
+      "integrity": "sha512-MMqgnP74Igy+S3WwnhQ7kqGlEerTETXMvJhrUzDikVZ2/uogJCb+WHUg97hK9/jcfc0dkD73s3LN8zU49cTEtA==",
+      "publishedAt": "2023-09-19T11:38:59.221Z",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/remarkjs/remark-math.git#main"
+      }
+    },
+    {
+      "name": "remark-directive",
+      "version": "4.0.0",
+      "license": "MIT",
+      "integrity": "sha512-7sxn4RfF1o3izevPV1DheyGDD6X4c9hrGpfdUpm7uC++dqrnJxIZVkk7CoKqcLm0VUMAuOol7Mno3m6g8cfMuA==",
+      "publishedAt": "2025-02-27T15:15:20.630Z",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/remarkjs/remark-directive.git"
+      }
+    },
+    {
+      "name": "mdast-util-to-string",
+      "version": "4.0.0",
+      "license": "MIT",
+      "integrity": "sha512-0H44vDimn51F0YwvxSJSm0eCDOJTRlmN0R1yBh4HLj9wiV1Dn0QoXGbvFAWj2hSItVTlCmBF1hqKlIyUBVFLPg==",
+      "publishedAt": "2023-07-07T16:19:50.488Z",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/syntax-tree/mdast-util-to-string.git"
+      }
+    },
+    {
+      "name": "saxes",
+      "version": "6.0.0",
+      "license": "ISC",
+      "engines": {
+        "node": ">=v12.22.7"
+      },
+      "integrity": "sha512-xAg7SOnEhrm5zI3puOOKyy1OMcMlIJZYNJY7xLBwSze0UjhPLnWfj2GF2EpT0jmzaJKIWKHLsaSSajf35bcYnA==",
+      "publishedAt": "2021-11-07T19:06:31.264Z",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/lddubeau/saxes.git"
+      }
+    },
+    {
+      "name": "@xmldom/xmldom",
+      "version": "0.9.12",
+      "license": "MIT",
+      "engines": {
+        "node": ">=14.6"
+      },
+      "integrity": "sha512-5AXjrcMClTryPe9LgZrygpB1lj7s0S9E0+W+AHaVKAVyHanafK86iPSvG5xHVSp/jC+VH1UXu0TAEmY279xH7A==",
+      "publishedAt": "2026-08-21T22:32:42.389Z",
+      "repository": {
+        "url": "git://github.com/xmldom/xmldom.git",
+        "type": "git"
+      }
+    },
+    {
+      "name": "postcss",
+      "version": "8.5.28",
+      "license": "MIT",
+      "engines": {
+        "node": "^10 || ^12 || >=14"
+      },
+      "integrity": "sha512-RRuzqDtt5Y9h3quz5hWhK+TPnsmVs6WwSU6LkJMeY4HstUEDuYTG8UJSdawMRzmzAtV+KEoG8N3Qg2qLy5vM/A==",
+      "publishedAt": "2026-09-03T15:13:59.819Z",
+      "repository": {
+        "url": "git+https://github.com/postcss/postcss.git",
+        "type": "git"
+      }
+    },
+    {
+      "name": "postcss-value-parser",
+      "version": "4.2.0",
+      "license": "MIT",
+      "integrity": "sha512-1NNCs6uurfkVbeXG4S8JFT9t19m45ICnif8zWLd5oPSZ50QnwMfK+H3jv408d4jw/7Bttv5axS5IiHoLaVNHeQ==",
+      "publishedAt": "2021-11-29T11:32:56.985Z",
+      "repository": {
+        "url": "git+https://github.com/TrySound/postcss-value-parser.git",
+        "type": "git"
+      }
+    },
+    {
+      "name": "postcss-selector-parser",
+      "version": "7.1.6",
+      "license": "MIT",
+      "engines": {
+        "node": ">=4"
+      },
+      "integrity": "sha512-7qASPzhKF2l2KLboRZux8CCTRMdGiV08vWmyKzPz22qZ7ZjQBOeY7rNzNoCLSUiftJ7HUq0GERHmxw/t0dCdMw==",
+      "publishedAt": "2026-09-03T08:59:01.963Z",
+      "repository": {
+        "url": "git+https://github.com/postcss/postcss-selector-parser.git",
+        "type": "git"
+      }
+    },
+    {
+      "name": "sharp",
+      "version": "0.35.4",
+      "license": "Apache-2.0",
+      "engines": {
+        "node": ">=20.9.0"
+      },
+      "integrity": "sha512-n++8XWcj+jCOr2IOl7h8LbKnGBDY4aPbmprMONBNFdn0ImXqpGVv5zliDs0V9HbmbCQLpbuo2ej9rAoOQTvMDA==",
+      "publishedAt": "2026-08-26T09:42:27.903Z",
+      "repository": {
+        "url": "git+https://github.com/lovell/sharp.git",
+        "type": "git"
+      }
+    },
+    {
+      "name": "shiki",
+      "version": "4.4.3",
+      "license": "MIT",
+      "engines": {
+        "node": ">=20"
+      },
+      "integrity": "sha512-Mb/GvXPHBAXdgGIcnfU5L3ldpn1XcxrGkPHwqgRx17/I2XRfqlFKk2vGkHWINn1kdXvzJZeuO3is6I9KLPFm0g==",
+      "publishedAt": "2026-08-10T04:57:41.135Z",
+      "repository": {
+        "url": "git+https://github.com/shikijs/shiki.git",
+        "type": "git",
+        "directory": "packages/shiki"
+      }
+    },
+    {
+      "name": "@mathjax/src",
+      "version": "4.1.3",
+      "license": "Apache-2.0",
+      "integrity": "sha512-rIrWquuBSoJuoMBdC/1qD+AUHTorlccPicoVy6P2xbUgnuDBpCcpbHtOAsB8L3hdCHtNBg92lF8e3Fz+pkcQbw==",
+      "publishedAt": "2026-07-03T13:30:47.047Z",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/mathjax/Mathjax-src.git"
+      }
+    },
+    {
+      "name": "@daisy/ace",
+      "version": "1.4.6",
+      "license": "MIT",
+      "engines": {
+        "node": ">=20.0.0",
+        "yarn": "^1.22.0",
+        "npm": ">=10.0.0"
+      },
+      "integrity": "sha512-OrhSMV+cUPJTMb3L+lc8CmUqfVzKkIQWI0wezr7D5qC0IhogWglG+/XrajS2P0UXsMlc/XVEaJmWWczApDc8lA==",
+      "publishedAt": "2026-04-24T17:34:27.666Z",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/daisy/ace.git",
+        "directory": "packages/ace"
+      }
+    },
+    {
+      "name": "@playwright/test",
+      "version": "1.63.0",
+      "license": "Apache-2.0",
+      "engines": {
+        "node": ">=20"
+      },
+      "integrity": "sha512-oxMK4vllB9RK5NQ2l1pq1IfOf2AvnEuj/vYGDj0H2nMtmtZpKtCwt/l00GEO6xjGfpBNAvjovvYdCm50dRQkpQ==",
+      "publishedAt": "2026-09-04T22:44:00.304Z",
+      "repository": {
+        "url": "git+https://github.com/microsoft/playwright.git",
+        "type": "git"
+      }
+    },
+    {
+      "name": "@axe-core/playwright",
+      "version": "4.13.0",
+      "license": "MPL-2.0",
+      "integrity": "sha512-6YLx+kxXu5GJceG4ozFg+33a2EMTdjYwWGloJ3sb9Kta5pp+ZNS53uxGVog5JetIY8s++P5UrtX+cri+u0VAVg==",
+      "publishedAt": "2026-08-11T17:07:40.763Z",
+      "repository": {
+        "url": "git+https://github.com/dequelabs/axe-core-npm.git",
+        "type": "git"
+      }
+    },
+    {
+      "name": "vitest",
+      "version": "5.0.0",
+      "license": "MIT",
+      "engines": {
+        "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
+      },
+      "integrity": "sha512-gpsMNoRhMjMktVxPtstOH4/PJuPyovVaMDr4oDilXaGH1EcqM2OE96SoHT2VIQ6fTGtTjqmHDrEu2X9RQiXf8Q==",
+      "publishedAt": "2026-09-03T12:24:30.312Z",
+      "repository": {
+        "url": "git+https://github.com/vitest-dev/vitest.git",
+        "type": "git",
+        "directory": "packages/vitest"
+      }
+    },
+    {
+      "name": "fast-check",
+      "version": "4.9.0",
+      "license": "MIT",
+      "engines": {
+        "node": ">=12.17.0"
+      },
+      "integrity": "sha512-7ms6T7SybUev/PQITciI0yLM2pOSFy5zpG8Ty7tQofcVaQUvrMXp6CBwqF6fThLCLOrfBtuHAtwq6Yu4XPCllg==",
+      "publishedAt": "2026-07-08T21:33:03.026Z",
+      "repository": {
+        "url": "git+https://github.com/dubzzz/fast-check.git",
+        "type": "git",
+        "directory": "packages/fast-check"
+      }
+    },
+    {
+      "name": "prettier",
+      "version": "3.9.6",
+      "license": "MIT",
+      "engines": {
+        "node": ">=14"
+      },
+      "integrity": "sha512-OpN0zzVdiaiAhxpuuj5efpIS4sY9j7bY6uR5mnj5yPzGkdkjNKSJeUThPb60Jw29QuAZgA4o+/iB49kFiaBX6g==",
+      "publishedAt": "2026-07-21T05:51:53.987Z",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/prettier/prettier.git"
+      }
+    },
+    {
+      "name": "typescript",
+      "version": "7.0.2",
+      "license": "Apache-2.0",
+      "engines": {
+        "node": ">=16.20.0"
+      },
+      "integrity": "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==",
+      "publishedAt": "2026-07-08T15:55:18.431Z",
+      "repository": {
+        "url": "git+https://github.com/microsoft/TypeScript.git",
+        "type": "git"
+      }
+    },
+    {
+      "name": "tsx",
+      "version": "4.23.13",
+      "license": "MIT",
+      "engines": {
+        "node": ">=18.0.0"
+      },
+      "integrity": "sha512-BL5MGkRln6aDYhb0xbQlEAGw743BaZYWdbWtdJOBriYJboKgUUYCadFp2/FpBBZquBC/ezNBn7wMMPx7FDZUDw==",
+      "publishedAt": "2026-08-30T00:46:16.265Z",
+      "repository": {
+        "url": "git+https://github.com/privatenumber/tsx.git",
+        "type": "git"
+      }
+    },
+    {
+      "name": "@types/node",
+      "version": "26.4.1",
+      "license": "MIT",
+      "integrity": "sha512-k97ENvZWtvA6yqz5/FS6a7duDgOPEeOQOc2iKS/nY6mX6qJUKtLnWzQS+Xj6tXweyj6ZcTAK2Qecetnvi9nCLA==",
+      "publishedAt": "2026-09-01T20:11:22.146Z",
+      "repository": {
+        "url": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
+        "type": "git",
+        "directory": "types/node"
+      }
+    },
+    {
+      "name": "@types/mdast",
+      "version": "4.0.4",
+      "license": "MIT",
+      "integrity": "sha512-kGaNbPh1k7AFzgpud/gMdvIm5xuECykRR+JnWKQno9TAXVa6WIVCGTPvYGekIDL4uwCZQSYbUxNBSb1aUo79oA==",
+      "publishedAt": "2024-05-14T07:35:37.616Z",
+      "repository": {
+        "url": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
+        "type": "git",
+        "directory": "types/mdast"
+      }
+    },
+    {
+      "name": "pnpm",
+      "version": "11.25.0",
+      "license": "MIT",
+      "engines": {
+        "node": ">=22.13"
+      },
+      "integrity": "sha512-XN6SW08HX3Jetx+64YpC/+eEUkeJ8ZthxzHLhyHsKKruFg4BqNWvT+2ypCzb8wDv4j2zVrDUoXtNY+EfirfJVg==",
+      "publishedAt": "2026-08-29T14:17:49.954Z",
+      "repository": {
+        "url": "git+https://github.com/pnpm/pnpm.git",
+        "type": "git",
+        "directory": "pnpm11/pnpm"
+      }
+    },
+    {
+      "name": "remark-cjk-friendly",
+      "version": "2.3.1",
+      "license": "MIT",
+      "engines": {
+        "node": ">=18"
+      },
+      "integrity": "sha512-f+pKZRxCRwNEGFBKNRAZAqU91GIK1SAo3ZyFHWRUgC9zcxRR0BXKd6YwqgSsxtW0rNpUDtONj7H5nje2WL3fcA==",
+      "publishedAt": "2026-06-18T23:09:54.644Z",
+      "repository": {
+        "url": "git+https://github.com/tats-u/markdown-cjk-friendly.git"
+      }
+    },
+    {
+      "name": "remark-cjk-friendly-gfm-strikethrough",
+      "version": "2.3.1",
+      "license": "MIT",
+      "engines": {
+        "node": ">=18"
+      },
+      "integrity": "sha512-JE3TGgouk/sy92SemNMEUhO5mNP4on04cmzOV3s3R5Dbk160ewmpM4tgPiinKKvoJ5UW2fTu7FOYsjVbusSA9w==",
+      "publishedAt": "2026-06-18T23:09:53.971Z",
+      "repository": {
+        "url": "git+https://github.com/tats-u/markdown-cjk-friendly.git"
+      }
+    },
+    {
+      "name": "github-slugger",
+      "version": "2.0.0",
+      "license": "ISC",
+      "publishedAt": "2022-10-27T16:47:26.485Z",
+      "integrity": "sha512-IaOQ9puYtjrkq7Y0Ygl9KDZnrf/aiUJYUpVf89y8kyaxbRG7Y1SrX/jaumrv81vc61+kiMempujsM3Yw7w5qcw==",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Flet/github-slugger.git"
+      }
+    },
+    {
+      "name": "@eslint/js",
+      "version": "10.0.1",
+      "license": "MIT",
+      "engines": {
+        "node": "^20.19.0 || ^22.13.0 || >=24"
+      },
+      "integrity": "sha512-zeR9k5pd4gxjZ0abRoIaxdc7I3nDktoXZk2qOv9gCNWx3mVwEn32VRhyLaRsDiJjTs0xq/T8mfPtyuXu7GWBcA==",
+      "publishedAt": "2026-02-06T22:34:56.290Z",
+      "repository": {
+        "url": "git+https://github.com/eslint/eslint.git",
+        "type": "git",
+        "directory": "packages/js"
+      },
+      "checkedAt": "2026-09-12"
+    },
+    {
+      "name": "@vitest/coverage-v8",
+      "version": "5.0.0",
+      "license": "MIT",
+      "integrity": "sha512-toMg6PZGCIa/lQNCDoASrfb1ly4hsUKXFtFYC9kD4t78o5Y6LyNJU7AENt8eHPr3quYdxaxK7hj2mnbFfUk9NA==",
+      "publishedAt": "2026-09-03T12:21:54.737Z",
+      "repository": {
+        "url": "git+https://github.com/vitest-dev/vitest.git",
+        "type": "git",
+        "directory": "packages/coverage-v8"
+      },
+      "checkedAt": "2026-09-12"
+    },
+    {
+      "name": "eslint",
+      "version": "10.10.0",
+      "license": "MIT",
+      "engines": {
+        "node": "^20.19.0 || ^22.13.0 || >=24"
+      },
+      "integrity": "sha512-NPXn6r5zl4uET1DAVPaOwzX3rut4c0wcmw3dWJAfOsTM5+TogXo0DDjz8pwm/hL8cyVNpHqeK4JpN0NjnyFFNw==",
+      "publishedAt": "2026-09-04T14:34:21.799Z",
+      "repository": {
+        "url": "git+https://github.com/eslint/eslint.git",
+        "type": "git"
+      },
+      "checkedAt": "2026-09-12"
+    },
+    {
+      "name": "globals",
+      "version": "17.12.0",
+      "license": "MIT",
+      "engines": {
+        "node": ">=18"
+      },
+      "integrity": "sha512-cezEd/DTyyht9cvSSURyygXPfy04GtWO/5e6ZPvH7fCtjKz9PYOmuawphw1Ctd1f6C+5JypXfGD7ahNMXvevBA==",
+      "publishedAt": "2026-09-01T11:00:43.545Z",
+      "repository": {
+        "url": "git+https://github.com/sindresorhus/globals.git",
+        "type": "git"
+      },
+      "checkedAt": "2026-09-12"
+    },
+    {
+      "name": "@typescript/typescript6",
+      "version": "6.0.2",
+      "license": "Apache-2.0",
+      "integrity": "sha512-mbCddXd+jm7hfx7w2YU64/Av4/NqqeG3GoRZgxPcgoTxYjhrcfJRw9ULch71SS4G+Q3bOXFhRvPqjguN0Hyp5w==",
+      "publishedAt": "2026-07-06T18:06:47.459Z",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/microsoft/TypeScript.git"
+      },
+      "checkedAt": "2026-09-12"
+    },
+    {
+      "name": "typescript-eslint",
+      "version": "8.70.0",
+      "license": "MIT",
+      "engines": {
+        "node": "^18.18.0 || ^20.9.0 || >=21.1.0"
+      },
+      "integrity": "sha512-P/W5cz70/cQAuKfY3xwQMWWTV7BvJ0mAQmi+9mBcsVPaBUpd6Ohpa+fECv9rBFrQcig86jAiNBFNWUqnTjr4pw==",
+      "publishedAt": "2026-09-07T18:18:09.654Z",
+      "repository": {
+        "url": "https://github.com/typescript-eslint/typescript-eslint.git",
+        "type": "git",
+        "directory": "packages/typescript-eslint"
+      },
+      "checkedAt": "2026-09-12"
+    },
+    {
+      "name": "cheerio",
+      "version": "1.2.0",
+      "license": "MIT",
+      "engines": {
+        "node": ">=20.18.1"
+      },
+      "integrity": "sha512-WDrybc/gKFpTYQutKIK6UvfcuxijIZfMfXaYm8NMsPQxSYvf+13fXUJ4rztGGbJcBQ/GF55gvrZ0Bc0bj/mqvg==",
+      "publishedAt": "2026-01-23T16:29:49.559Z",
+      "repository": {
+        "url": "git://github.com/cheeriojs/cheerio.git",
+        "type": "git"
+      },
+      "checkedAt": "2026-09-12"
+    },
+    {
+      "name": "devalue",
+      "version": "5.9.2",
+      "license": "MIT",
+      "integrity": "sha512-po4PAY5c53tw5XMocSnf8A/5OHhbbUftpr93aEN6BBoAdntUmK7vu7wOATqvt7cXO7m1Cl4gMVn6p7n6n4mj0w==",
+      "publishedAt": "2026-08-27T14:16:15.893Z",
+      "repository": {
+        "url": "git+https://github.com/sveltejs/devalue.git",
+        "type": "git"
+      },
+      "checkedAt": "2026-09-12"
+    },
+    {
+      "name": "@microsoft/signalr",
+      "version": "10.0.11",
+      "license": "MIT",
+      "integrity": "sha512-FulOJ2EEtKvLQcswe/U7v8pzyXyk7Jua5xgWJPPwyQU/2Z9ORvKcVjyO75VvLsem+CJ1ORRexJ+7Bz1FCei2aw==",
+      "publishedAt": "2026-08-04T05:00:19.745Z",
+      "repository": {
+        "url": "git+https://github.com/dotnet/aspnetcore.git",
+        "type": "git"
+      },
+      "checkedAt": "2026-09-12"
+    }
+  ]
+}

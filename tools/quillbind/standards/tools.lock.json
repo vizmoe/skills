@@ -1,0 +1,45 @@
+{
+  "checkedAt": "2026-09-05",
+  "node": "26.8.1",
+  "pnpm": "11.25.0",
+  "epubcheck": {
+    "version": "5.3.0",
+    "url": "https://github.com/w3c/epubcheck/releases/download/v5.3.0/epubcheck-5.3.0.zip",
+    "sha256": "6c07e68584b2e2ce2f89fe06e1246dfead3eb36b46b340e7d93524f29dcff6c5",
+    "source": "https://github.com/w3c/epubcheck/releases/tag/v5.3.0"
+  },
+  "ace": "1.4.6",
+  "playwright": "1.63.0",
+  "java": {
+    "version": "26.0.2.1",
+    "release": "jdk-26.0.2.1+1",
+    "source": "https://github.com/adoptium/temurin26-binaries/releases/tag/jdk-26.0.2.1%2B1",
+    "targets": {
+      "darwin-arm64": {
+        "url": "https://github.com/adoptium/temurin26-binaries/releases/download/jdk-26.0.2.1%2B1/OpenJDK26U-jre_aarch64_mac_hotspot_26.0.2.1_1.tar.gz",
+        "sha256": "63a94b3ba05308063536d60cb0f9bc847900a300fc53630c86eea3efa79313a4",
+        "executable": "jdk-26.0.2.1+1-jre/Contents/Home/bin/java"
+      },
+      "darwin-x64": {
+        "url": "https://github.com/adoptium/temurin26-binaries/releases/download/jdk-26.0.2.1%2B1/OpenJDK26U-jre_x64_mac_hotspot_26.0.2.1_1.tar.gz",
+        "sha256": "e69241d54f689e4ac51a6c6d50f91f21cf7672363160a94f322ed7e889e27bd5",
+        "executable": "jdk-26.0.2.1+1-jre/Contents/Home/bin/java"
+      },
+      "linux-arm64": {
+        "url": "https://github.com/adoptium/temurin26-binaries/releases/download/jdk-26.0.2.1%2B1/OpenJDK26U-jre_aarch64_linux_hotspot_26.0.2.1_1.tar.gz",
+        "sha256": "9e1527681ae4a615044c88435d2c1a9faf1fd5c7baaf9514a4a4207608150087",
+        "executable": "jdk-26.0.2.1+1-jre/bin/java"
+      },
+      "linux-x64": {
+        "url": "https://github.com/adoptium/temurin26-binaries/releases/download/jdk-26.0.2.1%2B1/OpenJDK26U-jre_x64_linux_hotspot_26.0.2.1_1.tar.gz",
+        "sha256": "35773116829554fb38e6acf9b92b3ba8bb7856557c3ab885e26e7d61e8c8e1b0",
+        "executable": "jdk-26.0.2.1+1-jre/bin/java"
+      }
+    }
+  },
+  "python": "3.14.7",
+  "nodeDarwinArm64": {
+    "url": "https://nodejs.org/dist/v26.8.1/node-v26.8.1-darwin-arm64.tar.gz",
+    "sha256": "6e577fd0d9db776db82306629e441a9dace416702622aebdd171c9dfaa41f4d2"
+  }
+}

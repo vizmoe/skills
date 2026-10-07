@@ -1,0 +1,26 @@
+{
+  "browser": "153.0.8010.12",
+  "environment": "linux-arm64-noble-v2",
+  "qaFontHash": "f3c0940b3d21af800756777bced045986cbf5bf81f280b421e6e41b3b18186b0",
+  "reviewCriteria": [
+    "literature chapter opening has no indentation",
+    "CJK glyphs and punctuation render",
+    "quotation has a visible border and no body first-line indent",
+    "technical listing retains indentation",
+    "table is legible and semantically captioned",
+    "inline and display math render",
+    "notes retain visible backlinks"
+  ],
+  "status": "approved-reference",
+  "themeHashes": {
+    "literature": "007b38fb7e0328f5cb6be06684255ecc49b61b6e7681fb58b44b0d83bb1714d3",
+    "technical": "70fded61500cb1609f679feadedf5af2f3a582d31032e783581becbe906deeb5"
+  },
+  "reviewedAt": "2026-09-05",
+  "reviewedBy": "Codex visual inspection",
+  "reviewNote": "Inspected pinned-container candidates and the expected/actual/diff images. Only the literature paragraph immediately after the quotation moves from zero to two-em first-line indentation; its text, quote border and padding, chapter opening and thematic-break opening remain intact. The technical reference is byte-identical. Inspected the dark enlarged multi-paragraph quote fixture: soft/hard line breaks and nested quote paragraphs retain zero first-line indentation, while both following body paragraphs use the normal theme indent. Browser regressions cover both themes, blog import, LTR/RTL/vertical writing and reader font/color changes. QA fonts remain container-only.",
+  "imageSha256": {
+    "literature": "3fbcd8cd6dfd342737a4408084cc0c24127110aedb2c953e49b87efd91edc52b",
+    "technical": "08d225a8d57a92c130c2c6ab8def55534bc909c8284c081cae4e923c17c8e7d8"
+  }
+}

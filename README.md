@@ -7,6 +7,7 @@
 ```sh
 npx skills add vizmoe/skills --list
 npx skills add vizmoe/skills --skill musagetes
+npx skills add vizmoe/skills --skill quillbind
 npx skills update
 ```
 
@@ -15,10 +16,13 @@ npx skills update
 | Skill | 用途 | 运行条件 |
 | --- | --- | --- |
 | [musagetes](skills/musagetes/SKILL.md) | 本地音乐整理、发行匹配、标签与封面检查、CUE 分轨 | [使用与依赖](docs/musagetes.md) |
+| [quillbind](skills/quillbind/SKILL.md) | Markdown／轻小说转 EPUB、EPUB 审计修复与繁简转换 | [Node 工作区配置](skills/quillbind/references/environment.md) |
+
+Quillbind 安装后还需配置本仓库的 `tools/quillbind` 运行环境，并将 `QUILLBIND_ROOT` 指向该目录；详细步骤见上表。技能安装不会自动安装出版工具。
 
 ## 维护
 
-`skills/` 只存放安装所需资源；`tests/`、`scripts/`、`docs/` 分别存放开发测试、目录校验和使用说明。发布源是本仓库的默认分支。合并更新后，用户通过 skills CLI 安装或更新；skills.sh 目录根据安装遥测发现技能，出现时间由该服务决定，见[官方说明](https://skills.sh/docs/faq)。
+`skills/` 只存放安装所需资源；`tests/`、`scripts/`、`docs/` 分别存放目录测试、校验和使用说明。`tools/quillbind/` 保留 EPUB 工具及其开发测试，验证流程见[开发说明](tools/quillbind/docs/development.md)。发布源是本仓库的默认分支。合并更新后，用户通过 skills CLI 安装或更新；skills.sh 目录根据安装遥测发现技能，出现时间由该服务决定，见[官方说明](https://skills.sh/docs/faq)。
 
 ```sh
 python3 -m venv .venv

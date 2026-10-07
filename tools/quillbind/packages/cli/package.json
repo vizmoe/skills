@@ -1,0 +1,12 @@
+{
+  "name": "@quillbind/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "quillbind": "../../bin/quillbind.mjs"
+  },
+  "dependencies": {
+    "@quillbind/core": "workspace:*"
+  }
+}

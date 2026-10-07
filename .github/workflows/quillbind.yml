@@ -1,0 +1,40 @@
+name: Publication gates
+on:
+  push:
+    branches: [main]
+    paths: ['tools/quillbind/**', 'skills/quillbind/**', '.dockerignore', '.github/workflows/quillbind.yml']
+  pull_request:
+    paths: ['tools/quillbind/**', 'skills/quillbind/**', '.dockerignore', '.github/workflows/quillbind.yml']
+permissions:
+  contents: read
+concurrency:
+  group: quillbind-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  publication:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build pinned tool environment
+        run: docker build --platform linux/arm64 -f tools/quillbind/Dockerfile.qa -t quillbind-qa:ci .
+      - name: Run all publication and regression gates offline
+        run: |
+          mkdir -p ci-output
+          docker run --rm --platform linux/arm64 --network none --shm-size=1g \
+            --mount type=bind,source="$PWD/ci-output",target=/out \
+            quillbind-qa:ci sh -c '
+              status=0
+              pnpm typecheck && pnpm lint && pnpm test:coverage && pnpm build && pnpm verify && pnpm qa:fixtures && pnpm test:visual && pnpm skill:eval || status=$?
+              cp -R examples /out/
+              if [ -d dist ]; then cp -R dist /out/; fi
+              if [ -d test-results ]; then cp -R test-results /out/; fi
+              if [ -d playwright-report ]; then cp -R playwright-report /out/; fi
+              exit "$status"
+            '
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: publication-reports
+          path: ci-output/
+          retention-days: 14

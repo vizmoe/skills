@@ -19,6 +19,11 @@ class ResourceTests(unittest.TestCase):
     def test_valid_resources(self):
         validate_resources(self.root)
 
+    def test_markdown_link_examples_inside_code_are_literal(self):
+        with (self.root / "SKILL.md").open("a") as source:
+            source.write("Use `[1](#fn1)` only with an existing target.\n\n```md\n[example](missing.md)\n```\n")
+        validate_resources(self.root)
+
     def test_missing_reference(self):
         (self.root / "references/rules.md").unlink()
         with self.assertRaisesRegex(ValueError, "Missing"):

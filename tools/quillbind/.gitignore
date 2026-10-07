@@ -1,0 +1,17 @@
+node_modules/
+.cache/
+dist/
+coverage/
+test-results/
+playwright-report/
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+!/packages/
+!/packages/**/
+!/packages/**/*.ts
+!/packages/**/package.json
+/packages/**/node_modules/
+ci-output/

@@ -1,0 +1,84 @@
+# Blog Markdown, chapter Properties and footnotes
+
+Use `markdown.profile: blog` to import ordinary Astro-style `.md` chapters. This profile reads source Markdown; it does not run a website, layout, component or plugin. Source files stay unchanged. Chapter order is always the explicit `chapters` list in `book.yaml`.
+
+```yaml
+markdown:
+  profile: blog
+  chapterMetadata:
+    fields: [author, date, source]
+    display: byline
+```
+
+The default profile remains `quillbind`, preserving its stable chapter IDs, required H1 and book-root Markdown image paths. The Properties whitelist and footnote behavior below apply to both profiles.
+
+## Selected Properties
+
+Only YAML frontmatter between `---` delimiters at the start of a chapter is metadata. A fenced YAML example or a list of `key: value` lines in the body remains book content. Do not infer metadata by deleting such text.
+
+```markdown
+---
+title: 了解林迪，寻找林迪，成为林迪
+lang: zh-Hans
+author: Atlas Geographica
+date: "2023-10-29"
+source: https://read.pmthinking.com/p/67
+---
+
+正文从这里开始。
+```
+
+| Allowed field             | Import behavior                                                                                                                                                                 |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `title`                   | Required chapter title. Blog mode inserts an H1 in memory if the body has none; an existing H1 must match.                                                                      |
+| `id`                      | Optional in blog mode, otherwise required. An omitted blog ID is a deterministic hash of its relative source path. Supply an explicit ID to keep it stable across file renames. |
+| `lang`                    | Chapter language, falling back to the book language. Chinese uses `zh-Hans` or `zh-Hant`.                                                                                       |
+| `author`, alias `authors` | A non-empty string or non-empty list of non-empty strings. Objects are not interpreted as author records.                                                                       |
+| `date`, alias `pubDate`   | A non-empty string, preserved in chapter head metadata. Recognized calendar dates display as `YYYY-MM-DD` with a semantic `<time datetime>` element.                            |
+| `source`                  | Absolute HTTPS URL without credentials. A quoted Markdown link string is also accepted and reduced to its destination URL.                                                      |
+
+The fixed optional whitelist is `author`, `date`, `source`; `fields` may narrow it but cannot add arbitrary keys. Aliases map into their canonical field, so selecting `author` also selects `authors`. Conflicting values for a field and its alias fail preflight. Non-whitelisted or unselected properties are neither validated as publication fields nor retained in EPUBs, preflight documents or build reports. YAML syntax still must be valid. Invalid selected values produce a field-specific error without dumping the original Properties mapping.
+
+Properties such as `layout`, `draft`, `tags`, `description`, `heroImage`, `slug` and custom/private data do not become chapter metadata, images or build instructions. `draft` does not silently alter the chapter list. Original source files retain their full Properties; publication output contains only selected fields. This rule does not remove text deliberately included in the body.
+
+By default, selected author and date appear beneath the H1 as `Atlas Geographica · 2023-10-29`, without field labels, icons or a separate source label. A selected `source` makes the chapter's body H1 link to the original article, whether or not a date exists. The table of contents keeps its internal chapter links. Title formatting and note links remain intact. Missing author/date fields and their separators are omitted; a source-only chapter has no empty byline. The byline uses relative sizing and inherits reader font and colors. Selected fields are also stored as chapter XHTML head metadata and never replace the book's author, date, title, identifier or description in the package document.
+
+Use `YYYY-MM-DD` for dates. The display formatter also accepts year-first numeric dates with hyphens or slashes, Chinese `YYYY 年 M 月 D 日`, English month-first dates such as `May 15, 2025` or `Jul 08 2022`, and ISO timestamps. It pads month/day and retains the timestamp's written calendar date without timezone conversion. Invalid dates and ambiguous strings such as `05/06/2025` remain in head metadata but are omitted from the visible byline; supply an unambiguous date to display them. Original Markdown and the supplied metadata string stay unchanged.
+
+Use `display: hidden` to retain the selected fields only in the chapter head, without a generated byline or title source link, for example when an exported article already has an author line in its body. Use `fields: []` to omit all optional chapter metadata. Quillbind does not remove an existing body byline automatically.
+
+`source: [https://example.org](https://example.org)` is invalid unquoted YAML. Prefer `source: https://example.org`, or quote the entire string: `source: "[原文](https://example.org)"`. URLs are preserved as links; importing them does not fetch their pages.
+
+## Footnotes and navigation
+
+[Astro's Markdown documentation](https://docs.astro.build/en/guides/markdown-content/) describes footnotes and GitHub-style heading IDs. Current Astro supports both Sätteri and Unified processors; this importer consumes their common Markdown conventions, not either processor's full output. [Hugo/Goldmark](https://gohugo.io/configuration/markup/) and the [Python-Markdown footnotes extension](https://python-markdown.github.io/extensions/footnotes/) also use named Markdown footnotes. Their optional extensions, label matching and ordering rules can differ.
+
+```markdown
+第一处说明[^lindy]，后文再次引用[^lindy]。
+
+[本章结论](#结论) · [下一篇文章](02-next.md#结论)
+
+## 结论
+
+正文。
+
+[^lindy]: 注释可以包含 **强调**、`代码`和[来源](https://example.org)。
+
+    空行之后缩进四个空格，继续同一脚注的第二段。
+
+    - 也可以包含列表。
+```
+
+Notes are numbered by first use within each chapter. Labels may be words, numbers or Chinese text; the parser normalizes label case. Repeated references share one note but have separate return destinations. The same label in different chapters stays independent. Definitions, reference links and fenced blocks must be complete within their chapter; undefined notes and duplicate definitions fail. Escaped markers and code stay literal.
+
+Blog headings use the pinned [github-slugger](https://github.com/Flet/github-slugger), as Astro's heading collector does. This preserves punctuation handling, CJK anchors and repeated suffixes such as `hello-world-1`. Formatting contributes its visible text. An H1 supplied from the frontmatter does not consume the body's slug sequence. Explicit `{#id}` anchors are supported; duplicate or colliding IDs fail validation. Both Unicode and percent-encoded fragments resolve across chapter-relative `.md` links.
+
+Ordinary Markdown images in blog mode resolve relative to their chapter. Copy linked assets into the book source tree and keep descriptive alt text. Quillbind figure directives and declared fonts remain relative to the book root. Website routes, remote images and Astro `/public` paths are not resolved as a live site.
+
+Generated notes use `epub:type="noteref"`, `epub:type="footnote"`, DPUB-ARIA roles and return links. This follows [Apple's pop-up footnote markup](https://help.apple.com/itc/booksassetguide/en.lproj/itccf8ecf5c8.html) and [Kindle's bidirectional hyperlink guidance](https://kdp.amazon.com/en_US/help/topic/GQ6JQ7FM6C72HE4X). Apple documents that `aside` notes can be hidden from normal flow and shown as pop-ups. Other reading systems can show the notes at the end of the chapter. Popup behavior is a reader feature; browser tests establish working navigation, not native vendor behavior.
+
+HTML-to-Markdown exports that preserve `[^label]` and its definition can use this path. Plain `[1](#fn1)` is an ordinary link and needs a real target; superscript numbers, missing definitions or stripped HTML anchors cannot be reconstructed reliably. Raw HTML footnote blocks, MDX/JSX, executable Astro layouts, TOML frontmatter and site-specific plugins are outside this importer. Tables still need Quillbind captions, and task-list checkboxes remain unsupported. See [Markdown coverage](markdown.md).
+
+`tests/blog-markdown.test.ts` verifies source-to-EPUB behavior and the whitelist boundary. `tests/visual/blog.spec.ts` clicks every repeated reference and its corresponding return link, verifies cross-chapter targets, and checks the byline with reader font, size and color changes. The blog fixture also passes through the complete publication gates.
+
+Sources checked: 2026-09-05. Import selection and byline design are Quillbind policy, not Apple or Kindle metadata requirements.

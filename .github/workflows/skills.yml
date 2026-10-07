@@ -1,0 +1,24 @@
+name: Skills
+on:
+  push:
+    branches: [main]
+    paths: ['skills/**', 'tests/**', 'scripts/**', 'requirements-skill.txt', '.github/workflows/skills.yml']
+  pull_request:
+    paths: ['skills/**', 'tests/**', 'scripts/**', 'requirements-skill.txt', '.github/workflows/skills.yml']
+permissions:
+  contents: read
+jobs:
+  catalog:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install official validator
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -r requirements-skill.txt
+      - name: Validate skill format and bundled resources
+        run: python3 -B scripts/validate_skills.py
+      - name: Exercise validation and real skills CLI installation
+        run: python3 -B -m unittest discover -s tests -v
+      - name: Verify music library helpers
+        run: python3 -B -m unittest discover -s tests/musagetes -v

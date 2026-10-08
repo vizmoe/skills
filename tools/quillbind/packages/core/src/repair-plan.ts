@@ -10,8 +10,9 @@ import { validLanguage } from "./config.js";
 import { missingFontFaces, missingFontSources } from "./repair-fonts.js";
 import { repairableCss } from "./repair-css.js";
 import { readingReflowNeeded } from "./repair-reflow.js";
+import { inspectNotes } from "./epub-notes.js";
 
-export const REPAIR_RULE_VERSION = "1.2.0";
+export const REPAIR_RULE_VERSION = "1.3.0";
 
 export interface RepairAction {
   ruleId: string;
@@ -53,6 +54,9 @@ export function planFromBytes(
 ): RepairPlan {
   const info = input instanceof Uint8Array ? inspectBytes(input) : input;
   const actions: RepairAction[] = [];
+  const preserveNotes =
+    purpose === "reading" &&
+    inspectNotes(info).kind === "scripted-note-candidate";
   const add = (
     ruleId: string,
     classification: RepairAction["classification"],
@@ -70,10 +74,27 @@ export function planFromBytes(
       ["navigation", "package-language"].includes(ruleId)
     )
       return;
+    if (
+      preserveNotes &&
+      classification === "safe" &&
+      !["ocf-packaging", "package-language", "identifier-reference"].includes(
+        ruleId,
+      )
+    ) {
+      classification = "review-required";
+      message += "; scripted-note dependencies remain byte-identical";
+    }
     actions.push({ ruleId, classification, resource, message });
   };
   for (const feature of info.unsupported)
-    add("unsupported-feature", "unsupported", info.packagePath, feature);
+    if (feature === "interactive-content" && preserveNotes)
+      add(
+        "scripted-notes-preserve",
+        "review-required",
+        info.packagePath,
+        "Preserve all content resources; popup behavior requires epub check-notes with explicit script execution",
+      );
+    else add("unsupported-feature", "unsupported", info.packagePath, feature);
   if (purpose === "reading" && readingReflowNeeded(info))
     add(
       "reading-reflow",

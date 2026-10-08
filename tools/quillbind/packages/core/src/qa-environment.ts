@@ -23,6 +23,7 @@ export async function browserPath() {
 }
 export async function serveEpub(
   info: EpubInspection,
+  options: { scriptedNotes?: boolean } = {},
 ): Promise<{ server: Server; origin: string; close: () => Promise<void> }> {
   const server = createServer((request, response) => {
     try {
@@ -41,8 +42,14 @@ export async function serveEpub(
       response.writeHead(200, {
         "Content-Type": type,
         "X-Content-Type-Options": "nosniff",
-        "Content-Security-Policy":
-          "default-src 'none'; img-src 'self'; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'none'",
+        // Fonts/modules in the opaque-origin script sandbox still need CORS
+        // to read packaged resources. No remote resource is proxied here.
+        ...(options.scriptedNotes
+          ? { "Access-Control-Allow-Origin": "null" }
+          : {}),
+        "Content-Security-Policy": options.scriptedNotes
+          ? "sandbox allow-scripts; default-src 'none'; img-src 'self'; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'none'; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+          : "default-src 'none'; img-src 'self'; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'none'",
         "Cache-Control": "no-store",
       });
       response.end(entry.bytes);

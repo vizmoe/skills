@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { noteFixture } from "../tests/note-fixture.js";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -301,6 +302,69 @@ for (const scenario of catalog.scenarios) {
       await assert.rejects(fs.stat(output));
       evidence.push(
         "Unsupported source rejected with a nonzero exit; no output project or conversion claim",
+      );
+    } else if (scenario.id === "scripted-notes") {
+      const source = path.join(root, "scripted.epub"),
+        reports = path.join(root, "notes-reports"),
+        repaired = path.join(root, "reading.epub"),
+        planPath = path.join(root, "reading-plan.json");
+      const bytes = noteFixture();
+      await fs.writeFile(source, bytes);
+      const inspection = await invoke(["epub", "check-notes", source]);
+      assert.equal(inspection.interactions.status, "not-run");
+      assert.equal(inspection.notes.kind, "scripted-note-candidate");
+      const before = await invoke([
+        "epub",
+        "check-notes",
+        source,
+        "--execute-scripts",
+        "--reports",
+        reports,
+      ]);
+      assert.equal(before.status, "pass");
+      assert.equal(before.interactions.cases.length, 2);
+      await invoke([
+        "epub",
+        "repair-plan",
+        source,
+        "--purpose",
+        "reading",
+        "--output",
+        planPath,
+      ]);
+      const copy = await invoke([
+        "epub",
+        "repair-copy",
+        source,
+        "--plan",
+        planPath,
+        "--output",
+        repaired,
+      ]);
+      assert.equal(copy.publicationReady, false);
+      assert.equal(copy.checks.scriptedNotes, "not-run");
+      assert.equal(copy.checks.sampledBrowser, "not-run");
+      const after = await invoke([
+        "epub",
+        "check-notes",
+        repaired,
+        "--execute-scripts",
+        "--reports",
+        reports,
+      ]);
+      assert.equal(after.status, "pass");
+      assert.ok(
+        after.interactions.cases.every((c: any) =>
+          c.checks.includes("focus-returned"),
+        ),
+      );
+      assert.equal(sha256(await fs.readFile(source)), sha256(bytes));
+      await fs.cp(reports, path.join(destination, "scripted-notes/reports"), {
+        recursive: true,
+      });
+      evidence.push(
+        "Static inspection did not execute scripts; actual click/keyboard checks passed before and after reading repair",
+        "Reading-copy summary retained non-publication and unexecuted-script status; source hash unchanged",
       );
     } else if (scenario.id === "release-handoff") {
       await prepare();

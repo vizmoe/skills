@@ -11,6 +11,8 @@
 
 Manga CBZ uses its own [image/archive evidence](manga.md#comicinfo-and-handoff): report the artifact hash, per-page lossless checks, source provenance and JPEG XL reader requirement. It does not claim EPUB conformance or platform publication. The release evidence below applies to EPUB.
 
+[Popup-note checks](notes.md) have separate static and interaction results, source-bound cases, activation modes and screenshots. Static inspection and reading repair do not execute source scripts. Regular browser QA disables those scripts, so its success cannot establish a scripted popup works. Explicit note checks do not replace any release gate or native-reader verification.
+
 A reading copy can satisfy personal use while retaining source conformance or accessibility findings. A preview supplies layout feedback after one render. Neither has a release artifact or `build.json`.
 
 ## Release evidence

@@ -1,10 +1,10 @@
 ---
 name: quillbind
 license: MIT
-description: Maintain metadata directly in EPUB files and CBZ ComicInfo.xml, using the library's controlled English tags, BookWalker for light novels and manga, and publisher sources for other books. Audit tag cleanup, build EPUB 3.3 from Markdown or supported novel websites, inspect and repair EPUBs, split existing EPUB anthologies, check scripted popup notes, convert Chinese scripts, and package manga scans as lossless JPEG XL CBZ. Arbitrary HTML, PDF and LaTeX import are unsupported.
-compatibility: Tag audits need Node.js; file metadata edits use ZIP/XML tools and validators. Publishing needs tools/quillbind from vizmoe/skills with dependencies installed, exposed through QUILLBIND_ROOT or quillbind on PATH. EPUB release checks need Java, EPUBCheck and Chromium; CBZ packaging needs libjxl cjxl and djxl. Setup and online collection/refreshes need network; saved books and locks support offline builds. Calibre database access is not required.
+description: Maintain metadata directly in EPUB files and CBZ ComicInfo.xml, using the library's controlled English tags, BookWalker for light novels and manga, and publisher sources for other books. Plan consistent light-novel series names, audit tag cleanup, build EPUB 3.3 from Markdown or supported novel websites, inspect and repair EPUBs, split existing EPUB anthologies, check scripted popup notes, convert Chinese scripts, and package manga scans as lossless JPEG XL CBZ. Arbitrary HTML, PDF and LaTeX import are unsupported.
+compatibility: Tag audits and naming plans need Node.js; file metadata edits use ZIP/XML tools and validators. Publishing needs tools/quillbind from vizmoe/skills with dependencies installed, exposed through QUILLBIND_ROOT or quillbind on PATH. EPUB release checks need Java, EPUBCheck and Chromium; CBZ packaging needs libjxl cjxl and djxl. Setup and online collection/refreshes need network; saved books and locks support offline builds. Calibre database access is not required.
 metadata:
-  version: "0.1.14"
+  version: "0.1.15"
 ---
 
 # Quillbind
@@ -18,6 +18,7 @@ For tag tasks, use the standalone helper in [tag management](references/tags.md)
 - Existing CBZ `ComicInfo.xml` or EPUB metadata writes → [embedded metadata maintenance](references/embedded-metadata.md), together with tag management for label changes.
 - Remove scores, including custom or zero-value ratings → [rating cleanup](references/embedded-metadata.md#remove-score-metadata-completely), with a reviewed file-bound plan and format validation.
 - Correct Series, remove marketing collections or verify volume order → [story series normalization](references/series.md).
+- Unify light-novel names across main volumes, side stories and extras → [whole-series naming](references/naming.md), with edition-specific official numbering before local insertion labels.
 - Supplement or correct official cover artwork and its display → [cover selection and adoption](references/covers.md).
 - EPUB inventory or diagnosis → [inspection](references/inspection.md).
 - Split an existing local EPUB anthology into independent volumes → [local splitting](references/local-splitting.md).

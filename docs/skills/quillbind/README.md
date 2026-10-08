@@ -8,7 +8,7 @@
 npx skills add vizmoe/skills --skill quillbind
 ```
 
-标签审计工具只依赖 Node.js，可直接从安装目录运行。元数据维护使用文件级 ZIP/XML 工具及相应验证器，无需 Calibre 数据库访问。出版、修复和漫画打包命令依赖本仓库的独立 [Quillbind 运行时](../../../tools/quillbind/README.md)。按[环境配置](../../../skills/quillbind/references/environment.md)准备工具链，并将 `QUILLBIND_ROOT` 指向本地 `tools/quillbind` 的绝对路径。更新时使运行时与技能保持同一 Git 修订，并保留仓库中的 `skills/quillbind` 共享词表及加载器。技能安装本身不会安装出版工具。
+标签审计和命名计划工具只依赖 Node.js，可直接从安装目录运行。元数据维护使用文件级 ZIP/XML 工具及相应验证器，无需 Calibre 数据库访问。出版、修复和漫画打包命令依赖本仓库的独立 [Quillbind 运行时](../../../tools/quillbind/README.md)。按[环境配置](../../../skills/quillbind/references/environment.md)准备工具链，并将 `QUILLBIND_ROOT` 指向本地 `tools/quillbind` 的绝对路径。更新时使运行时与技能保持同一 Git 修订，并保留仓库中的 `skills/quillbind` 共享词表及加载器。技能安装本身不会安装出版工具。
 
 ## 调用
 
@@ -16,6 +16,7 @@ npx skills add vizmoe/skills --skill quillbind
 
 ```text
 $quillbind 按 /absolute/library 的当前受控词表审计所选 EPUB/CBZ 的标签，生成文件修改计划。
+$quillbind 统一所选轻小说系列的正传、外传、短篇集和番外命名，采用目标版本官方编号；确无官方编号时才按首次出版顺序使用本地 .5 排序。
 $quillbind 从出版社官方资料补充 /absolute/path/to/book.epub 的元数据，尽可能补全 ISBN，保留有效值，直接写入 EPUB。
 $quillbind 按书库标签维护所选 CBZ 的 ComicInfo.xml 和 EPUB 内嵌元数据，保留图片、页序、正文和非目标字段，不修改 Calibre 数据库。
 $quillbind 检查 /absolute/path/to/book.epub，报告问题并保留源文件。
@@ -27,6 +28,8 @@ $quillbind 将 /absolute/path/to/volume-01 的漫画扫图制作为 CBZ，使用
 ```
 
 示例路径需替换为实际路径。支持的操作、输入条件和交付检查从技能入口按任务分支查阅；发布 EPUB 前必须完成其规定的全部检查。
+
+[轻小说整系列命名](../../../skills/quillbind/references/naming.md)使用统一主系列名、两位起的阿拉伯编号及原文分册名，优先级为官方统一编号、官方独立子系列编号、本地 `.5` 插入编号。同一位置的多册无编号外传统一用 `.5-01`、`.5-02`；本地编号仅用于文件名和排序。命名工具生成带证据的方案，实际文件操作仍须核对源文件哈希、冲突及元数据验证。所有类型书籍的系列卷次元数据都使用阿拉伯数字，书名原文中的罗马数字等字符保持原样。
 
 标签以书库当前受控词表为准，书库只提供分类依据。审计与出版运行时共用[词表来源及迁移规则](../../../skills/quillbind/references/tags.md)。有当前书库文件时，审计指定 `--vocabulary`，出版命令设置 `QUILLBIND_VOCABULARY`；未知标签保留待核对。审计可使用本次任务分配的整数 ID，并保留 ID 与文件路径、哈希的映射，无需 Calibre 书目 ID。
 

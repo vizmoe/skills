@@ -4,6 +4,8 @@ Use this workflow when Series and reading order are selected, including full lib
 
 ## Decide membership and order
 
+For light-novel title/filename consistency across main volumes and extras, use [whole-series naming](naming.md) as a separately selected operation. Its local insertion labels do not establish official metadata positions.
+
 - Keep a series for works with a connected story. Independent cases can qualify when both a recurring protagonist and the same story world are established.
 - A shared author, publisher imprint, subject, marketing bundle or author omnibus is insufficient. Nonfiction multivolume works do not become Series from their volume count or shared topic.
 - When a marketing bundle contains a genuine story subseries, inspect each book and assign its actual subseries. The bundle's name and bundle position are not the subseries's name and reading position.
@@ -37,7 +39,7 @@ The same commands accept CBZ files. Inspect the original `before` fields and `co
   "position": "1.5",
   "sources": ["book:contents and volume title page"],
   "evidence": ["The inspected volume belongs to this continuing story."],
-  "positionEvidence": "The contents identify this interlude between volumes 1 and 2."
+  "positionEvidence": "The publisher explicitly numbers this selected-edition interlude 1.5."
 }
 ```
 

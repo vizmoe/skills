@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "series": {
+    "name": "某系列",
+    "edition": "Synthetic example edition",
+    "evidence": ["Synthetic family illustrating the user naming policy."]
+  },
+  "coverage": {
+    "mainComplete": true,
+    "extrasComplete": true,
+    "evidence": [
+      "All known main volumes and unnumbered extras included, including reference-only records."
+    ]
+  },
+  "chronology": null,
+  "books": [
+    {
+      "id": "main-06",
+      "edition": "Synthetic example edition",
+      "kind": "main",
+      "originalTitle": "原書名 main-06",
+      "volumeTitle": null,
+      "firstPublished": "2006",
+      "source": {
+        "path": "/synthetic/main-06.epub",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "evidence": [
+        "Synthetic documentation example, not evidence for a real book."
+      ],
+      "official": {
+        "unified": {
+          "number": "6",
+          "evidence": ["Official selected-edition volume."]
+        },
+        "subseries": null,
+        "unavailableEvidence": []
+      }
+    },
+    {
+      "id": "extra-1",
+      "edition": "Synthetic example edition",
+      "kind": "side-story",
+      "originalTitle": "原書名 extra-1",
+      "volumeTitle": "外傳第一卷",
+      "firstPublished": "2007",
+      "source": {
+        "path": "/synthetic/extra-1.epub",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "evidence": [
+        "Synthetic documentation example, not evidence for a real book."
+      ],
+      "official": {
+        "unified": null,
+        "subseries": null,
+        "unavailableEvidence": [
+          "Publisher and book explicitly identify this extra as unnumbered."
+        ]
+      }
+    },
+    {
+      "id": "extra-2",
+      "edition": "Synthetic example edition",
+      "kind": "extra",
+      "originalTitle": "原書名 extra-2",
+      "volumeTitle": "外傳第二卷",
+      "firstPublished": "2008",
+      "source": {
+        "path": "/synthetic/extra-2.epub",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "evidence": [
+        "Synthetic documentation example, not evidence for a real book."
+      ],
+      "official": {
+        "unified": null,
+        "subseries": null,
+        "unavailableEvidence": [
+          "Publisher and book explicitly identify this extra as unnumbered."
+        ]
+      }
+    },
+    {
+      "id": "main-07",
+      "edition": "Synthetic example edition",
+      "kind": "main",
+      "originalTitle": "原書名 main-07",
+      "volumeTitle": null,
+      "firstPublished": "2009",
+      "source": {
+        "path": "/synthetic/main-07.epub",
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "evidence": [
+        "Synthetic documentation example, not evidence for a real book."
+      ],
+      "official": {
+        "unified": {
+          "number": "7",
+          "evidence": ["Official selected-edition volume."]
+        },
+        "subseries": null,
+        "unavailableEvidence": []
+      }
+    }
+  ]
+}

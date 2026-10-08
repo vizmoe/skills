@@ -40,6 +40,16 @@ const steps = {
     "kindle",
     "reproducibility",
   ],
+  enrich: [
+    "environment",
+    "metadata",
+    "conformance",
+    "accessibility",
+    "browser",
+    "apple-books",
+    "kindle",
+    "reproducibility",
+  ],
   convert: [
     "environment",
     "conversion",
@@ -70,7 +80,7 @@ export class ReleaseReporter {
 
   constructor(
     directory: string,
-    readonly operation: "build" | "repair" | "convert",
+    readonly operation: "build" | "repair" | "convert" | "enrich",
     readonly source: string,
     options: { conversion?: boolean } = {},
   ) {

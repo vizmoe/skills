@@ -48,7 +48,7 @@ export { VERSION } from "./runtime.js";
 export const formats = {
   inputs: ["markdown-book", "epub", "novel-url"],
   outputs: ["epub"],
-  epubInputModes: ["audit", "repair", "repair-copy", "convert"],
+  epubInputModes: ["audit", "repair", "repair-copy", "convert", "enrich"],
 } as const;
 
 export {
@@ -62,3 +62,5 @@ export type {
   BookWalkerMetadata,
   BookWalkerSelection,
 } from "./bookwalker.js";
+
+export { enrichEpub, applyBookWalkerMetadata } from "./enrich-epub.js";

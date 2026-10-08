@@ -50,3 +50,15 @@ export const formats = {
   outputs: ["epub"],
   epubInputModes: ["audit", "repair", "repair-copy", "convert"],
 } as const;
+
+export {
+  collectBookWalker,
+  resolveBookWalker,
+  readBookWalkerLock,
+  parseBookWalker,
+} from "./bookwalker.js";
+export type {
+  BookWalkerLock,
+  BookWalkerMetadata,
+  BookWalkerSelection,
+} from "./bookwalker.js";

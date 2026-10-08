@@ -2,7 +2,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { lookup } from "node:dns/promises";
-import { isIP } from "node:net";
+import { isPublicAddress } from "./http-address.js";
+export { isPublicAddress } from "./http-address.js";
+import { readBookWalkerLock, type BookWalkerLock } from "./bookwalker.js";
 import { request } from "node:https";
 import {
   openBook,
@@ -50,35 +52,8 @@ export interface MetadataLock {
   metadata: PublicationMetadata;
   fields: Record<string, FieldState>;
   sources: Candidate[];
+  bookwalkerHash?: string;
 }
-export const isPublicAddress = (address: string) => {
-  if (isIP(address) === 4) {
-    const [a, b, c] = address.split(".").map(Number);
-    return !(
-      a === 0 ||
-      a === 10 ||
-      a === 127 ||
-      a >= 224 ||
-      (a === 169 && b === 254) ||
-      (a === 172 && b >= 16 && b <= 31) ||
-      (a === 192 && b === 168) ||
-      (a === 192 && b === 0 && (c === 0 || c === 2)) ||
-      (a === 192 && b === 88 && c === 99) ||
-      (a === 198 && b === 51 && c === 100) ||
-      (a === 203 && b === 0 && c === 113) ||
-      (a === 100 && b >= 64 && b <= 127) ||
-      (a === 198 && (b === 18 || b === 19))
-    );
-  }
-  if (isIP(address) === 6) {
-    const v = address.toLowerCase();
-    return (
-      /^[23][0-9a-f]{3}:/.test(v) &&
-      !/^(2001:(db8|0:|2:|1[0-9a-f]:|2[0-9a-f]:)|2002:|3fff:)/.test(v)
-    );
-  }
-  return false;
-};
 export async function fetchBibliography(
   url: string,
   signal?: AbortSignal,
@@ -182,6 +157,62 @@ export async function resolveMetadataWithLock(
   const candidates: Candidate[] = [];
   const subjectList = await taxonomy();
   const book = structuredClone(config.book);
+  let bibliography: BookWalkerLock | undefined;
+  let bookwalkerHash: string | undefined;
+  if (config.bookwalker) {
+    const bytes = await safeRead(root, config.bookwalker);
+    bookwalkerHash = sha256(bytes);
+    bibliography = readBookWalkerLock(bytes.toString("utf8"));
+    const selected = bibliography.records.at(-1)!;
+    const offered = {
+      title: bibliography.metadata.title,
+      authors: bibliography.metadata.contributors
+        .filter((item) => item.role === "aut")
+        .map((item) => item.name),
+      description: bibliography.metadata.description,
+      language: bibliography.metadata.language,
+    };
+    for (const field of [
+      "title",
+      "authors",
+      "description",
+      "language",
+    ] as const) {
+      const current = book[field],
+        value = offered[field];
+      const present = Array.isArray(current)
+        ? current.length > 0
+        : !!current.trim();
+      const conflict = present && stable(current) !== stable(value);
+      if (!present) {
+        if (field === "authors") book.authors = offered.authors;
+        else book[field] = offered[field];
+        fields[field] = "resolved";
+      }
+      if (conflict)
+        diagnostics.push(
+          diagnostic(
+            "BOOKWALKER_CONFLICT",
+            `Preserved supplied book.${field}; BookWalker differs`,
+            config.bookwalker,
+            selected.url,
+            "warning",
+          ),
+        );
+      candidates.push({
+        field,
+        candidateValue: value,
+        sourceName: "BookWalker",
+        sourceUrl: selected.url,
+        recordId: bibliography.digest,
+        retrievedAt: selected.retrievedAt,
+        matchEvidence: bibliography.selection.matchEvidence,
+        confidence: 1,
+        conflicts: conflict ? [`book.${field} differs`] : [],
+        approved: !conflict,
+      });
+    }
+  }
   for (const field of [
     "title",
     "authors",
@@ -191,7 +222,7 @@ export async function resolveMetadataWithLock(
   ] as const) {
     const value = book[field];
     fields[field] = (Array.isArray(value) ? value.length > 0 : !!value.trim())
-      ? "supplied"
+      ? (fields[field] ?? "supplied")
       : "missing";
     if (fields[field] === "missing")
       diagnostics.push(
@@ -378,6 +409,7 @@ export async function resolveMetadataWithLock(
     modified: new Date(config.build.epoch * 1000)
       .toISOString()
       .replace(".000Z", "Z"),
+    ...(bibliography ? { bibliography: bibliography.metadata } : {}),
   };
   const lock: MetadataLock = {
     schemaVersion: 1,
@@ -386,12 +418,16 @@ export async function resolveMetadataWithLock(
     metadata,
     fields,
     sources: candidates.filter((c) => c.approved),
+    ...(bookwalkerHash ? { bookwalkerHash } : {}),
   };
   if (!diagnostics.some((d) => d.severity === "error")) {
     const lockFile = path.join(directory, "sources.lock.json");
     if (!options.online && (await exists(lockFile))) {
       const previous = await readJson<MetadataLock>(lockFile);
-      if (previous.configHash === lock.configHash)
+      if (
+        previous.configHash === lock.configHash &&
+        previous.bookwalkerHash === lock.bookwalkerHash
+      )
         lock.sources = previous.sources;
     }
     await json(lockFile, lock);
@@ -413,6 +449,10 @@ export async function lockedMetadata(
   );
   if (
     lock.configHash !== sha256(project.configText + stable(decisions)) ||
+    lock.bookwalkerHash !==
+      (project.config.bookwalker
+        ? sha256(await safeRead(project.root, project.config.bookwalker))
+        : undefined) ||
     lock.taxonomyVersion !== (await taxonomy()).version
   )
     fail(

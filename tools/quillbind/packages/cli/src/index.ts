@@ -3,6 +3,7 @@ import { formatHuman } from "./human.js";
 import { parseArgs } from "node:util";
 import {
   resolveMetadata,
+  resolveBookWalker,
   preflightBook,
   buildBook,
   previewBook,
@@ -41,6 +42,7 @@ const HELP = [
   "quillbind doctor",
   "quillbind novel inspect <book-url>",
   "quillbind novel fetch <book-url> [--output new-directory] [--volumes 1-3,5] [--split-volumes] [--prepare-only]",
+  "quillbind metadata bookwalker SOURCES.json --output LOCK.json [--online]",
   "quillbind metadata resolve <book-directory> [--online]",
   "quillbind preflight <book-directory> [--qa-coverage full|stratified]",
   "quillbind build <book-directory> [--to simplified|traditional|china|taiwan|hongkong] [--online]",
@@ -249,12 +251,25 @@ try {
         output = await doctor();
         break;
       case "metadata":
-        if (subcommand !== "resolve")
-          fail("COMMAND_UNKNOWN", "Use metadata resolve");
-        output = await resolveMetadata(required(third, "book directory"), {
-          online: values.online,
-          signal: abort.signal,
-        });
+        if (subcommand === "bookwalker")
+          output = await resolveBookWalker(
+            required(third, "sources JSON file"),
+            {
+              output: required(values.output, "--output lock.json"),
+              online: values.online,
+              signal: abort.signal,
+            },
+          );
+        else if (subcommand === "resolve")
+          output = await resolveMetadata(required(third, "book directory"), {
+            online: values.online,
+            signal: abort.signal,
+          });
+        else
+          fail(
+            "COMMAND_UNKNOWN",
+            "Use metadata resolve or metadata bookwalker",
+          );
         break;
       case "preflight":
         output = await preflightBook(required(subcommand, "book directory"), {

@@ -2,7 +2,7 @@ import { lookup } from "node:dns/promises";
 import { request } from "node:https";
 import { setTimeout as pause } from "node:timers/promises";
 import { brotliDecompressSync, gunzipSync, inflateSync } from "node:zlib";
-import { isPublicAddress } from "./metadata.js";
+import { isPublicAddress } from "./http-address.js";
 import { checkAbort, fail } from "./errors.js";
 import { sha256 } from "./hash.js";
 import type { NovelAddress } from "./novel-model.js";

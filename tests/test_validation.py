@@ -4,7 +4,36 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from validate_skills import validate_resources
+from validate_skills import validate_license, validate_resources
+
+
+class ProjectLicenseTests(unittest.TestCase):
+    def test_missing_or_divergent_distribution_notice_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            project_license = root / "LICENSE"
+            project_license.write_text("project license")
+            skill = root / "example"
+            skill.mkdir()
+            for notice in (None, "different license", "project license"):
+                with self.subTest(notice=notice):
+                    if notice is not None:
+                        (skill / "LICENSE").write_text(notice)
+                    if notice == "project license":
+                        validate_license(skill, project_license, "MIT")
+                    else:
+                        with self.assertRaisesRegex(ValueError, "LICENSE"):
+                            validate_license(skill, project_license, "MIT")
+            with self.assertRaisesRegex(ValueError, "MIT"):
+                validate_license(skill, project_license, None)
+
+    def test_every_skill_bundles_the_project_license(self):
+        root = Path(__file__).resolve().parents[1]
+        license_file = root / "LICENSE"
+        self.assertTrue(license_file.is_file(), "The project needs a root LICENSE")
+        for skill in sorted((root / "skills").iterdir()):
+            with self.subTest(skill=skill.name):
+                self.assertEqual((skill / "LICENSE").read_bytes(), license_file.read_bytes())
 
 
 class ResourceTests(unittest.TestCase):

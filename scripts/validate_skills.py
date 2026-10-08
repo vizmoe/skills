@@ -1,12 +1,21 @@
 #!/usr/bin/env python3
 """Validate the catalog with skills-ref and check self-contained Markdown resources."""
 from pathlib import Path
+import json
 import re
 import shutil
 import subprocess
 from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def validate_license(skill: Path, project_license: Path, declared_license: str | None) -> None:
+    if declared_license != "MIT":
+        raise ValueError(f"Skill must declare the project's MIT license: {skill}")
+    notice = skill / "LICENSE"
+    if not notice.is_file() or notice.read_bytes() != project_license.read_bytes():
+        raise ValueError(f"Bundle an exact copy of the project LICENSE: {skill}")
 
 
 def prose(text: str) -> str:
@@ -71,6 +80,10 @@ def main() -> None:
             raise SystemExit(f"Expected a local skill directory: {skill}")
         subprocess.run([validator, "validate", str(skill)], check=True, timeout=30)
         validate_resources(skill)
+        properties = json.loads(subprocess.check_output(
+            [validator, "read-properties", str(skill)], text=True, timeout=30,
+        ))
+        validate_license(skill, ROOT / "LICENSE", properties.get("license"))
         print(f"Resource validation passed: {skill.name}")
 
 

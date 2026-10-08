@@ -23,6 +23,7 @@ class DistributionTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         installed = project / ".agents/skills" / name
+        self.assertEqual((installed / "LICENSE").read_bytes(), (ROOT / "LICENSE").read_bytes())
         expected = {p.relative_to(source) for p in source.rglob("*") if p.is_file()}
         actual = {p.relative_to(installed) for p in installed.rglob("*") if p.is_file()}
         self.assertEqual(actual, expected)

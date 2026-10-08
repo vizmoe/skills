@@ -60,7 +60,18 @@ export function splitSource(bytes: Buffer) {
       "SPLIT_SOURCE",
       "Manifest fallbacks and media overlays require a separate preparation step",
     );
+  const checkCss = (value: string, name: string) => {
+    if (/\\|image-set\s*\(|\bsrc\s*\(/i.test(value))
+      fail(
+        "SPLIT_CSS",
+        `Normalize escaped or dynamic CSS references before splitting: ${name}`,
+      );
+  };
   for (const [name, doc] of info.documents) {
+    for (const node of elements(doc)) {
+      if (node.localName === "style") checkCss(node.textContent ?? "", name);
+      if (node.hasAttribute("style")) checkCss(attr(node, "style"), name);
+    }
     if (
       elements(doc).some((node) => node.hasAttribute("xml:base")) ||
       Array.from(doc.childNodes).some(
@@ -100,15 +111,7 @@ export function splitSource(bytes: Buffer) {
   for (const item of info.manifest.filter(
     (item) => item.mediaType === "text/css",
   ))
-    if (
-      /\\|image-set\s*\(|\bsrc\s*\(/i.test(
-        info.entries.get(item.path)!.bytes.toString(),
-      )
-    )
-      fail(
-        "SPLIT_CSS",
-        `Normalize escaped or dynamic CSS references before splitting: ${item.path}`,
-      );
+    checkCss(info.entries.get(item.path)!.bytes.toString(), item.path);
   const notes = new Map<string, { path: string; id: string; node: Element }>();
   for (const [name, doc] of info.documents)
     for (const node of elements(doc))

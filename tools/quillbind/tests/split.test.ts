@@ -673,3 +673,64 @@ it.each(["shared.xhtml", ""])(
     ).toHaveLength(1);
   },
 );
+
+it.each(["uid", "person0", "isbn", "series"])(
+  "keeps package IDs unique when a retained resource already uses %s",
+  async (collision) => {
+    const info = inspectBytes(await anthology()),
+      document = info.packageDocument;
+    elements(document, "identifier", NS.dc)
+      .find((node) => attr(node, "id") === "uid")!
+      .setAttribute("id", "bundle-identity");
+    document.documentElement!.setAttribute(
+      "unique-identifier",
+      "bundle-identity",
+    );
+    elements(document, "item", NS.opf)
+      .find((node) => attr(node, "id") === "one")!
+      .setAttribute("id", collision);
+    const bytes = edit(await anthology(), info.packagePath, () =>
+        serialize(document),
+      ),
+      plan = await reviewed(bytes);
+    plan.volumes[0].metadata.series = {
+      relation: "story-continuity",
+      series: "Fixture Story",
+      position: "1",
+      positionEvidence: "Explicit first volume",
+      sources: ["Synthetic contents"],
+      evidence: ["Continuous narrative in fixture."],
+    };
+    const result = await applySplit(bytes, plan),
+      opf = inspectBytes(result.volumes[0].bytes).packageDocument,
+      ids = elements(opf)
+        .map((node) => attr(node, "id"))
+        .filter(Boolean);
+    expect(new Set(ids).size).toBe(ids.length);
+    const primary = attr(opf.documentElement!, "unique-identifier");
+    expect(
+      elements(opf, "identifier", NS.dc).find(
+        (node) => attr(node, "id") === primary,
+      )!.textContent,
+    ).toBe(plan.volumes[0].metadata.identifier);
+  },
+);
+it.each([
+  '<style>p { background-image:image-set("../images/one.png" 1x); }</style>',
+  "<p style=\"background-image:image-set('../images/one.png' 1x)\">Inline CSS</p>",
+])("refuses uninspectable inline CSS resource forms", async (markup) => {
+  const bytes = edit(await anthology(), "OEBPS/text/shared.xhtml", (text) =>
+    text
+      .replace(
+        "</head>",
+        `${markup.startsWith("<style>") ? markup : ""}</head>`,
+      )
+      .replace(
+        '<p id="c1">',
+        `${markup.startsWith("<p") ? markup : ""}<p id="c1">`,
+      ),
+  );
+  await expect(auditSplit(bytes).then(() => null)).rejects.toThrow(
+    /CSS|resource/i,
+  );
+});

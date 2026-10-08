@@ -168,6 +168,16 @@ export function splitPackage(
     );
   if (info.version === "3.0") entries.set(navPath, Buffer.from(authoredNav));
   entries.set(ncxPath, Buffer.from(ncx));
+  const selectedItems = info.manifest.filter((item) =>
+    resources.has(item.path),
+  );
+  const usedIds = new Set(selectedItems.map((item) => item.id));
+  const newId = (stem: string) => {
+    let id = stem;
+    for (let n = 1; usedIds.has(id); n++) id = `${stem}-${n}`;
+    usedIds.add(id);
+    return id;
+  };
   const document = xml(
       `<package xmlns="${NS.opf}" xmlns:opf="${NS.opf}" xmlns:dc="${NS.dc}" version="${info.version}" unique-identifier="uid"><metadata/><manifest/><spine/></package>`,
     ),
@@ -189,17 +199,20 @@ export function splitPackage(
     metadata.appendChild(node);
     return node;
   };
-  dc("identifier", volume.metadata.identifier, "uid");
+  const primaryId = newId("uid");
+  document.documentElement!.setAttribute("unique-identifier", primaryId);
+  dc("identifier", volume.metadata.identifier, primaryId);
   dc("title", volume.metadata.title);
   dc("language", volume.metadata.language);
   for (const [index, creator] of volume.metadata.creators.entries()) {
+    const personId = newId(`person${index}`);
     const node = dc(
       creator.role === "aut" ? "creator" : "contributor",
       creator.name,
-      `person${index}`,
+      personId,
     );
     if (info.version === "3.0")
-      meta("role", creator.role, `person${index}`).setAttribute(
+      meta("role", creator.role, personId).setAttribute(
         "scheme",
         "marc:relators",
       );
@@ -209,9 +222,10 @@ export function splitPackage(
     if (volume.metadata[name]) dc(name, volume.metadata[name]!);
   for (const tag of volume.metadata.tags) dc("subject", tag);
   if (volume.metadata.isbn) {
-    const node = dc("identifier", volume.metadata.isbn, "isbn");
+    const isbnId = newId("isbn");
+    const node = dc("identifier", volume.metadata.isbn, isbnId);
     if (info.version === "3.0")
-      meta("identifier-type", "15", "isbn").setAttribute(
+      meta("identifier-type", "15", isbnId).setAttribute(
         "scheme",
         "onix:codelist5",
       );
@@ -223,10 +237,11 @@ export function splitPackage(
     : null;
   if (series?.series) {
     if (info.version === "3.0") {
-      meta("belongs-to-collection", series.series).setAttribute("id", "series");
-      meta("collection-type", "series", "series");
+      const seriesId = newId("series");
+      meta("belongs-to-collection", series.series).setAttribute("id", seriesId);
+      meta("collection-type", "series", seriesId);
       if (series.position !== null)
-        meta("group-position", series.position, "series");
+        meta("group-position", series.position, seriesId);
     }
     for (const [name, value] of [
       ["calibre:series", series.series],
@@ -239,16 +254,6 @@ export function splitPackage(
         metadata.appendChild(node);
       }
   }
-  const selectedItems = info.manifest.filter((item) =>
-    resources.has(item.path),
-  );
-  const usedIds = new Set(selectedItems.map((item) => item.id));
-  const newId = (stem: string) => {
-    let id = stem;
-    for (let n = 1; usedIds.has(id); n++) id = `${stem}-${n}`;
-    usedIds.add(id);
-    return id;
-  };
   for (const item of selectedItems) {
     const original = elements(info.packageDocument, "item", NS.opf).find(
       (node) => attr(node, "id") === item.id,

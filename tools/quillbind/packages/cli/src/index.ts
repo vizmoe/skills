@@ -10,6 +10,8 @@ import {
   normalizeSeries,
   auditFileCover,
   adoptCover,
+  auditFileSplit,
+  splitEpub,
   preflightBook,
   buildBook,
   previewBook,
@@ -65,6 +67,8 @@ const HELP = [
   "quillbind inspect <file.epub> [--summary]",
   "quillbind validate|qa <file.epub>",
   "quillbind epub inspect|audit|repair-plan <file.epub> [--output plan.json]",
+  "quillbind epub split-plan <file.epub> --output plan.json",
+  "quillbind epub split <file.epub> --plan plan.json --output new-directory",
   "quillbind epub check-notes <file.epub> [--execute-scripts] [--cases CASES.json] [--reports DIRECTORY]",
   "quillbind epub repair <file.epub> --plan plan.json --output repaired.epub",
   "quillbind manga package <scan-directory|file.zip|file.cbz> --bookwalker LOCK.json --output volume.cbz [--page-order ORDER.json] [--reading-direction rtl|ltr]",
@@ -453,7 +457,34 @@ try {
         break;
       case "epub": {
         const file = required(third, "EPUB file");
-        if (subcommand === "repair-directory")
+        if (["split-plan", "split"].includes(subcommand ?? "")) {
+          const allowed = new Set([
+            "json",
+            "output",
+            ...(subcommand === "split" ? ["plan"] : []),
+          ]);
+          if (
+            positionals.length !== 3 ||
+            Object.entries(values).some(
+              ([key, value]) => value !== undefined && !allowed.has(key),
+            )
+          )
+            fail(
+              "ARGUMENT_CONFLICT",
+              "Local splitting accepts one EPUB, --output and --plan for application only",
+            );
+        }
+        if (subcommand === "split-plan")
+          output = await auditFileSplit(file, {
+            output: required(values.output, "--output"),
+          });
+        else if (subcommand === "split")
+          output = await splitEpub(file, {
+            plan: await readJson(required(values.plan, "--plan")),
+            output: required(values.output, "--output"),
+            signal: abort.signal,
+          });
+        else if (subcommand === "repair-directory")
           output = await repairDirectory(file, {
             output: required(values.output, "--output"),
             jobs: values.jobs === undefined ? undefined : Number(values.jobs),

@@ -27,7 +27,7 @@ Identify each target by file path and SHA-256. Read its current package metadata
 
 | Field | Adoption rule |
 | --- | --- |
-| Title and contributors | Use the matched edition's title and credited names/roles. Keep author, translator and illustrator distinct; do not guess an original name from a translation. |
+| Title and contributors | Use the matched edition's title and credited names/roles. When light-novel naming is selected, apply [whole-series naming](naming.md) while preserving the volume title's original text. Keep author, translator and illustrator distinct; do not guess an original name from a translation. |
 | Description | Use the matching publisher/BookWalker description or a factual summary of inspected book content. Keep plain text and meaningful paragraph breaks; a collection-wide description is not automatically a single volume's description. |
 | Language/script | Follow the actual text; preserve `zh-Hans` / `zh-Hant` where applicable. Do not convert the book's text as a metadata edit. |
 | Tags | Use exact labels from the current library vocabulary, supported by the work's content and the type-appropriate source. |

@@ -1,6 +1,6 @@
 # Maintain embedded book metadata
 
-Use this workflow to write metadata directly into existing EPUB packages and CBZ `ComicInfo.xml`. Choose sources with [bibliography by book type](bibliography.md): BookWalker for light novels/manga, publisher information and book contents for other types. Use the dedicated rating commands below for score cleanup and scoped ZIP/XML edits for other fields. `tags.mjs audit` only proposes labels, `epub enrich` has its own supplementation contract, and `manga package` makes a new image archive.
+Use this workflow to write metadata directly into existing EPUB packages and CBZ `ComicInfo.xml`. Choose sources with [bibliography by book type](bibliography.md): BookWalker for light novels/manga, publisher information and book contents for other types. Use the dedicated rating commands below for score cleanup, [Series normalization](series.md) for evidenced story membership/order, and scoped ZIP/XML edits for other fields. `tags.mjs audit` only proposes labels, `epub enrich` has its own supplementation contract, and `manga package` makes a new image archive.
 
 ## Bind the plan to the book and selected fields
 

@@ -31,7 +31,7 @@ Identify each target by file path and SHA-256. Read its current package metadata
 | Description | Use the matching publisher/BookWalker description or a factual summary of inspected book content. Keep plain text and meaningful paragraph breaks; a collection-wide description is not automatically a single volume's description. |
 | Language/script | Follow the actual text; preserve `zh-Hans` / `zh-Hant` where applicable. Do not convert the book's text as a metadata edit. |
 | Tags | Use exact labels from the current library vocabulary, supported by the work's content and the type-appropriate source. |
-| Publisher, series and position | Adopt actual edition information. Distinguish a story series from a marketing collection or publisher imprint. Do not infer series membership from a shared author. |
+| Publisher, series and position | Adopt actual edition information. Follow [story series normalization](series.md) for narrative membership, quantity-marketing cleanup, subseries and verified order; shared authors, publisher collections and nonfiction volume counts do not establish Series. |
 | Date | Use the type-specific source policy above, retain known precision and leave unavailable components unset. Record the source field; no repeated cross-check is required. |
 | ISBN | Actively fill from matched evidence during general supplementation; preserve supported values and report unresolved cases under the ISBN policy above. |
 

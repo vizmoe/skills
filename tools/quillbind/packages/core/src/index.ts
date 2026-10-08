@@ -81,3 +81,9 @@ export {
   auditRatings,
   applyRatings,
 } from "./ratings.js";
+export {
+  auditFileSeries,
+  normalizeSeries,
+  auditSeries,
+  applySeries,
+} from "./series-file.js";

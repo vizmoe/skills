@@ -74,6 +74,17 @@ export function applyRepair(
     );
   if (plan.actions.some((a) => a.classification === "unsupported"))
     fail("UNSUPPORTED_EPUB", "Unsupported content remains protected");
+  const scriptedContent = plan.actions.some(
+    (a) => a.ruleId === "scripted-notes-preserve",
+  )
+    ? {
+        status: "preserved" as const,
+        interactions: "not-run" as const,
+        resources: [...info.entries]
+          .filter(([name]) => ![info.packagePath, "mimetype"].includes(name))
+          .map(([name, entry]) => ({ name, sha256: sha256(entry.bytes) })),
+      }
+    : undefined;
   const before = fingerprint(info);
   const entries = new Map(
     [...info.entries].map(([name, entry]) => [name, entry.bytes]),
@@ -82,7 +93,13 @@ export function applyRepair(
   if (!changes.length)
     return {
       bytes: Buffer.from(bytes),
-      integrity: { status: "pass", before, after: before, unchanged: true },
+      integrity: {
+        status: "pass",
+        before,
+        after: before,
+        unchanged: true,
+        ...(scriptedContent ? { scriptedContent } : {}),
+      },
       changes,
     };
   const has = (rule: string, resource?: string) =>
@@ -427,6 +444,22 @@ export function applyRepair(
   entries.set(info.packagePath, Buffer.from(serialize(packageDoc)));
   entries.set("mimetype", Buffer.from("application/epub+zip"));
   const repaired = pack(entries, 946684800);
+  if (scriptedContent) {
+    for (const resource of scriptedContent.resources)
+      if (
+        !entries.has(resource.name) ||
+        sha256(entries.get(resource.name)!) !== resource.sha256
+      )
+        fail(
+          "SCRIPTED_CONTENT_INTEGRITY",
+          `Repair changed a scripted dependency: ${resource.name}`,
+        );
+    if (entries.size !== info.entries.size)
+      fail(
+        "SCRIPTED_CONTENT_INTEGRITY",
+        "Repair added or removed a scripted dependency",
+      );
+  }
   const after = fingerprint(
     inspectBytes(repaired),
     [...info.documents.keys()].sort(),
@@ -443,6 +476,7 @@ export function applyRepair(
       status: "pass",
       before,
       after,
+      ...(scriptedContent ? { scriptedContent } : {}),
       unchangedResources: [...info.entries]
         .filter(([name, entry]) => entries.get(name)?.equals(entry.bytes))
         .map(([name]) => name),

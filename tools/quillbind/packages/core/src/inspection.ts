@@ -6,6 +6,7 @@ import { attr, elements, NS, xml, ncxXml } from "./xml.js";
 import { localTarget } from "./paths.js";
 import { sha256 } from "./hash.js";
 import { diagnostic } from "./errors.js";
+import { inspectNotes } from "./epub-notes.js";
 import type { Diagnostic } from "./model.js";
 
 const NCX = "http://www.daisy.org/z3986/2005/ncx/";
@@ -387,6 +388,7 @@ export function describeInspection(info: EpubInspection, size: number) {
   return {
     schemaVersion: 1,
     operation: "inspect" as const,
+    notes: inspectNotes(info),
     status: "pass" as const,
     sha256: info.sha256,
     version: info.version,
@@ -452,9 +454,15 @@ export function inspectionSummary(report: InspectionReport) {
     version: report.version,
     packagePath: report.packagePath,
     unsupported: report.unsupported,
+    notes: {
+      kind: report.notes.kind,
+      references: report.notes.references.length,
+      issues: report.notes.issues.length,
+      execution: report.notes.execution,
+    },
     ...report.summary,
   };
 }
 export function formatInspection(report: InspectionReport) {
-  return `${report.title || "(no title)"}\nEPUB package ${report.version} · ${report.language || "(no language)"}\nPackage: ${report.packagePath}\nSHA-256: ${report.sha256}\nReading order: ${report.summary.spineItems} items (${report.summary.nonLinearItems} non-linear)\nContents: ${report.summary.tocEntries.map((toc) => `${toc.format}: ${toc.count}`).join(", ") || "not found"}\nResources: ${report.summary.resources} · Cover associations: ${report.summary.covers}\nBroken references: ${report.summary.brokenReferences} · Inspection warnings: ${report.summary.inspectionWarnings}\nMaintenance limitations: ${report.unsupported.join(", ") || "none detected"}\nInspection only; conformance, browser QA and platform checks were not run.\nUse --json for metadata records, navigation trees and resource references.\n`;
+  return `${report.title || "(no title)"}\nEPUB package ${report.version} · ${report.language || "(no language)"}\nPackage: ${report.packagePath}\nSHA-256: ${report.sha256}\nReading order: ${report.summary.spineItems} items (${report.summary.nonLinearItems} non-linear)\nContents: ${report.summary.tocEntries.map((toc) => `${toc.format}: ${toc.count}`).join(", ") || "not found"}\nResources: ${report.summary.resources} · Cover associations: ${report.summary.covers}\nBroken references: ${report.summary.brokenReferences} · Inspection warnings: ${report.summary.inspectionWarnings}\nNotes: ${report.notes.references.length} references (${report.notes.kind}); interactions not run\nMaintenance limitations: ${report.unsupported.join(", ") || "none detected"}\nInspection only; conformance, browser QA and platform checks were not run.\nUse --json for metadata records, navigation trees and resource references.\n`;
 }

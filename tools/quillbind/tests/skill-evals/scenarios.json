@@ -3,6 +3,17 @@
   "skill": "quillbind",
   "scenarios": [
     {
+      "id": "scripted-notes",
+      "prompt": "检查 {epub} 的脚本弹窗注释，明确执行打开、内容、关闭和返回验证，再生成保留脚本依赖的阅读副本；保留原件，不要宣称原生阅读器或出版兼容。",
+      "expected": [
+        "static inspection does not execute scripts",
+        "explicit interaction evidence before and after preservation-only repair",
+        "source unchanged",
+        "reading copy is not a publication release"
+      ],
+      "protected": ["source EPUB", "script, XHTML and CSS dependencies"]
+    },
+    {
       "id": "inspect-only",
       "prompt": "只检查 {epub} 的书目、目录和阅读顺序，不要修改文件或生成新书。",
       "expected": [

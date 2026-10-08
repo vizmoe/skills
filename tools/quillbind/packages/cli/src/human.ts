@@ -10,6 +10,16 @@ export function formatHuman(command: string, value: unknown): string {
   if (command === "schema") return stable(value);
   if (typeof value === "string") return value + "\n";
   const item = record(value);
+  if (item.operation === "check-notes") {
+    const notes = record(item.notes),
+      coverage = record(item.coverage),
+      interactions = record(item.interactions);
+    const findings = Array.isArray(interactions.findings)
+      ? interactions.findings.map(record)
+      : [];
+    const issues = Array.isArray(notes.issues) ? notes.issues.map(record) : [];
+    return `Popup notes: ${String(item.status).toUpperCase()}\nSHA-256: ${item.inputSha256}\nReferences: ${coverage.identifiedReferences}; cases: ${coverage.selectedCases} (${coverage.selection}, completeness: ${coverage.completeness})\nInteractions: ${interactions.status}${interactions.reason ? ` — ${interactions.reason}` : ""}\n${[...issues, ...findings].map((f) => `[${f.code}] ${f.message}`).join("\n")}\n${record(item.reports).json ? `Report: ${record(item.reports).json}\n` : ""}Original unchanged. EPUB publication and native reader behavior are not verified by this check.\n`;
+  }
   if (item.operation === "novel-inspect") {
     const volumes = Array.isArray(item.volumes) ? item.volumes.map(record) : [];
     return `${item.title}\nSource: ${item.url}\n${volumes.map((volume) => `${volume.number}. ${volume.title} (${Array.isArray(volume.chapters) ? volume.chapters.length : 0} chapters)`).join("\n")}\n`;

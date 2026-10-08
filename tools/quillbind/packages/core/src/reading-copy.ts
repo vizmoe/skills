@@ -117,6 +117,7 @@ export async function repairReadingCopy(
       conformance,
       browser,
       publicationPolicy: internal,
+      notes: inspection.notes,
       apple,
       kindle,
     });
@@ -152,6 +153,7 @@ export async function repairReadingCopy(
         kindle: kindle.status,
         fullPublicationQa: "not-run",
         ace: "not-run",
+        scriptedNotes: "not-run",
       },
       unresolved: unresolved.length,
       brokenReferences: references.length,
@@ -159,7 +161,7 @@ export async function repairReadingCopy(
     await json(summaryPath, result);
     await fs.writeFile(
       markdownPath,
-      `# ${info.title}\n\n[Repaired reading copy](<${output}>)\n\nThe original is unchanged. Text, images, metadata and reading order passed integrity checks; a second repair is byte-identical. The source EPUB ${info.version} edition is preserved. This is a personal reading copy, not a publication release.\n\nSHA-256: \`${hash}\`\n\n- Repair actions: ${result.changes}\n- Remaining broken references: ${references.length}\n- EPUBCheck: ${conformance.status}\n- Sampled browser check: ${browser.status}\n- Full publication QA and Ace: not run\n\n[Remaining findings](remaining-findings.json) · [Integrity evidence](content-integrity.json) · [Repair changes](changes.json)\n`,
+      `# ${info.title}\n\n[Repaired reading copy](<${output}>)\n\nThe original is unchanged. Text, images, metadata and reading order passed integrity checks; a second repair is byte-identical. The source EPUB ${info.version} edition is preserved. This is a personal reading copy, not a publication release.\n\nSHA-256: \`${hash}\`\n\n- Repair actions: ${result.changes}\n- Remaining broken references: ${references.length}\n- EPUBCheck: ${conformance.status}\n- Sampled browser check: ${browser.status}\n- Scripted note interactions: not run; use epub check-notes for explicit checks\n- Full publication QA and Ace: not run\n\n[Remaining findings](remaining-findings.json) · [Integrity evidence](content-integrity.json) · [Repair changes](changes.json)\n`,
     );
     return result;
   } catch (error) {

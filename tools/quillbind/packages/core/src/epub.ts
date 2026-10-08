@@ -4,6 +4,7 @@ import { xml, contentXml, elements, attr, NS } from "./xml.js";
 import { fail } from "./errors.js";
 import { localTarget } from "./paths.js";
 import { sha256 } from "./hash.js";
+import { scriptingDocuments } from "./epub-notes.js";
 
 export interface ManifestItem {
   id: string;
@@ -77,7 +78,7 @@ export function inspectBytes(
     )
   )
     unsupported.push("fixed-layout");
-  if (manifest.some((m) => m.properties.includes("scripted")))
+  if (scriptingDocuments({ manifest, documents }).length)
     unsupported.push("interactive-content");
   if (entries.has("META-INF/encryption.xml")) {
     const encryption = xml(

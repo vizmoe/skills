@@ -18,6 +18,7 @@ import {
   convertEpub,
   enrichEpub,
   packageManga,
+  checkNotes,
   conversionTarget,
   zhconvertNotice,
   taxonomy,
@@ -52,6 +53,7 @@ const HELP = [
   "quillbind inspect <file.epub> [--summary]",
   "quillbind validate|qa <file.epub>",
   "quillbind epub inspect|audit|repair-plan <file.epub> [--output plan.json]",
+  "quillbind epub check-notes <file.epub> [--execute-scripts] [--cases CASES.json] [--reports DIRECTORY]",
   "quillbind epub repair <file.epub> --plan plan.json --output repaired.epub",
   "quillbind manga package <scan-directory|file.zip|file.cbz> --bookwalker LOCK.json --output volume.cbz [--page-order ORDER.json] [--reading-direction rtl|ltr]",
   "quillbind epub enrich <file.epub> --bookwalker LOCK.json --output enriched.epub",
@@ -88,6 +90,8 @@ try {
       output: { type: "string" },
       plan: { type: "string" },
       bookwalker: { type: "string" },
+      "execute-scripts": { type: "boolean" },
+      cases: { type: "string" },
       "page-order": { type: "string" },
       "reading-direction": { type: "string" },
       from: { type: "string" },
@@ -155,6 +159,14 @@ try {
     );
   const required = (value: string | undefined, label: string) =>
     value ?? fail("ARGUMENT_REQUIRED", `Missing ${label}`);
+  if (
+    (values["execute-scripts"] || values.cases) &&
+    !(command === "epub" && subcommand === "check-notes")
+  )
+    fail(
+      "ARGUMENT_CONFLICT",
+      "--execute-scripts and --cases are supported by epub check-notes only",
+    );
   if (
     values["qa-coverage"] &&
     !["preflight", "preview", "build", "qa"].includes(command ?? "") &&
@@ -362,7 +374,14 @@ try {
           const inspection = await inspectEpub(file);
           humanOutput = formatInspection(inspection);
           output = values.summary ? inspectionSummary(inspection) : inspection;
-        } else if (subcommand === "convert")
+        } else if (subcommand === "check-notes")
+          output = await checkNotes(file, {
+            executeScripts: values["execute-scripts"],
+            cases: values.cases ? await readJson(values.cases) : undefined,
+            reports: values.reports,
+            signal: abort.signal,
+          });
+        else if (subcommand === "convert")
           output = await convertEpub(file, {
             target: conversionTarget(required(values.to, "--to")),
             output: required(values.output, "--output"),

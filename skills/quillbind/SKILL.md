@@ -1,10 +1,10 @@
 ---
 name: quillbind
 license: MIT
-description: Build EPUB 3.3 books from Markdown or supported Bilinovel, Lightnovel.fun and Lightnovel.app book URLs; inspect and repair existing EPUBs, convert Chinese scripts with zhconvert, enrich light-novel and manga metadata from BookWalker, package manga scans as lossless JPEG XL CBZ with ComicInfo, and verify EPUB compatibility with Apple Books/Kindle. Arbitrary HTML, PDF and LaTeX import are unsupported.
+description: Build EPUB 3.3 books from Markdown or supported Bilinovel, Lightnovel.fun and Lightnovel.app book URLs; inspect and repair existing EPUBs, check scripted popup notes, convert Chinese scripts with zhconvert, enrich light-novel and manga metadata from BookWalker, package manga scans as lossless JPEG XL CBZ with ComicInfo, and verify EPUB compatibility with Apple Books/Kindle. Arbitrary HTML, PDF and LaTeX import are unsupported.
 compatibility: Requires Node.js and the tools/quillbind workspace from vizmoe/skills with dependencies installed, exposed through QUILLBIND_ROOT or a quillbind CLI on PATH. Runtime pins live in that workspace. EPUB release checks need Java, EPUBCheck and Chromium; manga CBZ needs libjxl cjxl and djxl. Setup, website collection and explicit online metadata/conversion refreshes need network access; saved books and locks support offline builds.
 metadata:
-  version: "0.1.4"
+  version: "0.1.5"
 ---
 
 # Quillbind
@@ -14,6 +14,7 @@ Invoke [scripts/quillbind.mjs](scripts/quillbind.mjs) with Node from the caller'
 ## Choose the operation
 
 - EPUB inventory or diagnosis → [inspection](references/inspection.md).
+- Existing EPUB popup footnotes, script behavior or hover/touch notes → [note checks](references/notes.md).
 - New book, local Markdown import or author preview → [authoring](references/authoring.md).
 - Website book URL, novel collection or volume merging → [novels](references/novels.md).
 - Emphasis, lists, tables, quotes, images or typography → [Markdown](references/markdown.md).

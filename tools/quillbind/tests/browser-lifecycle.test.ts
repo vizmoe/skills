@@ -7,6 +7,11 @@ import { chromium } from "@playwright/test";
 import { browserPath, runAce, runQa } from "../packages/core/src/qa.js";
 import { run } from "../packages/core/src/process.js";
 import { candidate, copyBook } from "./helpers.js";
+import { runNoteCases } from "../packages/core/src/note-browser.js";
+import { noteFixture } from "./note-fixture.js";
+import { inspectBytes } from "../packages/core/src/epub.js";
+import { inspectNotes } from "../packages/core/src/epub-notes.js";
+import { noteCases } from "../packages/core/src/note-cases.js";
 
 vi.mock("@playwright/test", () => ({ chromium: { launch: vi.fn() } }));
 vi.mock("node:http", () => ({ createServer: vi.fn() }));
@@ -139,4 +144,53 @@ it("reports a failed browser launch as an environment error without retrying", a
     details: { tool: "chromium", reason: "launch-failed" },
   });
   expect(chromium.launch).toHaveBeenCalledTimes(1);
+});
+
+async function notes(signal?: AbortSignal, timeoutMs?: number) {
+  const info = inspectBytes(noteFixture());
+  return runNoteCases(info, noteCases(inspectNotes(info), info.sha256).cases, {
+    reports: "/unused",
+    signal,
+    timeoutMs,
+  });
+}
+
+it("note checks do not acquire a browser for cancelled or invalid work", async () => {
+  await expect(
+    notes(AbortSignal.abort(new Error("cancelled"))),
+  ).rejects.toThrow("cancelled");
+  await expect(notes(undefined, 0)).rejects.toHaveProperty(
+    "code",
+    "NOTE_TIMEOUT",
+  );
+  expect(chromium.launch).not.toHaveBeenCalled();
+});
+
+it("note checks report launch failure and close the browser when serving fails", async () => {
+  vi.mocked(chromium.launch).mockRejectedValueOnce(new Error("launch failed"));
+  await expect(notes()).rejects.toHaveProperty("code", "ENVIRONMENT_ERROR");
+  expect(server.listen).not.toHaveBeenCalled();
+  server.listen.mockImplementation(() =>
+    queueMicrotask(() => server.emit("error", new Error("listen failed"))),
+  );
+  await expect(notes()).rejects.toThrow("listen failed");
+  expect(browser.close).toHaveBeenCalledTimes(1);
+});
+
+it("note checks preserve the setup error while independently closing browser and server", async () => {
+  browser.close.mockRejectedValue(new Error("close failed"));
+  await expect(notes()).rejects.toThrow("context failed");
+  expect(server.close).toHaveBeenCalledTimes(1);
+  expect(browser.close).toHaveBeenCalledTimes(1);
+});
+
+it("note checks cancel browser setup once and retain the caller's reason", async () => {
+  const controller = new AbortController();
+  browser.newContext.mockImplementation(async () => {
+    controller.abort(new Error("cancelled"));
+    throw new Error("Target closed");
+  });
+  await expect(notes(controller.signal)).rejects.toThrow("cancelled");
+  expect(browser.close).toHaveBeenCalledTimes(1);
+  expect(server.close).toHaveBeenCalledTimes(1);
 });

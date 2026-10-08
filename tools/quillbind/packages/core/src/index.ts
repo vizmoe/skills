@@ -49,7 +49,14 @@ export const formats = {
   inputs: ["markdown-book", "epub", "novel-url", "manga-scans"],
   outputs: ["epub", "cbz"],
   mangaInputFormats: ["image-directory", "zip", "cbz"],
-  epubInputModes: ["audit", "repair", "repair-copy", "convert", "enrich"],
+  epubInputModes: [
+    "audit",
+    "check-notes",
+    "repair",
+    "repair-copy",
+    "convert",
+    "enrich",
+  ],
 } as const;
 
 export {
@@ -67,3 +74,4 @@ export type {
 export { enrichEpub, applyBookWalkerMetadata } from "./enrich-epub.js";
 
 export { packageManga } from "./manga.js";
+export { checkNotes } from "./check-notes.js";

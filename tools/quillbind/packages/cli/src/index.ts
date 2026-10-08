@@ -16,6 +16,7 @@ import {
   repairReadingCopy,
   repairDirectory,
   convertEpub,
+  enrichEpub,
   conversionTarget,
   zhconvertNotice,
   taxonomy,
@@ -51,6 +52,7 @@ const HELP = [
   "quillbind validate|qa <file.epub>",
   "quillbind epub inspect|audit|repair-plan <file.epub> [--output plan.json]",
   "quillbind epub repair <file.epub> --plan plan.json --output repaired.epub",
+  "quillbind epub enrich <file.epub> --bookwalker LOCK.json --output enriched.epub",
   "quillbind epub convert <file.epub> --to simplified|traditional|china|taiwan|hongkong --output converted.epub [--online]",
   "quillbind epub repair-plan <file.epub> --purpose reading --output plan.json",
   "quillbind epub repair-copy <file.epub> --plan plan.json --output copy.epub [--reports directory]",
@@ -83,6 +85,7 @@ try {
       theme: { type: "string" },
       output: { type: "string" },
       plan: { type: "string" },
+      bookwalker: { type: "string" },
       from: { type: "string" },
       config: { type: "string" },
       summary: { type: "boolean" },
@@ -129,6 +132,8 @@ try {
       "ARGUMENT_CONFLICT",
       "--to is supported by build, preview and epub convert",
     );
+  if (values.bookwalker && !(command === "epub" && subcommand === "enrich"))
+    fail("ARGUMENT_CONFLICT", "--bookwalker is supported by epub enrich");
   const required = (value: string | undefined, label: string) =>
     value ?? fail("ARGUMENT_REQUIRED", `Missing ${label}`);
   if (
@@ -328,6 +333,12 @@ try {
             output: required(values.output, "--output"),
             signal: abort.signal,
             online: values.online,
+          });
+        else if (subcommand === "enrich")
+          output = await enrichEpub(file, {
+            output: required(values.output, "--output"),
+            bookwalker: required(values.bookwalker, "--bookwalker"),
+            signal: abort.signal,
           });
         else if (subcommand === "audit") output = await auditEpub(file);
         else if (subcommand === "repair-plan") {

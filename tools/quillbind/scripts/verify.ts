@@ -4,8 +4,10 @@ import assert from "node:assert/strict";
 import { collectBookWalker } from "../packages/core/src/bookwalker.js";
 import { openBook } from "../packages/core/src/config.js";
 import { inspectBytes } from "../packages/core/src/validate.js";
-import { elements, NS } from "../packages/core/src/xml.js";
+import { elements, NS, serialize } from "../packages/core/src/xml.js";
+import { pack } from "../packages/core/src/zip.js";
 import { selection, bookwalkerFetcher } from "../tests/bookwalker-fixture.js";
+import { enrichEpub } from "../packages/core/src/enrich-epub.js";
 import { buildBook } from "../packages/core/src/pipeline.js";
 import { createRepairPlan, repairEpub } from "../packages/core/src/repair.js";
 import { repoRoot } from "../packages/core/src/runtime.js";
@@ -53,6 +55,37 @@ assert.equal(
   "台灣出版社",
 );
 reports.push(enrichedResult);
+const nativeOutput = path.join(enriched, "native-enriched.epub");
+const nativeInput = path.join(enriched, "native-source.epub");
+const nativeEntries = new Map(
+  [...enrichedInfo.entries].map(([name, entry]) => [name, entry.bytes]),
+);
+for (const field of ["date", "publisher"])
+  for (const node of elements(enrichedInfo.packageDocument, field, NS.dc))
+    node.parentNode!.removeChild(node);
+nativeEntries.set(
+  enrichedInfo.packagePath,
+  Buffer.from(serialize(enrichedInfo.packageDocument)),
+);
+const nativeSource = pack(nativeEntries, 946684800);
+await fs.writeFile(nativeInput, nativeSource);
+const nativeResult = await enrichEpub(nativeInput, {
+  output: nativeOutput,
+  bookwalker: path.join(enriched, config.bookwalker),
+});
+assert.deepEqual(await fs.readFile(nativeInput), nativeSource);
+const nativeInfo = inspectBytes(await fs.readFile(nativeOutput));
+assert.equal(nativeInfo.version, "3.0");
+assert.equal(
+  elements(nativeInfo.packageDocument, "date", NS.dc)[0]?.textContent,
+  "2020-04-20",
+);
+assert.equal(
+  elements(nativeInfo.packageDocument, "publisher", NS.dc)[0]?.textContent,
+  "台灣出版社",
+);
+reports.push(nativeResult);
+
 const legacy = path.join(repoRoot, "examples/repair/legacy.epub");
 const output = path.join(repoRoot, "examples/repair/dist/repaired.epub");
 await fs.mkdir(path.dirname(output), { recursive: true });

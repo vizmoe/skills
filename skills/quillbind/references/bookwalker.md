@@ -47,3 +47,17 @@ bookwalker: metadata/bookwalker.lock.json
 `metadata resolve BOOK --json` supplements missing title, authors, description and language offline. Supplied values remain authoritative; conflicts appear as `BOOKWALKER_CONFLICT` warnings. Inspect those warnings before release. Resolve controlled tags separately. Publisher, original date, series/volume, contributor roles and source URLs are carried into OPF metadata. The command does not edit `book.yaml`. Changing the source lock invalidates resolved metadata; resolve again before building.
 
 Print and electronic ISBNs are recorded separately. Neither is automatically assigned as the EPUB identifier: the existing electronic-edition ISBN approval remains required. A metadata pass alone is not a release; build through every existing EPUB gate.
+
+## Supplement an existing EPUB
+
+Inspect the EPUB and verify that the selected BookWalker volume is the same edition/work before applying its lock. Use a new output path:
+
+```sh
+node <skill-directory>/scripts/quillbind.mjs epub enrich original.epub --bookwalker bookwalker.lock.json --output enriched.epub --json
+```
+
+The command runs offline. It fills absent bibliographic fields and contributors, keeps supplied values with conflict warnings, and applies the Japanese-original publication date with before/after evidence. It preserves identifiers and existing contributor records. Only the OPF metadata changes; spine, navigation, text, image and font resource bytes remain intact. Native EPUB images are not converted to JXL or CBZ.
+
+`<output>.reports/metadata.json` binds the original hash to the source-lock digest and lists field changes and preserved resource hashes. The summary records EPUBCheck, Ace, browser QA, platform lint and reproducibility. A new output appears only after every gate passes. An exclusive `<output>.metadata.lock` protects concurrent writes; inspect the owning process before removing a stale lock. An existing destination is never replaced.
+
+This release route supports the existing EPUB 3 reflowable contract. EPUB 2, fixed-layout, interactive, encrypted and signed books remain unchanged and return explicit unsupported diagnostics; it does not silently upgrade or rasterize them. Use the separate repair workflow for an explicitly requested EPUB 2 upgrade. Repeated application with the same source lock is reproducible. The modification timestamp is bound to source retrieval time (or a later existing modification time), independently of the Japanese publication date.

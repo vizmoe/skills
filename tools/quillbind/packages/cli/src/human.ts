@@ -114,6 +114,7 @@ export function formatHuman(command: string, value: unknown): string {
       "internal",
       "validation",
       "epubcheck",
+      "metadata",
     ])
       if (entry[key]) collect(entry[key]);
   };

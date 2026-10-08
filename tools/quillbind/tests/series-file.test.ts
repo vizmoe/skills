@@ -320,3 +320,78 @@ it("runs actual CBZ audit/apply CLI and validates the corrected ComicInfo", asyn
   expect(elements(document, "Series")[0].textContent).toBe("銀河三部曲");
   expect(elements(document, "Number")[0].textContent).toBe("1.5");
 });
+
+it.each(["epub2", "epub3", "cbz"] as const)(
+  "normalizes evidenced Roman positions to Arabic digits in %s without changing title numerals",
+  async (kind) => {
+    const { root, bytes: initial } = await fixture(kind === "epub2");
+    const format = kind === "cbz" ? "cbz" : "epub";
+    const title = "銀河三部曲 II — 終章";
+    let bytes: Buffer;
+    if (kind === "cbz") {
+      const entries = new Map(
+        [...unpack(comic())].map(([name, entry]) => [name, entry.bytes]),
+      );
+      entries.set(
+        "ComicInfo.xml",
+        Buffer.from(
+          entries
+            .get("ComicInfo.xml")!
+            .toString()
+            .replace("Book title", title)
+            .replace("<Number>3</Number>", "<Number>II</Number>"),
+        ),
+      );
+      bytes = packArchive(entries, 946684800);
+    } else {
+      const info = inspectBytes(initial);
+      elements(info.packageDocument, "title", NS.dc)[0].textContent = title;
+      for (const node of elements(info.packageDocument, "meta", NS.opf)) {
+        if (attr(node, "name") === "calibre:series_index")
+          node.setAttribute("content", "II");
+        if (attr(node, "property") === "group-position") node.textContent = "Ⅱ";
+      }
+      const entries = new Map(
+        [...info.entries].map(([name, entry]) => [name, entry.bytes]),
+      );
+      entries.set(
+        info.packagePath,
+        Buffer.from(serialize(info.packageDocument)),
+      );
+      bytes = pack(entries, 946684800);
+    }
+    const plan = planned(bytes, format);
+    plan.decision = {
+      ...decision,
+      position: "2",
+      positionEvidence:
+        "The selected edition identifies this as volume II (2); only the series position is normalized.",
+    };
+    const source = path.join(root, `roman.${format}`);
+    const output = path.join(root, `arabic.${format}`);
+    await fs.writeFile(source, bytes);
+    const result = await normalizeSeries(source, { plan, output });
+    expect(result.validation.status).toBe("pass");
+    expect(await fs.readFile(source)).toEqual(bytes);
+    const delivered = await fs.readFile(output);
+    const readback = auditSeries(delivered, format);
+    expect(readback.before.positions).toEqual(["2"]);
+    if (kind === "epub3")
+      expect(
+        readback.collections.find((c) => c.types.includes("series"))?.positions,
+      ).toEqual(["2"]);
+    const document =
+      kind === "cbz"
+        ? xml(unpack(delivered).get("ComicInfo.xml")!.bytes.toString())
+        : inspectBytes(delivered).packageDocument;
+    expect(
+      elements(document, kind === "cbz" ? "Title" : "title")[0].textContent,
+    ).toBe(title);
+    const before = unpack(bytes),
+      after = unpack(delivered);
+    const target =
+      kind === "cbz" ? "ComicInfo.xml" : inspectBytes(bytes).packagePath;
+    for (const [name, entry] of before)
+      if (name !== target) expect(after.get(name)?.bytes).toEqual(entry.bytes);
+  },
+);

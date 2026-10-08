@@ -86,7 +86,18 @@ it("never guesses reading positions and refuses unsupported or unexplained numbe
   expect(() =>
     resolveSeriesDecision({ ...story, positionEvidence: null }),
   ).toThrow(/position/i);
-  for (const position of ["第3卷", "-1", "1.2.3", "NaN", ""])
+  for (const position of [
+    "II",
+    "Ⅵ",
+    "二",
+    "２",
+    "第3卷",
+    "06.5-01",
+    "-1",
+    "1.2.3",
+    "NaN",
+    "",
+  ])
     expect(() => resolveSeriesDecision({ ...story, position })).toThrow(
       /position|decision/i,
     );

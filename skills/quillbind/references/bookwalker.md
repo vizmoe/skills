@@ -50,6 +50,8 @@ Print and electronic ISBNs are recorded separately. Neither is automatically ass
 
 ## Supplement an existing EPUB
 
+For subject synchronization or a selected field correction, use [embedded metadata maintenance](embedded-metadata.md). The enrichment command below does not edit `dc:subject` and intentionally updates the original publication date, so it is not a tag-only writer. Existing CBZ metadata maintenance uses the same scoped process on `ComicInfo.xml` rather than repackaging its pages.
+
 Inspect the EPUB and verify that the selected BookWalker volume is the same edition/work before applying its lock. Use a new output path:
 
 ```sh

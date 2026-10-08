@@ -17,6 +17,7 @@ npx skills add vizmoe/skills --skill quillbind
 ```text
 $quillbind 按 /absolute/library 的当前受控词表审计所选书籍的 Tags，生成修改计划，保留书库原状。
 $quillbind 根据已核实的出版信息整理所选轻小说的类型和题材标签，按书库规则同步并验证。
+$quillbind 按书库标签维护所选 CBZ 的 ComicInfo.xml 和 EPUB 内嵌元数据，先生成逐字段计划；保留图片、页序、正文和非目标字段。
 $quillbind 检查 /absolute/path/to/book.epub，报告问题并保留源文件。
 $quillbind 验证 /absolute/path/to/book.epub 的脚本弹窗注释，检查打开、关闭和返回，保留原件。
 $quillbind 将 /absolute/path/to/manuscript 中的 Markdown 制作为 EPUB。
@@ -27,6 +28,8 @@ $quillbind 将 /absolute/path/to/volume-01 的漫画扫图制作为 CBZ，使用
 示例路径需替换为实际路径。支持的操作、输入条件和交付检查从技能入口按任务分支查阅；发布 EPUB 前必须完成其规定的全部检查。
 
 标签以书库当前受控词表为准，外部分类与书目依据继续使用 BookWalker 和出版社官方源。审计与出版运行时共用[词表来源及迁移规则](../../../skills/quillbind/references/tags.md)。有当前书库文件时，审计指定 `--vocabulary`，出版命令设置 `QUILLBIND_VOCABULARY`；未知标签保留待核对。生成计划不代表已写库，写库验收需要核对数据库、旁置 OPF 和目标格式内部元数据。
+
+[内嵌元数据维护](../../../skills/quillbind/references/embedded-metadata.md)覆盖 CBZ 根目录的 `ComicInfo.xml` 与 EPUB 实际 OPF，明确标签、书目字段、保留规则和验证方式。ComicInfo 2.0 用 `Genre` 承载受控标签，EPUB 用 `dc:subject`。这是代理的暂存、最小修改和读回操作流程；现有运行时没有通用的全字段写入或自动三处同步命令。已有 CBZ 的元数据修订不经过扫图打包，EPUB 的标签修订也不借用会更新日期的 BookWalker enrichment。
 
 漫画打包还需要 libjxl 的 `cjxl` 与 `djxl`，输出需要支持 JPEG XL 的 CBZ 阅读器。输入范围、页序和校验说明见[漫画流程](../../../skills/quillbind/references/manga.md)，版本匹配与日版纸书优先日期规则见 [BookWalker 流程](../../../skills/quillbind/references/bookwalker.md)。
 

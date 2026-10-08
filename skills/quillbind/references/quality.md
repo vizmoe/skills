@@ -4,6 +4,8 @@
 
 [Tag audits](tags.md) return input/vocabulary hashes, per-book proposals and unresolved findings; they do not write or verify a library. Live synchronization needs independent database, sidecar and embedded-format readback plus non-target preservation evidence. Publication release gates remain separate.
 
+[Embedded metadata maintenance](embedded-metadata.md) requires source/staged/installed hashes, per-field evidence and independent readback. CBZ checks cover `ComicInfo.xml` schema, non-target XML semantics, ZIP CRCs and unchanged page/member bytes and order; EPUB checks cover OPF semantics, non-OPF member bytes and actual EPUBCheck results. Report staged-only or partial synchronization explicitly. These checks do not imply that images were re-encoded, native readers were tested or an EPUB publication was released.
+
 | Operation      | Evidence and handoff                                                                                                                                                                                                                  |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Preparation    | `metadata/preparation.json`: copied-source hashes and readiness; release is `not-run`.                                                                                                                                                |

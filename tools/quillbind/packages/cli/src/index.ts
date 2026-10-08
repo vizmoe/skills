@@ -4,6 +4,8 @@ import { parseArgs } from "node:util";
 import {
   resolveMetadata,
   resolveBookWalker,
+  auditFileRatings,
+  cleanRatings,
   preflightBook,
   buildBook,
   previewBook,
@@ -47,6 +49,8 @@ const HELP = [
   "quillbind novel fetch <book-url> [--output new-directory] [--volumes 1-3,5] [--split-volumes] [--prepare-only]",
   "quillbind metadata bookwalker SOURCES.json --output LOCK.json [--online]",
   "quillbind metadata resolve <book-directory> [--online]",
+  "quillbind metadata ratings-audit <file.epub|file.cbz> [--output plan.json]",
+  "quillbind metadata ratings-clean <file.epub|file.cbz> --plan plan.json --output clean.epub|clean.cbz",
   "quillbind preflight <book-directory> [--qa-coverage full|stratified]",
   "quillbind build <book-directory> [--to simplified|traditional|china|taiwan|hongkong] [--online]",
   "quillbind preview <book-directory> [--to TARGET] [--online]",
@@ -287,6 +291,23 @@ try {
         output = await doctor();
         break;
       case "metadata":
+        if (["ratings-audit", "ratings-clean"].includes(subcommand ?? "")) {
+          const allowed = new Set([
+            "json",
+            "output",
+            ...(subcommand === "ratings-clean" ? ["plan"] : []),
+          ]);
+          if (
+            positionals.length !== 3 ||
+            Object.entries(values).some(
+              ([key, value]) => value !== undefined && !allowed.has(key),
+            )
+          )
+            fail(
+              "ARGUMENT_CONFLICT",
+              "Rating operations accept one ebook, --output and (for cleanup) --plan only",
+            );
+        }
         if (subcommand === "bookwalker")
           output = await resolveBookWalker(
             required(third, "sources JSON file"),
@@ -296,6 +317,16 @@ try {
               signal: abort.signal,
             },
           );
+        else if (subcommand === "ratings-audit")
+          output = await auditFileRatings(required(third, "ebook file"), {
+            output: values.output,
+          });
+        else if (subcommand === "ratings-clean")
+          output = await cleanRatings(required(third, "ebook file"), {
+            plan: await readJson(required(values.plan, "--plan")),
+            output: required(values.output, "--output"),
+            signal: abort.signal,
+          });
         else if (subcommand === "resolve")
           output = await resolveMetadata(required(third, "book directory"), {
             online: values.online,
@@ -304,7 +335,7 @@ try {
         else
           fail(
             "COMMAND_UNKNOWN",
-            "Use metadata resolve or metadata bookwalker",
+            "Use metadata resolve, bookwalker, ratings-audit or ratings-clean",
           );
         break;
       case "preflight":

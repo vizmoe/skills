@@ -19,7 +19,7 @@ For Chinese light novels and manga, adopt the ISBN on the matched BOOK☆WALKER 
 
 Failed lookup, conflicting candidates or uncertain edition evidence must not clear an existing value. Retain it and report the concern if no supported replacement is available. Leave a previously absent ISBN empty only when no reliable candidate is found after the relevant lookup, or the format cannot represent it; record the attempted sources and reason while completing other supported fields. Never invent an ISBN, overwrite unrelated identifiers or change the primary UUID/`unique-identifier` to fill one.
 
-EPUB supports an additional ISBN `dc:identifier` using its existing version's conventions, independently of its primary identity. ComicInfo 2.0 has no ISBN field: report that format limitation and preserve other metadata rather than inventing an element or storing the ISBN in `Notes`/`Summary`. Follow the [embedded format rules](embedded-metadata.md) for a different existing, validated profile.
+EPUB supports an additional ISBN `dc:identifier` using its existing version's conventions, independently of its primary identity. ComicInfo 2.0 has no ISBN field: skip ISBN for that format without treating it as unresolved work. Do not invent an element or store the ISBN in `Notes`/`Summary`. Follow the [embedded format rules](embedded-metadata.md) for a different existing, validated profile.
 
 ## Build a small field plan
 
@@ -35,7 +35,7 @@ Identify each target by file path and SHA-256. Read its current package metadata
 | Date | Use the type-specific source policy above, retain known precision and leave unavailable components unset. Record the source field; no repeated cross-check is required. |
 | ISBN | Actively fill from matched evidence during general supplementation; preserve supported values and report unresolved cases under the ISBN policy above. |
 
-A metadata supplementation task does not by itself select covers, ratings, reading state or body text for replacement. When a field is selected, correct an evidenced wrong value as well as filling a blank; keep ambiguous values for review. Do not fabricate missing bibliography from a filename or a plausible title.
+A metadata supplementation task does not by itself select covers, ratings, reading state or body text for replacement. A request for complete library-rule cleanup includes the [score cleanup workflow](embedded-metadata.md#remove-score-metadata-completely); tags-only and explicitly restricted tasks retain their field boundaries. Never import retailer/reviewer scores when supplementing bibliography. When a field is selected, correct an evidenced wrong value as well as filling a blank; keep ambiguous values for review. Do not fabricate missing bibliography from a filename or a plausible title.
 
 ## Choose a file operation
 

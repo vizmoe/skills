@@ -32,4 +32,10 @@ python3 -B -m unittest discover -s tests -v
 python3 -B -m unittest discover -s tests/musagetes -v
 ```
 
-安装测试需要 Node.js、npm 和网络，在临时项目中运行 skills CLI，不修改个人技能目录。Musagetes 使用其目录内的 [MIT License](skills/musagetes/LICENSE)。
+安装测试需要 Node.js、npm 和网络，在临时项目中运行 skills CLI，不修改个人技能目录。
+
+## 许可证
+
+本项目的技能、脚本、运行时和文档统一采用根目录的 [MIT License](LICENSE)。第三方材料保留各自的许可声明，例如 Quillbind 的 [第三方声明](tools/quillbind/third-party/bili-novel-packer.txt)。
+
+skills CLI 仅安装所选技能目录，因此每个技能附带根 `LICENSE` 的相同副本，供独立安装时保留许可声明；许可范围仍是整个项目。新增技能时复制根 `LICENSE` 并声明 `license: MIT`，目录校验会检查副本是否一致。

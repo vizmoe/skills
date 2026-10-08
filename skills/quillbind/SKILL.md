@@ -1,5 +1,6 @@
 ---
 name: quillbind
+license: MIT
 description: Build EPUB 3.3 books from Markdown or supported Bilinovel, Lightnovel.fun and Lightnovel.app book URLs; inspect and repair existing EPUBs, convert Chinese scripts with zhconvert, resolve metadata, and verify Apple Books/Kindle compatibility. Arbitrary HTML, PDF and LaTeX import are unsupported.
 compatibility: Requires Node.js and the tools/quillbind workspace from vizmoe/skills with dependencies installed, exposed through QUILLBIND_ROOT or a quillbind CLI on PATH. Runtime pins live in that workspace. Release checks need Java, EPUBCheck and Chromium. Setup, website collection and explicit online metadata/conversion refreshes need network access; saved books and locks support offline builds.
 metadata:

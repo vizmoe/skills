@@ -1,6 +1,6 @@
 # Musagetes
 
-将本地音乐整理为可追溯、可恢复的专辑目录：发行匹配、标签修复、CUE 分轨、无损格式规范化与封面处理。执行规范从 [SKILL.md](../skills/musagetes/SKILL.md) 开始，采用 [MIT License](../skills/musagetes/LICENSE)。版本记录在 SKILL.md 的 `metadata.version`。
+将本地音乐整理为可追溯、可恢复的专辑目录：发行匹配、标签修复、CUE 分轨、无损格式规范化与封面处理。执行规范从 [SKILL.md](../skills/musagetes/SKILL.md) 开始，采用项目统一的 [MIT License](../LICENSE)。版本记录在 SKILL.md 的 `metadata.version`。
 
 ## 安装
 

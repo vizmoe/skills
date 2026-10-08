@@ -45,6 +45,8 @@ Every command accepts `--json`. JSON occupies stdout without progress logs; huma
 
 `build DIRECTORY --to simplified|traditional|china|taiwan|hongkong` converts rendered Chinese text before packaging checks. `epub convert FILE.epub --to TARGET --output NEW.epub` converts an existing EPUB 3 and runs every release gate. The latter writes `<output>.reports/` and uses an exclusive `<output>.conversion.lock`; inspect a running conversion before removing a stale lock. See [Chinese conversion](chinese-conversion.md) for online behavior, response snapshots and configuration.
 
+`manga package SCANS --bookwalker LOCK.json --output VOLUME.cbz` creates a verified lossless JPEG XL archive with ComicInfo. See the [manga workflow](../../../skills/quillbind/references/manga.md) for supported inputs, ordering, codec setup, reports and reader requirements. The pinned QA container also provides codec and XML-schema validation tools from [manga-tools.lock.json](../standards/manga-tools.lock.json).
+
 `epub enrich FILE.epub --bookwalker LOCK.json --output NEW.epub` supplements a native EPUB using a verified source lock, preserves all non-OPF resources, and runs every release gate. See the [BookWalker workflow](../../../skills/quillbind/references/bookwalker.md) for preservation and date policy.
 
 `epub repair-copy` consumes a reading plan (`epub repair-plan --purpose reading`) and returns a checked personal reading copy with remaining source findings, rather than a release artifact. The [repair workflow](repair.md) describes its preservation guarantees, sampled QA and directory command. Publication plans continue to use `epub repair` and all release gates.

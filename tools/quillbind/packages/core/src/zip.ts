@@ -36,11 +36,21 @@ export function compressionReport(entries: ReadonlyMap<string, ZipEntry>) {
   };
 }
 export function pack(entries: Map<string, Uint8Array>, epoch: number): Buffer {
-  const names = [
-    "mimetype",
-    ...[...entries.keys()].filter((n) => n !== "mimetype").sort(),
-  ];
-  if (!entries.has("mimetype")) fail("OCF_MIMETYPE", "Missing mimetype");
+  return packArchive(entries, epoch, { epub: true });
+}
+export function packArchive(
+  entries: Map<string, Uint8Array>,
+  epoch: number,
+  options: { epub?: boolean; store?: boolean } = {},
+): Buffer {
+  const names = options.epub
+    ? [
+        "mimetype",
+        ...[...entries.keys()].filter((n) => n !== "mimetype").sort(),
+      ]
+    : [...entries.keys()].sort();
+  if (options.epub && !entries.has("mimetype"))
+    fail("OCF_MIMETYPE", "Missing mimetype");
   if (names.length >= 0xffff)
     fail("ZIP64_UNSUPPORTED", "ZIP64 output is not supported");
   const date = new Date(epoch * 1000);
@@ -63,7 +73,7 @@ export function pack(entries: Map<string, Uint8Array>, epoch: number): Buffer {
     const value = entries.get(name)!;
     const data = Buffer.from(value.buffer, value.byteOffset, value.byteLength);
     const compressed =
-      name === "mimetype"
+      name === "mimetype" || options.store
         ? data
         : deflateRawSync(data, { level: compressionPolicy.level });
     const method =
@@ -116,7 +126,12 @@ export function pack(entries: Map<string, Uint8Array>, epoch: number): Buffer {
 }
 export function unpack(
   input: Uint8Array,
-  options: { strictOcf?: boolean } = {},
+  options: {
+    strictOcf?: boolean;
+    maxEntries?: number;
+    maxEntryBytes?: number;
+    maxTotalBytes?: number;
+  } = {},
 ): Map<string, ZipEntry> {
   const bytes = Buffer.from(input.buffer, input.byteOffset, input.byteLength);
   const u16 = (at: number) => {
@@ -139,6 +154,9 @@ export function unpack(
   const count = u16(end + 10),
     cdSize = u32(end + 12),
     cdOffset = u32(end + 16);
+  if (count > (options.maxEntries ?? Infinity))
+    fail("ZIP_LIMIT", "Archive has too many entries");
+  let totalBytes = 0;
   if (count === 65535 || cdOffset === 0xffffffff || cdSize === 0xffffffff)
     fail("ZIP64_UNSUPPORTED", "ZIP64 input is not supported");
   if (cdOffset + cdSize !== end)
@@ -159,6 +177,12 @@ export function unpack(
       extraSize = u16(cursor + 30),
       commentSize = u16(cursor + 32),
       offset = u32(cursor + 42);
+    totalBytes += size;
+    if (
+      size > (options.maxEntryBytes ?? Infinity) ||
+      totalBytes > (options.maxTotalBytes ?? Infinity)
+    )
+      fail("ZIP_LIMIT", "Archive exceeds expanded-size limits");
     if (flags & 1 || flags & 0x40)
       fail("UNSUPPORTED_ENCRYPTION", "Encrypted ZIP entry");
     if (method !== 0 && method !== 8)

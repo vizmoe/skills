@@ -93,6 +93,7 @@ it("keeps CLI JSON stdout parseable on success and failure", async () => {
     "markdown-book",
     "epub",
     "novel-url",
+    "manga-scans",
   ]);
   const bad = await run(
     process.execPath,

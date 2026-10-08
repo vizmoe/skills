@@ -44,10 +44,11 @@ export { inspectionSummary, formatInspection } from "./inspection.js";
 export type { InspectionReport } from "./inspection.js";
 export { VERSION } from "./runtime.js";
 
-/** Supported workflows; every release artifact passes all release gates. */
+/** Supported workflows; EPUB publication retains every EPUB release gate. */
 export const formats = {
-  inputs: ["markdown-book", "epub", "novel-url"],
-  outputs: ["epub"],
+  inputs: ["markdown-book", "epub", "novel-url", "manga-scans"],
+  outputs: ["epub", "cbz"],
+  mangaInputFormats: ["image-directory", "zip", "cbz"],
   epubInputModes: ["audit", "repair", "repair-copy", "convert", "enrich"],
 } as const;
 
@@ -64,3 +65,5 @@ export type {
 } from "./bookwalker.js";
 
 export { enrichEpub, applyBookWalkerMetadata } from "./enrich-epub.js";
+
+export { packageManga } from "./manga.js";

@@ -27,7 +27,7 @@ npx skills update
 | 技能 | 能力 | 使用说明 |
 | --- | --- | --- |
 | [Musagetes](skills/musagetes/SKILL.md) | 本地音乐库整理、标签与封面检查、发行匹配、CUE 分轨 | [安装、调用与运行条件](docs/skills/musagetes/README.md) |
-| [Quillbind](skills/quillbind/SKILL.md) | EPUB 构建、审计修复、轻小说采集与繁简转换 | [安装、调用与运行条件](docs/skills/quillbind/README.md) |
+| [Quillbind](skills/quillbind/SKILL.md) | EPUB 构建与维护、轻小说采集、BookWalker 元数据、漫画 CBZ 与繁简转换 | [安装、调用与运行条件](docs/skills/quillbind/README.md) |
 
 ## 目录结构
 

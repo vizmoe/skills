@@ -27,6 +27,11 @@ export function formatHuman(command: string, value: unknown): string {
       })
       .join("\n")}\nReport: ${item.report}\n`;
   }
+  if (item.operation === "manga-package") {
+    const artifact = record(item.artifact),
+      pages = Array.isArray(item.pages) ? item.pages : [];
+    return `Manga: ${String(item.status).toUpperCase()}\nCBZ: ${artifact.path}\nPages: ${pages.length}\nSHA-256: ${artifact.sha256}\nOriginal release date: ${record(item.metadata).releaseDate}\nReport: ${record(item.reports).json}\n${item.readerCompatibility}\n`;
+  }
   const projection = record(item.qaProjection);
   const screenshots = record(projection.screenshots);
   const estimatedBytes = record(screenshots.estimatedPassingBytes);

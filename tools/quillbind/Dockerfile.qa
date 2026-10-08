@@ -9,6 +9,9 @@ COPY tools/quillbind/package.json tools/quillbind/pnpm-lock.yaml tools/quillbind
 COPY tools/quillbind/packages/core/package.json packages/core/package.json
 COPY tools/quillbind/packages/cli/package.json packages/cli/package.json
 RUN pnpm install --frozen-lockfile
+COPY tools/quillbind/scripts/install-manga-ci.mjs scripts/
+COPY tools/quillbind/standards/manga-tools.lock.json standards/manga-tools.lock.json
+RUN node scripts/install-manga-ci.mjs
 COPY tools/quillbind/scripts/install-tools.mjs tools/quillbind/scripts/install-tools.ts scripts/
 COPY tools/quillbind/packages/core/src/ packages/core/src/
 COPY tools/quillbind/standards/tools.lock.json standards/tools.lock.json

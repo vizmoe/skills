@@ -1,0 +1,31 @@
+{
+  "checkedAt": "2026-10-08",
+  "platform": "linux-arm64",
+  "source": "https://ports.ubuntu.com/ubuntu-ports/",
+  "packages": [
+    {
+      "name": "libgif7",
+      "version": "5.2.2-1ubuntu1.2",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/g/giflib/libgif7_5.2.2-1ubuntu1.2_arm64.deb",
+      "sha256": "ef7849d9887be357725efc55c71456e1b6d4911e88314121471f715f0f0bc0c4"
+    },
+    {
+      "name": "libtcmalloc-minimal4t64",
+      "version": "2.15-3build1",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/g/google-perftools/libtcmalloc-minimal4t64_2.15-3build1_arm64.deb",
+      "sha256": "65031e095bfb13f046f2b7602a1f29a2612e08a660c80f061d8ebfa6e02462e3"
+    },
+    {
+      "name": "libjxl-tools",
+      "version": "0.7.0-10.2ubuntu6.1",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/universe/j/jpeg-xl/libjxl-tools_0.7.0-10.2ubuntu6.1_arm64.deb",
+      "sha256": "57527a0faa133f6168d8813329a6e7d9fa2080dd4d1589dc76f865e57a550174"
+    },
+    {
+      "name": "libxml2-utils",
+      "version": "2.9.14+dfsg-1.3ubuntu3.9",
+      "url": "https://ports.ubuntu.com/ubuntu-ports/pool/main/libx/libxml2/libxml2-utils_2.9.14+dfsg-1.3ubuntu3.9_arm64.deb",
+      "sha256": "93eef425d2bc322c240266e940f0d01ec06651c5169014472cec2ae592a32c6a"
+    }
+  ]
+}

@@ -1,10 +1,10 @@
 ---
 name: quillbind
 license: MIT
-description: Build EPUB 3.3 books from Markdown or supported Bilinovel, Lightnovel.fun and Lightnovel.app book URLs; inspect and repair existing EPUBs, convert Chinese scripts with zhconvert, enrich light-novel and manga metadata from BookWalker, and verify Apple Books/Kindle compatibility. Arbitrary HTML, PDF and LaTeX import are unsupported.
-compatibility: Requires Node.js and the tools/quillbind workspace from vizmoe/skills with dependencies installed, exposed through QUILLBIND_ROOT or a quillbind CLI on PATH. Runtime pins live in that workspace. Release checks need Java, EPUBCheck and Chromium. Setup, website collection and explicit online metadata/conversion refreshes need network access; saved books and locks support offline builds.
+description: Build EPUB 3.3 books from Markdown or supported Bilinovel, Lightnovel.fun and Lightnovel.app book URLs; inspect and repair existing EPUBs, convert Chinese scripts with zhconvert, enrich light-novel and manga metadata from BookWalker, package manga scans as lossless JPEG XL CBZ with ComicInfo, and verify EPUB compatibility with Apple Books/Kindle. Arbitrary HTML, PDF and LaTeX import are unsupported.
+compatibility: Requires Node.js and the tools/quillbind workspace from vizmoe/skills with dependencies installed, exposed through QUILLBIND_ROOT or a quillbind CLI on PATH. Runtime pins live in that workspace. EPUB release checks need Java, EPUBCheck and Chromium; manga CBZ needs libjxl cjxl and djxl. Setup, website collection and explicit online metadata/conversion refreshes need network access; saved books and locks support offline builds.
 metadata:
-  version: "0.1.3"
+  version: "0.1.4"
 ---
 
 # Quillbind
@@ -18,6 +18,7 @@ Invoke [scripts/quillbind.mjs](scripts/quillbind.mjs) with Node from the caller'
 - Website book URL, novel collection or volume merging → [novels](references/novels.md).
 - Emphasis, lists, tables, quotes, images or typography → [Markdown](references/markdown.md).
 - Blog/Astro chapters, Properties, footnotes or heading jumps → [blog Markdown](references/blog-markdown.md).
+- Manga scan directories or image archives to CBZ → [manga](references/manga.md).
 - Light-novel or manga edition metadata from BookWalker → [BookWalker](references/bookwalker.md).
 - Missing metadata, ISBN or edition decisions → [metadata](references/metadata.md).
 - EPUB reading copy, publication upgrade or directory repair → [repair](references/repair.md).
@@ -27,7 +28,7 @@ Invoke [scripts/quillbind.mjs](scripts/quillbind.mjs) with Node from the caller'
 
 ## Shared boundaries
 
-Run `doctor --json` before release work. A missing validator is an environment error; every release gate is required. Preparation, inspection and preview have their own results.
+Run `doctor --json` before EPUB release work. Manga packaging checks its own required codec tools. A missing validator is an environment error; every release gate is required. Preparation, inspection and preview have their own results.
 
 ```sh
 node <skill-directory>/scripts/quillbind.mjs doctor --json

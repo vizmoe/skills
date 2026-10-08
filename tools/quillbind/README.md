@@ -20,7 +20,7 @@ pnpm quillbind build examples/technical --json
 
 `preview <书籍目录> --json` 只渲染一次，写入 `dist/preview/candidate.epub`，明确标记发布检查未运行，并保留已有正式产物和报告。ZIP 使用固定 level 9 deflate，`mimetype` 保持存储模式；不值得压缩的条目保留原样。压缩策略与方法统计记录在 `compression.json`。
 
-源文件不设大小、图片像素或归档展开比例上限。PNG 默认进行经数据校验的最高级别 zlib 无损压缩，保留位深、透明度、ICC、EXIF 等数据；JPEG、GIF、SVG 保留原始字节，图片不缩放、不做有损重编码。详情及 WebP 的平台兼容性取舍见 [图片处理](docs/images.md)，逐图结果见 `dist/reports/images.json`。Java 仅用于运行 EPUBCheck，出版引擎是 TypeScript。
+EPUB 流程的源文件不设大小、图片像素或归档展开比例上限。PNG 默认进行经数据校验的最高级别 zlib 无损压缩，保留位深、透明度、ICC、EXIF 等数据；JPEG、GIF、SVG 保留原始字节，图片不缩放、不做有损重编码。详情及 WebP 的平台兼容性取舍见 [图片处理](docs/images.md)，逐图结果见 `dist/reports/images.json`。Java 仅用于运行 EPUBCheck，出版引擎是 TypeScript。
 
 ```sh
 pnpm quillbind init ./my-book --theme literature
@@ -43,6 +43,16 @@ pnpm quillbind epub convert ./original.epub --to simplified --output ./simplifie
 ```
 
 本程式使用了繁化姬的 API 服務；繁化姬商用必須付費。配置、转换范围与复现规则见[中文繁简转换](docs/chinese-conversion.md)。
+
+轻小说和漫画可从中日 BookWalker 商品页生成可离线复用的来源记录，补齐项目或已有 EPUB 的书目。中文字段参考台站，发行日期优先日版纸书、缺失时用日版电子版。见 [BookWalker 流程](../../skills/quillbind/references/bookwalker.md)。
+
+漫画扫图使用独立的 [CBZ 流程](../../skills/quillbind/references/manga.md)：逐页 `cjxl -d 0` 无损编码、解码校验，并写入 `ComicInfo.xml` 和来源记录。此流程需要 libjxl 工具，具有归档安全限制；输出阅读器需支持 JPEG XL。原生 EPUB 保持 EPUB 格式，继续执行全部 EPUB 发布检查。
+
+```sh
+pnpm quillbind metadata bookwalker ./sources.json --output ./bookwalker.lock.json --online --json
+pnpm quillbind epub enrich ./original.epub --bookwalker ./bookwalker.lock.json --output ./enriched.epub --json
+pnpm quillbind manga package ./scans --bookwalker ./manga.lock.json --output ./volume-01.cbz --reading-direction rtl --json
+```
 
 Agent Skill 入口是 [skills/quillbind/SKILL.md](../../skills/quillbind/SKILL.md)，通过 `npx skills add vizmoe/skills --skill quillbind` 安装。安装后设置 `QUILLBIND_ROOT` 为本工作区的绝对路径（仓库下的 `tools/quillbind`），或提供已安装的 `quillbind` 命令；完整配置见[运行环境](../../skills/quillbind/references/environment.md)。源码中的 helper 可以自动定位本工作区。
 

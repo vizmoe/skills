@@ -37,6 +37,52 @@ it("reads only the selected edition's fields and preserves responsibility roles"
   });
 });
 
+it.each([
+  ["<p>第一段。</p><p>第二段。</p>", "第一段。\n\n第二段。"],
+  ["第一行。<br>第二行。<br><br>第三行。", "第一行。\n第二行。\n\n第三行。"],
+  ["<ul><li>第一項</li><li>第二項</li></ul>", "第一項\n第二項"],
+  [
+    "<div><p> A <em>quiet</em> &amp; clear\n description. </p>\n<p>　Second paragraph. </p></div>",
+    "A quiet & clear description.\n\nSecond paragraph.",
+  ],
+  [
+    "<p>保留<strong>文字</strong>。</p><script>bad()</script><style>p{}</style>",
+    "保留文字。",
+  ],
+  ["純文字第一段。\n\n純文字第二段。", "純文字第一段。\n\n純文字第二段。"],
+  ["<p></p><p> 唯一段落。 </p><div><br></div>", "唯一段落。"],
+])(
+  "preserves semantic plain-text description boundaries for %s",
+  (introduction, expected) => {
+    expect(
+      parseBookWalker(taiwanHtml({ introduction }), twUrl).description,
+    ).toBe(expected);
+  },
+);
+
+it("retains description paragraphs when source locks are serialized and read offline", async () => {
+  const description = "第一段。\n\n第二段。\n條目。";
+  const lock = await collectBookWalker(selection, {
+    online: true,
+    fetcher: async (input) => ({
+      ...(await bookwalkerFetcher(input)),
+      ...(input.url === twUrl
+        ? {
+            bytes: Buffer.from(
+              taiwanHtml({
+                introduction: "<p>第一段。</p><p>第二段。<br>條目。</p>",
+              }),
+            ),
+          }
+        : {}),
+    }),
+  });
+  expect(lock.metadata.description).toBe(description);
+  expect(readBookWalkerLock(JSON.stringify(lock)).metadata.description).toBe(
+    description,
+  );
+});
+
 it("combines Chinese edition fields with the Japanese original's print date", async () => {
   const lock = await collectBookWalker(selection, {
     online: true,

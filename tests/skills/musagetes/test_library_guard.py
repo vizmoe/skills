@@ -9,7 +9,7 @@ import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "skills/musagetes/scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "skills/musagetes/scripts"))
 import library_guard as guard
 
 

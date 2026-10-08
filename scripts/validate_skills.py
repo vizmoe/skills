@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Validate the catalog with skills-ref and check self-contained Markdown resources."""
 from pathlib import Path
+import argparse
 import json
 import re
 import shutil
@@ -16,6 +17,16 @@ def validate_license(skill: Path, project_license: Path, declared_license: str |
     notice = skill / "LICENSE"
     if not notice.is_file() or notice.read_bytes() != project_license.read_bytes():
         raise ValueError(f"Bundle an exact copy of the project LICENSE: {skill}")
+
+
+def discover_skills(root: Path) -> list[Path]:
+    skills = sorted((root / "skills").iterdir())
+    if not skills:
+        raise ValueError("No skills found")
+    for skill in skills:
+        if skill.is_symlink() or not skill.is_dir() or not (skill / "SKILL.md").is_file():
+            raise ValueError(f"Expected a local skill directory with SKILL.md: {skill}")
+    return skills
 
 
 def prose(text: str) -> str:
@@ -35,12 +46,13 @@ def anchors(text: str) -> set[str]:
 
 def validate_resources(skill: Path) -> None:
     skill = skill.resolve()
-    allowed = {"SKILL.md", "LICENSE", "LICENSE.txt", "agents", "scripts", "references", "assets"}
-    for entry in skill.iterdir():
-        if entry.name not in allowed:
-            raise ValueError(f"Development or unknown resource in installed skill: {entry}")
+    development = {"tests", "evals", "work", "AGENTS.md", "CONTRIBUTING.md"}
+    generated = {".git", ".hg", ".svn", ".local", ".cache", ".venv", "__pycache__",
+                 "node_modules", "dist", "coverage", "test-results", "playwright-report", "ci-output"}
     graph = {}
     for source in skill.rglob("*"):
+        if source.name in generated or (source.parent == skill and source.name in development):
+            raise ValueError(f"Development or generated resource in installed skill: {source}")
         if source.is_symlink():
             raise ValueError(f"Linked runtime resource: {source}")
         if source.suffix != ".md" or not source.is_file():
@@ -68,22 +80,20 @@ def validate_resources(skill: Path) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--root", type=Path, default=ROOT, help="Catalog root (defaults to this checkout)")
+    root = parser.parse_args().root.resolve()
     local = ROOT / ".venv/bin/skills-ref"
     validator = str(local) if local.is_file() else shutil.which("skills-ref")
     if not validator:
         raise SystemExit("Install requirements-skill.txt into .venv or provide skills-ref on PATH.")
-    skills = sorted((ROOT / "skills").iterdir())
-    if not skills:
-        raise SystemExit("No skills found")
-    for skill in skills:
-        if skill.is_symlink() or not skill.is_dir():
-            raise SystemExit(f"Expected a local skill directory: {skill}")
+    for skill in discover_skills(root):
         subprocess.run([validator, "validate", str(skill)], check=True, timeout=30)
         validate_resources(skill)
         properties = json.loads(subprocess.check_output(
             [validator, "read-properties", str(skill)], text=True, timeout=30,
         ))
-        validate_license(skill, ROOT / "LICENSE", properties.get("license"))
+        validate_license(skill, root / "LICENSE", properties.get("license"))
         print(f"Resource validation passed: {skill.name}")
 
 

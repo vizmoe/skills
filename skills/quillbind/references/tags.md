@@ -2,13 +2,13 @@
 
 ## Select the source of truth
 
-Read the target library's current organization instructions before classifying books. If they identify a controlled vocabulary, use that file; for the source Calibre workspace it is `reports/book-taxonomy/controlled-vocabulary.json`. Historical batch reports, existing dirty tags and Quillbind's former taxonomy do not override it. Never rerun historical scripts with fixed IDs or backups.
+Read the target library's classification rules and controlled vocabulary; for the source Calibre workspace the file is `reports/book-taxonomy/controlled-vocabulary.json`. The library is the label authority, not the write target. The current file-only workflow overrides historical instructions to update Calibre's database or sidecars. Historical batch reports, existing dirty tags and Quillbind's former taxonomy do not override the vocabulary. Never rerun historical scripts with fixed IDs or backups.
 
 The bundled [vocabulary](tag-vocabulary.json) contains the source library's reusable classes, subclasses, aliases and classification rules, excluding its book assignments. It is a portable baseline when no current library file is available, not an override for a newer library vocabulary. Both the audit helper and publishing runtime use this same data and [loader](../scripts/tag-vocabulary.mjs). Select the current file for publishing commands with `QUILLBIND_VOCABULARY=/absolute/path/to/controlled-vocabulary.json`; `--vocabulary` selects it explicitly for the audit helper and takes precedence over that environment variable. A missing or invalid selected file fails; there is no silent fallback.
 
 Keep the library's fixed majors, exact spelling, case and spaces, in `Major.Controlled Subclass` form. Reuse subclasses first. A genuine gap requires a reasoned definition and mapping in the library vocabulary under an existing major; report the gap until that change is within the user's scope. Do not invent a tag for one book or add/rename majors. The organization is inspired by the [LCC outline](https://www.loc.gov/catdir/cpso/lcco/), not an assignment of official call numbers.
 
-Use the existing [BookWalker workflow](bookwalker.md) and publisher official pages for external classification and bibliography evidence; inspect book contents to confirm the edition and subject. Do not introduce another lookup provider for tag work. The LCC link only explains the vocabulary's structural background, not a bibliography lookup or authority to replace the library's labels.
+Use [type-specific bibliography](bibliography.md): BookWalker is the special route for light novels and manga; other books use publisher official information and book contents. Inspect the actual work before assigning a genre. The LCC link only explains the vocabulary's structural background, not a bibliography lookup or authority to replace the library's labels.
 
 Tags describe subject, discipline or an explicitly allowed work type. Exclude author names/nationalities, titles, series, publishers, source sites, file formats, marketing, ratings and processing states. Keep multiple supported classifications concise. `Language.English` describes English learning content, not every book written in English. Use native language metadata for language/script; preserve existing compatibility columns such as `#chinese_script` without turning them into Tags or converting the text.
 
@@ -16,14 +16,9 @@ Confirmed prose light novels include `Literature.Light Novel` plus independently
 
 ## Audit and make a reviewable plan
 
-First fix the target books and fields. Obtain a JSON inventory with stable Calibre IDs, titles and tag arrays, using the installed `calibredb list --help` and the [official CLI documentation](https://manual.calibre-ebook.com/generated/en/calibredb.html#list). For example, export only the caller's selected search to a new file outside the library:
+Fix the target files and fields. Read tags from EPUB package `dc:subject` or CBZ `ComicInfo.xml` using the [format mappings](embedded-metadata.md), then make a JSON inventory with titles and tag arrays. Assign a stable positive integer `id` within this audit and retain its file path and source hash in the inventory; the ID does not need to be a Calibre book ID. An already supplied Calibre export can be reused as evidence, but does not replace file readback or authorize database writes.
 
-```sh
-calibredb list --with-library "/absolute/library/books" \
-  --fields title,tags --search '<selected search expression>' --for-machine
-```
-
-The command prints JSON including IDs. Retain the inventory and run the [standalone helper](../scripts/tags.mjs), which needs only Node.js and never opens a Calibre database:
+Retain that file mapping and run the [standalone helper](../scripts/tags.mjs), which needs only Node.js and never opens a Calibre database or edits an ebook:
 
 ```sh
 node <skill-directory>/scripts/tags.mjs audit \
@@ -31,9 +26,9 @@ node <skill-directory>/scripts/tags.mjs audit \
   --output new-tag-audit.json
 ```
 
-The input is an array such as `[{"id":1,"title":"Example","tags":["Fantasy"]}]`. Other exported fields are ignored and remain untouched. The helper normalizes recognized case/spacing variants, declared flat aliases and duplicates. It does not infer synonyms or genres from titles, authors, language or descriptions. Unknown values remain in `proposed` and `unresolved`, never disappear silently. An undeclared flat subclass is also unknown even if its name seems familiar.
+The input is an array such as `[{"id":1,"path":"/absolute/books/example.epub","title":"Example","tags":["Fantasy"]}]`; retain the actual source SHA-256 alongside `path`. Extra fields participate in the inventory file hash but are not interpreted or repeated in per-book proposals. Join report IDs back to the retained inventory to locate files. The helper normalizes recognized case/spacing variants, declared flat aliases and duplicates. It does not infer synonyms or genres from titles, authors, language or descriptions. Unknown values remain in `proposed` and `unresolved`, never disappear silently. An undeclared flat subclass is also unknown even if its name seems familiar.
 
-For content decisions, inspect the actual work and edition-matched BookWalker records or publisher official pages. Supply a separate JSON array through `--decisions decisions.json`:
+For content decisions, inspect the actual work and the source selected for its book type. Supply a separate JSON array through `--decisions decisions.json`:
 
 ```json
 [
@@ -62,19 +57,15 @@ Old projects may contain `Technology.SoftwareEngineering` or `Technology.Compute
 
 BookWalker metadata enrichment does not classify or rewrite existing EPUB subjects. A tag-only repair must use the scoped metadata process below; do not run a full rebuild or unrelated repair merely to change tags.
 
-## Apply only authorized library changes
+## Apply tags directly to the selected files
 
-Skill maintenance and an audit request do not authorize library writes. When the user's task includes applying changes, continue within that existing authorization; an additional confirmation is not required merely because the audit is complete. Recheck that the chosen IDs, original tag values, vocabulary hash and target file hashes still match. Re-plan changed items instead of overwriting concurrent work.
+Skill maintenance and an audit request do not authorize ebook writes. When the task includes applying changes, use that existing authorization without an extra phase confirmation. Recheck report IDs against the retained file mapping, original tag values, vocabulary hash and source file hashes. Re-plan changed items instead of overwriting concurrent work.
 
-For the source library, follow its staging and synchronization rules:
+1. Back up the selected files and stage edits separately. Follow [embedded metadata maintenance](embedded-metadata.md) for EPUB package `dc:subject` and CBZ root `ComicInfo.xml` (`Genre` in the stable 2.0 profile). Keep the full canonical labels. Unsupported writers remain explicit unresolved items.
+2. Change only selected fields. Preserve title, contributors, series/order, identifiers/UUID, descriptions, language/script, covers, ratings, reading state, annotations and content during a tag-only edit.
+3. Validate staged files, then install them at the requested output paths. For in-place replacement, recheck the original hash, retain the backup and atomically replace only the target file with the verified result.
+4. Independently read each final file and compare its parsed tags with the accepted canonical set. Confirm the final SHA-256 matches the verified staged file. Leave Calibre's database, sidecar `metadata.opf` and `cover.jpg` untouched; no Calibre export, shutdown/reopen or whole-library backup is required for this workflow.
 
-1. Enumerate each selected book's formats and save the original fields and hashes. Stage changed copies outside the library. If the user selected only certain formats, retain that boundary and report excluded formats.
-2. Before live writes, stop competing Calibre writers and preserve a uniquely named, verified snapshot of the entire library. Retain earlier backups. A database/OPF-only copy is not a full library backup.
-3. Use the official Calibre API/CLI for the database, never direct SQL writes. Limit changes to Tags and the corresponding subject fields. Do not assume a database edit updates sidecars or embedded metadata. Broad metadata embedding can rewrite unrelated fields, so inspect and preserve them rather than blindly invoking it for a tag-only change.
-4. Synchronize database Tags, sidecar `metadata.opf` subjects and all in-scope embedded format subjects. Follow [embedded metadata maintenance](embedded-metadata.md) for CBZ root `ComicInfo.xml` (`Genre` in the stable 2.0 profile) and EPUB package `dc:subject`; for PDFs check both Keywords and XMP subject. Different representations must carry the same tag set. Unsupported format writers remain explicit unresolved items, not claimed successes.
-5. Preserve title, authors, series/order, identifiers/UUID, descriptions and paragraph breaks, language/script, covers, ratings, reading state, annotations, navigation and content unless separately authorized. The library's other cleanup policies do not expand a tags-only task. Keep evidence and processing status in external reports.
-6. Let Calibre's sidecar export finish, close writing handles and independently read all three layers back from disk. Check language normalization and zero-rating nodes as possible collateral changes. If Calibre was running before the task, restore it and verify fields after reopening. On interruption inspect actual disk state before recovery; preserve user changes and original backups.
+For changed CBZs, validate the supported ComicInfo schema and compare non-target XML fields and every other member's bytes, names and order; metadata edits never re-encode pages. For changed EPUBs, compare non-target OPF semantics and every non-OPF member's bytes, check CRC/structure, and run EPUBCheck on the changed files. Include the EPUB 3 modification timestamp as a planned housekeeping change. A missing/broken validator is incomplete verification. A separately selected PDF task needs its own writer, Info/XMP readback and page-preservation checks; the EPUB/CBZ procedure does not establish PDF support. For a Quillbind publication artifact, all [release gates](quality.md) still apply.
 
-For changed CBZs, independently read `ComicInfo.xml`, validate its supported schema, and compare non-target XML fields and every other member's bytes, names and order; metadata edits never re-encode pages. For changed EPUBs, compare non-target OPF semantics and every non-OPF ZIP member's bytes, check CRC and structure, and rerun EPUBCheck on the actual changed files. Include the EPUB 3 modification timestamp as a planned housekeeping change. A missing/broken validator is incomplete verification. PDF tag edits require independent metadata readback and content/page preservation checks, with rendering coverage stated accurately. Verify database integrity and non-target differences; final installed hashes must equal verified staged hashes. For a Quillbind publication artifact, all [release gates](quality.md) still apply.
-
-Deliver scoped counts, a readable report, per-book before/after and evidence, unresolved items, verified final hashes and backup location. Distinguish an audit proposal, staged files, actual synchronized writes and publication release. Do not claim native-reader rendering, whole-library synchronization or a verified write from the helper's JSON alone.
+Deliver file paths, scoped counts, before/after tags and evidence, unresolved items, verified final hashes and backup location. Distinguish proposals, staged files, completed file writes and publication release. Do not claim that Calibre's displayed metadata was updated, or that the audit helper's JSON proves a file write.

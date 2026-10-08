@@ -25,7 +25,7 @@ const kinds = {
 };
 
 function audit(books, decisions, vocabulary) {
-  check(Array.isArray(books), "Inventory must be a calibredb JSON array");
+  check(Array.isArray(books), "Inventory must be a JSON array of book records");
   const ids = new Set();
   for (const book of books) {
     check(

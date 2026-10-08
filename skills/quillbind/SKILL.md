@@ -1,10 +1,10 @@
 ---
 name: quillbind
 license: MIT
-description: Manage controlled English book tags using the Calibre library's vocabulary, audit and plan tag cleanup, and maintain CBZ ComicInfo.xml and EPUB embedded metadata with scoped library synchronization. Build EPUB 3.3 from Markdown or supported Bilinovel, Lightnovel.fun and Lightnovel.app URLs; inspect and repair EPUBs, check scripted popup notes, convert Chinese scripts with zhconvert, enrich metadata from BookWalker, package manga as lossless JPEG XL CBZ with ComicInfo, and verify Apple Books/Kindle compatibility. Arbitrary HTML, PDF and LaTeX import are unsupported.
-compatibility: Tag audits need Node.js; live library work needs Calibre. Publishing needs the tools/quillbind workspace from vizmoe/skills with dependencies installed, exposed through QUILLBIND_ROOT or quillbind on PATH. Runtime pins live there. EPUB release checks need Java, EPUBCheck and Chromium; manga CBZ needs libjxl cjxl and djxl. Setup, website collection and online metadata/conversion refreshes need network; saved books and locks support offline builds.
+description: Maintain metadata directly in EPUB files and CBZ ComicInfo.xml, using the library's controlled English tags, BookWalker for light novels and manga, and publisher sources for other books. Audit tag cleanup, build EPUB 3.3 from Markdown or supported novel websites, inspect and repair EPUBs, check scripted popup notes, convert Chinese scripts, and package manga scans as lossless JPEG XL CBZ. Arbitrary HTML, PDF and LaTeX import are unsupported.
+compatibility: Tag audits need Node.js; file metadata edits use ZIP/XML tools and validators. Publishing needs tools/quillbind from vizmoe/skills with dependencies installed, exposed through QUILLBIND_ROOT or quillbind on PATH. EPUB release checks need Java, EPUBCheck and Chromium; CBZ packaging needs libjxl cjxl and djxl. Setup and online collection/refreshes need network; saved books and locks support offline builds. Calibre database access is not required.
 metadata:
-  version: "0.1.7"
+  version: "0.1.8"
 ---
 
 # Quillbind
@@ -13,8 +13,9 @@ For tag tasks, use the standalone helper in [tag management](references/tags.md)
 
 ## Choose the operation
 
-- Calibre Tags, controlled subjects, label cleanup or library metadata synchronization → [tag management](references/tags.md). The current library vocabulary is authoritative for both auditing and publishing.
-- Existing CBZ `ComicInfo.xml`, EPUB embedded metadata, or mismatches with database/sidecar fields → [embedded metadata maintenance](references/embedded-metadata.md). Use it together with tag management when synchronizing labels.
+- Controlled subjects or label cleanup → [tag management](references/tags.md). The current library vocabulary supplies the labels; edits target ebook files.
+- Missing or incorrect metadata in existing books → [bibliography by book type](references/bibliography.md): BookWalker for light novels/manga and the publisher workflow for other books.
+- Existing CBZ `ComicInfo.xml` or EPUB metadata writes → [embedded metadata maintenance](references/embedded-metadata.md), together with tag management for label changes.
 - EPUB inventory or diagnosis → [inspection](references/inspection.md).
 - Existing EPUB popup footnotes, script behavior or hover/touch notes → [note checks](references/notes.md).
 - New book, local Markdown import or author preview → [authoring](references/authoring.md).
@@ -22,14 +23,16 @@ For tag tasks, use the standalone helper in [tag management](references/tags.md)
 - Emphasis, lists, tables, quotes, images or typography → [Markdown](references/markdown.md).
 - Blog/Astro chapters, Properties, footnotes or heading jumps → [blog Markdown](references/blog-markdown.md).
 - Manga scan directories or image archives to CBZ → [manga](references/manga.md).
-- Light-novel or manga edition metadata from BookWalker → [BookWalker](references/bookwalker.md).
-- Missing metadata, ISBN or edition decisions → [metadata](references/metadata.md).
+- Light-novel or manga metadata from BookWalker → [BookWalker](references/bookwalker.md).
+- Metadata configuration for a new authored publication → [authoring metadata](references/metadata.md). Its ISBN gates do not apply to existing-file maintenance.
 - EPUB reading copy, publication upgrade or directory repair → [repair](references/repair.md).
 - Chinese script or regional vocabulary conversion → [conversion](references/conversion.md).
 - Artifact handoff, warnings or release status → [quality](references/quality.md).
 - Setup or `ENVIRONMENT_ERROR` → [environment](references/environment.md).
 
 ## Shared boundaries
+
+Metadata maintenance writes the selected EPUB's internal OPF or CBZ's `ComicInfo.xml`. Do not update Calibre's database, library sidecars or `cover.jpg`, or make Calibre synchronization a completion requirement. Read the library vocabulary as a reference. ISBN is optional for maintenance; use the selected source's date without mandatory cross-verification. See [bibliography](references/bibliography.md) for the type-specific policy.
 
 Run `doctor --json` before EPUB release work. Manga packaging checks its own required codec tools. A missing validator is an environment error; every release gate is required. Preparation, inspection and preview have their own results.
 

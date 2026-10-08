@@ -8,6 +8,8 @@ import {
   cleanRatings,
   auditFileSeries,
   normalizeSeries,
+  auditFileCover,
+  adoptCover,
   preflightBook,
   buildBook,
   previewBook,
@@ -55,6 +57,8 @@ const HELP = [
   "quillbind metadata ratings-clean <file.epub|file.cbz> --plan plan.json --output clean.epub|clean.cbz",
   "quillbind metadata series-audit <file.epub|file.cbz> [--output plan.json]",
   "quillbind metadata series-normalize <file.epub|file.cbz> --plan plan.json --output normalized.epub|normalized.cbz",
+  "quillbind metadata cover-audit <file.epub|file.cbz> [--image original.jpg|original.png] [--output plan.json]",
+  "quillbind metadata cover-adopt <file.epub|file.cbz> --image original.jpg|original.png --plan plan.json --output covered.epub|covered.cbz",
   "quillbind preflight <book-directory> [--qa-coverage full|stratified]",
   "quillbind build <book-directory> [--to simplified|traditional|china|taiwan|hongkong] [--online]",
   "quillbind preview <book-directory> [--to TARGET] [--online]",
@@ -97,6 +101,7 @@ try {
       theme: { type: "string" },
       output: { type: "string" },
       plan: { type: "string" },
+      image: { type: "string" },
       bookwalker: { type: "string" },
       "execute-scripts": { type: "boolean" },
       cases: { type: "string" },
@@ -121,6 +126,17 @@ try {
   });
   jsonMode = !!values.json;
   const [command, subcommand, third] = positionals;
+  if (
+    values.image &&
+    !(
+      command === "metadata" &&
+      ["cover-audit", "cover-adopt"].includes(subcommand ?? "")
+    )
+  )
+    fail(
+      "ARGUMENT_CONFLICT",
+      "--image is supported by metadata cover-audit/cover-adopt only",
+    );
   if (
     command !== "novel" &&
     [
@@ -301,13 +317,20 @@ try {
             "ratings-clean",
             "series-audit",
             "series-normalize",
+            "cover-audit",
+            "cover-adopt",
           ].includes(subcommand ?? "")
         ) {
           const allowed = new Set([
             "json",
             "output",
-            ...(["ratings-clean", "series-normalize"].includes(subcommand!)
+            ...(["ratings-clean", "series-normalize", "cover-adopt"].includes(
+              subcommand!,
+            )
               ? ["plan"]
+              : []),
+            ...(["cover-audit", "cover-adopt"].includes(subcommand!)
+              ? ["image"]
               : []),
           ]);
           if (
@@ -318,7 +341,7 @@ try {
           )
             fail(
               "ARGUMENT_CONFLICT",
-              "File metadata operations accept one ebook, --output and (for writes) --plan only",
+              "File metadata operations accept one ebook, --output, --plan for writes and --image for covers only",
             );
         }
         if (subcommand === "bookwalker")
@@ -350,6 +373,18 @@ try {
             output: required(values.output, "--output"),
             signal: abort.signal,
           });
+        else if (subcommand === "cover-audit")
+          output = await auditFileCover(required(third, "ebook file"), {
+            image: values.image,
+            output: values.output,
+          });
+        else if (subcommand === "cover-adopt")
+          output = await adoptCover(required(third, "ebook file"), {
+            image: required(values.image, "--image"),
+            plan: await readJson(required(values.plan, "--plan")),
+            output: required(values.output, "--output"),
+            signal: abort.signal,
+          });
         else if (subcommand === "resolve")
           output = await resolveMetadata(required(third, "book directory"), {
             online: values.online,
@@ -358,7 +393,7 @@ try {
         else
           fail(
             "COMMAND_UNKNOWN",
-            "Use metadata resolve, bookwalker, ratings-audit, ratings-clean, series-audit or series-normalize",
+            "Use metadata resolve, bookwalker, ratings-audit, ratings-clean, series-audit, series-normalize, cover-audit or cover-adopt",
           );
         break;
       case "preflight":

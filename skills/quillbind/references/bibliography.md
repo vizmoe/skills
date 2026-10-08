@@ -39,6 +39,8 @@ A metadata supplementation task does not by itself select covers, ratings, readi
 
 ## Choose a file operation
 
+When cover supplementation is selected, follow [official cover adoption](covers.md) for edition matching, actual image inspection, original geometry and verified file-level application.
+
 For general supplementation or selected corrections, patch the actual EPUB OPF on a staged copy, validate it, and write the verified result to the requested file. Preserve a recoverable copy before replacement. CBZ maintenance follows the corresponding `ComicInfo.xml` procedure. Read back the delivered file independently; no Calibre import, database update, sidecar export or application restart is part of completion.
 
 The current runtime's `epub enrich` can supplement supported light-novel or manga EPUBs from a BookWalker lock, but preserves nonempty fields and deliberately updates the original date. It preserves all identifiers and does not fill a missing ISBN, even when the source lock contains one; complete that field through the direct OPF workflow and read it back. Use enrichment only when its changes fit the requested scope. Its output is a new EPUB; follow the file-installation procedure if the user requested replacement of the original. It is not the writer for a generic publisher record, a selected correction to a nonempty field, or a tags-only task.

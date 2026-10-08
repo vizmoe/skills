@@ -2,6 +2,8 @@
 
 ## Match evidence to the operation
 
+[Tag audits](tags.md) return input/vocabulary hashes, per-book proposals and unresolved findings; they do not write or verify a library. Live synchronization needs independent database, sidecar and embedded-format readback plus non-target preservation evidence. Publication release gates remain separate.
+
 | Operation      | Evidence and handoff                                                                                                                                                                                                                  |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Preparation    | `metadata/preparation.json`: copied-source hashes and readiness; release is `not-run`.                                                                                                                                                |

@@ -1,6 +1,6 @@
 # BookWalker edition metadata
 
-Use this workflow for light novels and manga when BookWalker is the selected metadata source. Read the [metadata contract](metadata.md) for required project fields and ISBN decisions.
+Use this special source workflow for light novels and manga. Other book types follow [ordinary-book bibliography](bibliography.md). For existing EPUBs or CBZs, write the selected fields [directly to the file](embedded-metadata.md), without Calibre database changes. ISBN is optional for maintenance; the [authoring metadata contract](metadata.md) applies only when creating a new publication project.
 
 ## Select matching editions
 
@@ -34,7 +34,7 @@ node <skill-directory>/scripts/quillbind.mjs metadata bookwalker sources.json --
 
 The first command fetches only public metadata pages; it does not download purchased books or bypass access controls. The second verifies the saved lock without network access. Locks contain selected URLs, retrieval timestamps, response hashes, parsed edition fields, matching evidence and derived metadata. Existing lock files are never overwritten; select a new output filename when refreshing. Failures in source identity, work type, volume, creator roles or Japanese dates require corrected evidence or parser maintenance, not invented values.
 
-The release date always uses the Japanese original: prefer the Japanese page's `底本発行日` (underlying print edition publication date), then use `配信開始日` only when the print field is absent. These fields can differ from retail on-sale dates. Never substitute the Chinese translation's date or choose the earlier date merely because it is earlier. `dateBasis` distinguishes `japanese-print` and `japanese-electronic`; both source dates remain in the lock.
+For light novels and manga, the date uses the Japanese original: prefer the selected Japanese page's `底本発行日`, then use `配信開始日` when the print field is absent. Adopt that field directly and record its basis; no publisher cross-verification is required. Never substitute the Chinese translation's date or choose the earlier date merely because it is earlier. `dateBasis` distinguishes `japanese-print` and `japanese-electronic`; both source dates remain in the lock. Do not shorten a complete source date or fabricate a missing day. The lock parser requires a complete date; if only a partial date is available, preserve its precision through direct file maintenance instead of inventing a value to satisfy this tool.
 
 ## Supplement a Markdown book
 
@@ -46,7 +46,7 @@ bookwalker: metadata/bookwalker.lock.json
 
 `metadata resolve BOOK --json` supplements missing title, authors, description and language offline. Supplied values remain authoritative; conflicts appear as `BOOKWALKER_CONFLICT` warnings. Inspect those warnings before release. Resolve controlled tags separately using the [library vocabulary and work-type evidence](tags.md); a matching light-novel or manga record can support classification, but retailer keywords are not automatically accepted tags. Publisher, original date, series/volume, contributor roles and source URLs are carried into OPF metadata. The command does not edit `book.yaml`. Changing the source lock invalidates resolved metadata; resolve again before building.
 
-Print and electronic ISBNs are recorded separately. Neither is automatically assigned as the EPUB identifier: the existing electronic-edition ISBN approval remains required. A metadata pass alone is not a release; build through every existing EPUB gate.
+The lock records print and electronic ISBNs separately. Existing-file maintenance preserves identifiers by default and needs no ISBN search or eISBN approval. Only an authored project with a deliberately supplied publication ISBN uses the separate authoring decision contract; that is not a reason to block a file edit. A metadata pass alone is not a publication release; authored books still build through every existing EPUB gate.
 
 ## Supplement an existing EPUB
 

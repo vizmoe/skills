@@ -2,9 +2,9 @@
 
 ## Match evidence to the operation
 
-[Tag audits](tags.md) return input/vocabulary hashes, per-book proposals and unresolved findings; they do not write or verify a library. Live synchronization needs independent database, sidecar and embedded-format readback plus non-target preservation evidence. Publication release gates remain separate.
+[Tag audits](tags.md) return input/vocabulary hashes, per-book proposals and unresolved findings; they do not write ebooks. Completed metadata maintenance requires independent readback of the actual output files and non-target preservation evidence. Calibre's database, sidecars and displayed records are outside this file-only workflow. Publication release gates remain separate.
 
-[Embedded metadata maintenance](embedded-metadata.md) requires source/staged/installed hashes, per-field evidence and independent readback. CBZ checks cover `ComicInfo.xml` schema, non-target XML semantics, ZIP CRCs and unchanged page/member bytes and order; EPUB checks cover OPF semantics, non-OPF member bytes and actual EPUBCheck results. Report staged-only or partial synchronization explicitly. These checks do not imply that images were re-encoded, native readers were tested or an EPUB publication was released.
+[Embedded metadata maintenance](embedded-metadata.md) requires source/staged/final file hashes, per-field sources and independent readback. CBZ checks cover `ComicInfo.xml` schema, non-target XML semantics, ZIP CRCs and unchanged page/member bytes and order; EPUB checks cover OPF semantics, non-OPF member bytes and actual EPUBCheck results. Report staged-only or partial file completion explicitly. ISBN completion and date cross-verification are not maintenance gates. These checks do not imply that images were re-encoded, native readers were tested or an EPUB publication was released.
 
 | Operation      | Evidence and handoff                                                                                                                                                                                                                  |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

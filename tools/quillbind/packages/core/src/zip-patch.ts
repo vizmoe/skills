@@ -1,5 +1,5 @@
 import { deflateRawSync } from "node:zlib";
-import { crc32, unpack } from "./zip.js";
+import { crc32, packArchive, unpack } from "./zip.js";
 import { fail } from "./errors.js";
 
 export const maintenanceLimits = {
@@ -8,11 +8,23 @@ export const maintenanceLimits = {
   maxTotalBytes: 2 * 1024 * 1024 * 1024,
 };
 
-/** Replace existing members without reordering or recompressing other records. */
-export function patchZip(input: Buffer, replacements: Map<string, Buffer>) {
+/** Replace or append members without reordering or recompressing other records. */
+export function patchZip(
+  input: Buffer,
+  replacements: Map<string, Buffer>,
+  additions = new Map<string, Buffer>(),
+) {
   const entries = unpack(input, maintenanceLimits);
   for (const name of replacements.keys())
     if (!entries.has(name)) fail("PATCH_MEMBER", `Missing member: ${name}`);
+  const names = new Set([...entries.keys()].map((name) => name.toLowerCase()));
+  for (const name of additions.keys()) {
+    if (names.has(name.toLowerCase()))
+      fail("PATCH_COLLISION", `Member collision: ${name}`);
+    names.add(name.toLowerCase());
+  }
+  if (names.size >= 0xffff)
+    fail("ZIP64_UNSUPPORTED", "Too many archive members");
   let end = input.length - 22;
   while (
     end >= 0 &&
@@ -80,10 +92,39 @@ export function patchZip(input: Buffer, replacements: Map<string, Buffer>) {
     if (offset >= 0xffffffff)
       fail("ZIP64_UNSUPPORTED", "Patched archive exceeds ZIP limits");
   }
+  if (additions.size) {
+    const added = packArchive(additions, 946684800);
+    const addedEnd = added.length - 22;
+    const addedOffset = added.readUInt32LE(addedEnd + 16);
+    let at = addedOffset;
+    for (let i = 0; i < additions.size; i++) {
+      const length =
+        46 +
+        added.readUInt16LE(at + 28) +
+        added.readUInt16LE(at + 30) +
+        added.readUInt16LE(at + 32);
+      const directory = Buffer.from(added.subarray(at, at + length));
+      directory.writeUInt32LE(offset + directory.readUInt32LE(42), 42);
+      records.push({
+        name: directory
+          .subarray(46, 46 + directory.readUInt16LE(28))
+          .toString(),
+        offset: directory.readUInt32LE(42),
+        directory,
+      });
+      at += length;
+    }
+    chunks.push(added.subarray(0, addedOffset));
+    offset += addedOffset;
+    if (offset >= 0xffffffff)
+      fail("ZIP64_UNSUPPORTED", "Patched archive exceeds ZIP limits");
+  }
   const directory = Buffer.concat(records.map((record) => record.directory));
   const ending = Buffer.from(input.subarray(end));
   ending.writeUInt32LE(directory.length, 12);
   ending.writeUInt32LE(offset, 16);
+  ending.writeUInt16LE(records.length, 8);
+  ending.writeUInt16LE(records.length, 10);
   const result = Buffer.concat([...chunks, directory, ending]);
   const verified = unpack(result, maintenanceLimits);
   for (const [name, entry] of entries) {
@@ -95,5 +136,8 @@ export function patchZip(input: Buffer, replacements: Map<string, Buffer>) {
     )
       fail("PATCH_READBACK", `Archive preservation failed: ${name}`);
   }
+  for (const [name, bytes] of additions)
+    if (!verified.get(name)?.bytes.equals(bytes))
+      fail("PATCH_READBACK", `Added member readback failed: ${name}`);
   return result;
 }

@@ -20,6 +20,8 @@ The repository launcher is `./bin/quillbind.mjs`; it locates the CLI from any wo
 
 ## Commands
 
+For existing-file official covers, use the [cover workflow](../../../skills/quillbind/references/covers.md). It binds source/candidate images, preserves non-target ZIP members and runs actual format and whole-cover render checks before publishing a new maintenance output. Browser screenshots are not native-reader certification.
+
 | Command                                                         | Result                                                                    |
 | --------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | `init DIRECTORY [--theme literature\|technical]`                | New book skeleton with required metadata left to the author               |

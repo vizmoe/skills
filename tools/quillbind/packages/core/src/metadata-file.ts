@@ -129,7 +129,7 @@ export function writeMetadata(bytes: Buffer, file: MetadataFile) {
 }
 
 /** Format-validated maintenance is distinct from a publication release. */
-export async function deliverMetadata(
+export async function deliverMetadata<Verification = undefined>(
   source: string,
   options: {
     output: string;
@@ -138,6 +138,7 @@ export async function deliverMetadata(
     bytes: Buffer;
     report: unknown;
     signal?: AbortSignal;
+    verify?: (candidate: string, reports: string) => Promise<Verification>;
   },
 ) {
   checkAbort(options.signal);
@@ -204,6 +205,7 @@ export async function deliverMetadata(
         "Changed file failed format validation",
         validation,
       );
+    const verification = await options.verify?.(candidate, reports);
     checkAbort(options.signal);
     if (sha256(await readSourceFile(source)) !== options.sourceSha256)
       fail("METADATA_STALE", "Source hash changed during validation");
@@ -218,6 +220,7 @@ export async function deliverMetadata(
       output,
       outputSha256: sha256(actual),
       validation,
+      ...(verification === undefined ? {} : { verification }),
       metadata: options.report,
       reports,
     };

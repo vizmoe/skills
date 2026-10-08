@@ -107,3 +107,31 @@ it.each([false, true])(
     ).toThrow();
   },
 );
+
+it("appends cover resources without altering existing compressed records or archive comments", () => {
+  const source = fixture(false),
+    before = unpack(source),
+    added = new Map([
+      ["new-cover.png", Buffer.from("new image")],
+      ["new-cover.xhtml", Buffer.from("new cover page")],
+    ]);
+  const result = patchZip(source, new Map(), added),
+    after = unpack(result);
+  for (const [name, bytes] of added)
+    expect(after.get(name)?.bytes).toEqual(bytes);
+  const a = records(source),
+    b = records(result);
+  expect(result.subarray(0, a.rows[0].start)).toEqual(
+    source.subarray(0, a.rows[0].start),
+  );
+  expect(result.subarray(b.end + 22)).toEqual(source.subarray(a.end + 22));
+  for (const [name, entry] of before)
+    expect(after.get(name)?.bytes).toEqual(entry.bytes);
+  expect(() =>
+    patchZip(
+      source,
+      new Map(),
+      new Map([["PAGE.bin", Buffer.from("collision")]]),
+    ),
+  ).toThrow(/collision/i);
+});

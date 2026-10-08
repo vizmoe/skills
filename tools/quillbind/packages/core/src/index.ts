@@ -87,3 +87,9 @@ export {
   auditSeries,
   applySeries,
 } from "./series-file.js";
+export {
+  auditFileCover,
+  adoptCover,
+  auditCover,
+  applyCover,
+} from "./covers.js";

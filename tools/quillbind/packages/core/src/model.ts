@@ -1,3 +1,5 @@
+import type { BookWalkerMetadata } from "./bookwalker-model.js";
+
 export interface SourceLocation {
   source: string;
   line?: number;
@@ -36,6 +38,7 @@ export interface PublicationMetadata {
   tags: SubjectTag[];
   modified: string;
   publication: { isbn: string | null };
+  bibliography?: BookWalkerMetadata;
 }
 interface Located {
   source?: SourceLocation;

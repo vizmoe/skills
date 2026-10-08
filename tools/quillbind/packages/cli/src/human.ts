@@ -48,6 +48,11 @@ export function formatHuman(command: string, value: unknown): string {
   if (Array.isArray(item.cases))
     lines.push(`Browser cases: ${item.cases.length}`);
   if (typeof item.root === "string") lines.push(`Directory: ${item.root}`);
+  if (item.operation === "bookwalker-metadata")
+    lines.push(
+      `Source lock: ${item.lock}`,
+      `Original release date: ${record(item.metadata).releaseDate} (${record(item.metadata).dateBasis})`,
+    );
   if (typeof item.metadata === "string") lines.push(item.metadata);
   else if (typeof record(item.metadata).title === "string")
     lines.push(`Title: ${record(item.metadata).title}`);

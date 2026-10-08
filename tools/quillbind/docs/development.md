@@ -39,6 +39,8 @@ The repository launcher is `./bin/quillbind.mjs`; it locates the CLI from any wo
 
 Every command accepts `--json`. JSON occupies stdout without progress logs; human output uses stderr. Failed commands exit nonzero with stable error codes. Ctrl-C cancels long-running subprocesses. Inspection and audit do not modify source artifacts. `build` and `preview` acquire a shared per-book `dist/.build.lock`; inspect the running process before removing a lock left by a killed process.
 
+`metadata bookwalker SOURCES.json --output LOCK.json [--online]` resolves selected light-novel or manga editions. See the [BookWalker workflow](../../../skills/quillbind/references/bookwalker.md) for product matching, source locks, original-date policy and project configuration.
+
 `novel inspect BOOK_URL` returns source metadata and numbered volumes. `novel fetch BOOK_URL [--output NEW_DIRECTORY] [--volumes 1-3,5] [--split-volumes] [--prepare-only]` collects a supported website into local books and, by default, builds each through every release gate. See [novel sources](novel-sources.md) for metadata overrides, rate limits, authentication and provenance. `--prepare-only` returns an explicit non-release result. Source tests inject recorded responses; CI rejects live source requests.
 
 `build DIRECTORY --to simplified|traditional|china|taiwan|hongkong` converts rendered Chinese text before packaging checks. `epub convert FILE.epub --to TARGET --output NEW.epub` converts an existing EPUB 3 and runs every release gate. The latter writes `<output>.reports/` and uses an exclusive `<output>.conversion.lock`; inspect a running conversion before removing a stale lock. See [Chinese conversion](chinese-conversion.md) for online behavior, response snapshots and configuration.

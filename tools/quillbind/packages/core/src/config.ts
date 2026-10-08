@@ -35,6 +35,7 @@ const markdownSchema = z.strictObject({
 });
 export const bookSchema = z.strictObject({
   schemaVersion: z.literal(1),
+  bookwalker: z.string().trim().min(1).optional(),
   book: z.strictObject({
     title: text,
     authors: z.array(z.string().trim().min(1)),

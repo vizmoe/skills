@@ -31,3 +31,5 @@ Existing EPUB [repair](repair.md) also centers structurally standalone images, i
 Inline images scale with surrounding text at `1em` and stay in the text flow. Author CSS may use relative image dimensions, including viewport units, without imposing fixed text heights. Captions and alternative text remain text. Browser QA tests the packaged result, including image placement at narrow and wide viewport sizes in both themes. Platform lint is not a claim of testing on vendor devices.
 
 Sources checked: 2026-09-05. Lossless guarantees apply to Quillbind's EPUB; processing by a distribution service is outside this pipeline.
+
+Manga scans use a separate [CBZ workflow](../../../skills/quillbind/references/manga.md) with `cjxl -d 0`, decoded-sample or reversible-JPEG verification, and archive safety limits. These rules do not change EPUB images or its release gates.

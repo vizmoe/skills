@@ -1,0 +1,9 @@
+{
+  "version": "2.0",
+  "checkedAt": "2026-10-08",
+  "commit": "99e1453a163c777b4b5320a68732f6f133ac7918",
+  "source": "https://github.com/anansi-project/comicinfo/blob/99e1453a163c777b4b5320a68732f6f133ac7918/schema/v2.0/ComicInfo.xsd",
+  "sha256": "3d9109effff705014f5f6076d92b0ad8c8dad90d993f2592d744c10bad45311c",
+  "license": "MIT",
+  "licenseSha256": "44711aa3256e18f540317e7aedd35f6c34f5d7aaaaad244521de80db81d98143"
+}

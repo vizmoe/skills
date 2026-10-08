@@ -17,6 +17,7 @@ import {
   repairDirectory,
   convertEpub,
   enrichEpub,
+  packageManga,
   conversionTarget,
   zhconvertNotice,
   taxonomy,
@@ -36,7 +37,7 @@ import { fail } from "@quillbind/core/errors";
 import type { RepairPlan } from "@quillbind/core";
 
 const HELP = [
-  `Quillbind ${VERSION} — canonical EPUB 3.3`,
+  `Quillbind ${VERSION} — EPUB 3.3 and manga CBZ`,
   "",
   "quillbind init <directory> [--theme literature|technical]",
   "quillbind init <new-directory> --from <source-directory> --config <book.yaml>",
@@ -52,6 +53,7 @@ const HELP = [
   "quillbind validate|qa <file.epub>",
   "quillbind epub inspect|audit|repair-plan <file.epub> [--output plan.json]",
   "quillbind epub repair <file.epub> --plan plan.json --output repaired.epub",
+  "quillbind manga package <scan-directory|file.zip|file.cbz> --bookwalker LOCK.json --output volume.cbz [--page-order ORDER.json] [--reading-direction rtl|ltr]",
   "quillbind epub enrich <file.epub> --bookwalker LOCK.json --output enriched.epub",
   "quillbind epub convert <file.epub> --to simplified|traditional|china|taiwan|hongkong --output converted.epub [--online]",
   "quillbind epub repair-plan <file.epub> --purpose reading --output plan.json",
@@ -86,6 +88,8 @@ try {
       output: { type: "string" },
       plan: { type: "string" },
       bookwalker: { type: "string" },
+      "page-order": { type: "string" },
+      "reading-direction": { type: "string" },
       from: { type: "string" },
       config: { type: "string" },
       summary: { type: "boolean" },
@@ -132,8 +136,23 @@ try {
       "ARGUMENT_CONFLICT",
       "--to is supported by build, preview and epub convert",
     );
-  if (values.bookwalker && !(command === "epub" && subcommand === "enrich"))
-    fail("ARGUMENT_CONFLICT", "--bookwalker is supported by epub enrich");
+  if (
+    values.bookwalker &&
+    !(command === "epub" && subcommand === "enrich") &&
+    !(command === "manga" && subcommand === "package")
+  )
+    fail(
+      "ARGUMENT_CONFLICT",
+      "--bookwalker is supported by epub enrich and manga package",
+    );
+  if (
+    (values["page-order"] || values["reading-direction"]) &&
+    !(command === "manga" && subcommand === "package")
+  )
+    fail(
+      "ARGUMENT_CONFLICT",
+      "Manga page options are supported by manga package only",
+    );
   const required = (value: string | undefined, label: string) =>
     value ?? fail("ARGUMENT_REQUIRED", `Missing ${label}`);
   if (
@@ -314,6 +333,22 @@ try {
           humanOutput = formatInspection(inspection);
           output = values.summary ? inspectionSummary(inspection) : inspection;
         }
+        break;
+      case "manga":
+        if (subcommand !== "package")
+          fail("COMMAND_UNKNOWN", "Use manga package");
+        output = await packageManga(
+          required(third, "scan directory or archive"),
+          {
+            output: required(values.output, "--output"),
+            bookwalker: required(values.bookwalker, "--bookwalker"),
+            order: values["page-order"]
+              ? await readJson<string[]>(values["page-order"])
+              : undefined,
+            direction: values["reading-direction"] as "rtl" | "ltr" | undefined,
+            signal: abort.signal,
+          },
+        );
         break;
       case "epub": {
         const file = required(third, "EPUB file");

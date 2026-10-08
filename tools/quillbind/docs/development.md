@@ -67,7 +67,7 @@ The workflow builds the digest-pinned image, uses frozen dependency installs and
 
 ## Skill validation
 
-Install the official validator from the catalog root as described in the [repository README](../../../README.md#维护), then run:
+Install the official validator from the catalog root as described in the [contribution guide](../../../CONTRIBUTING.md#本地验证), then run:
 
 ```sh
 # From tools/quillbind:

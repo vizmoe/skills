@@ -62,8 +62,8 @@
 
 ## 自动化检查
 
-在仓库根目录运行 `python3 -B -m unittest discover -s tests/musagetes -v` 检查字段、几何、路径安全、跨运行恢复和无写入副作用。运行 `python3 -B -m unittest discover -s tests -v` 验证资源边界，以及通过真实 skills CLI 安装后脱离源码运行。
+在仓库根目录运行 `python3 -B -m unittest discover -s tests/skills/musagetes -v` 检查字段、几何、路径安全、跨运行恢复和无写入副作用。运行 `python3 -B -m unittest discover -s tests -v` 验证资源边界，以及通过真实 skills CLI 安装后脱离源码运行。
 
-运行 `python3 -B scripts/validate_skills.py` 执行官方格式验证、链接、锚点与资源可达性检查。验证环境的安装命令见[仓库说明](../../README.md#维护)。
+运行 `python3 -B scripts/validate_skills.py` 执行官方格式验证、链接、锚点与资源可达性检查。验证环境的安装命令见[贡献指南](../../../CONTRIBUTING.md#本地验证)。
 
 本文件是验收场景集，不声称已完成每个场景的真实端到端运行。独立前向验证的请求、原始输入指纹、实际产物和结果记录放在隔离 work 目录；在交付中区分自动化测试、实际代理跑过的场景与仅作规范审阅的场景。

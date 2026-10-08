@@ -3,8 +3,8 @@ import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from validate_skills import validate_license, validate_resources
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+from validate_skills import discover_skills, validate_license, validate_resources
 
 
 class ProjectLicenseTests(unittest.TestCase):
@@ -28,12 +28,34 @@ class ProjectLicenseTests(unittest.TestCase):
                 validate_license(skill, project_license, None)
 
     def test_every_skill_bundles_the_project_license(self):
-        root = Path(__file__).resolve().parents[1]
+        root = Path(__file__).resolve().parents[2]
         license_file = root / "LICENSE"
         self.assertTrue(license_file.is_file(), "The project needs a root LICENSE")
         for skill in sorted((root / "skills").iterdir()):
             with self.subTest(skill=skill.name):
                 self.assertEqual((skill / "LICENSE").read_bytes(), license_file.read_bytes())
+
+
+class DiscoveryTests(unittest.TestCase):
+    def test_empty_and_incomplete_catalogs_fail(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "skills").mkdir()
+            with self.assertRaisesRegex(ValueError, "No skills"):
+                discover_skills(root)
+            (root / "skills/new-skill").mkdir()
+            with self.assertRaisesRegex(ValueError, "SKILL.md"):
+                discover_skills(root)
+
+    def test_linked_skill_directories_fail(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "skills").mkdir()
+            (root / "elsewhere").mkdir()
+            (root / "elsewhere/SKILL.md").write_text("Outside catalog")
+            (root / "skills/linked").symlink_to(root / "elsewhere", target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "local skill"):
+                discover_skills(root)
 
 
 class ResourceTests(unittest.TestCase):
@@ -46,6 +68,13 @@ class ResourceTests(unittest.TestCase):
         (self.root / "references/rules.md").write_text("# Rules\n\n## 安全\nPreserve sources.\n")
 
     def test_valid_resources(self):
+        validate_resources(self.root)
+
+    def test_task_specific_resource_directories_are_installable(self):
+        (self.root / "templates").mkdir()
+        (self.root / "templates/example.txt").write_text("A resource used by a future skill.\n")
+        with (self.root / "SKILL.md").open("a") as source:
+            source.write("Use [the template](templates/example.txt).\n")
         validate_resources(self.root)
 
     def test_markdown_link_examples_inside_code_are_literal(self):
@@ -86,6 +115,15 @@ class ResourceTests(unittest.TestCase):
         for name in ("work", "tests", ".git", "dist"):
             with self.subTest(name=name):
                 directory = self.root / name
+                directory.mkdir()
+                with self.assertRaisesRegex(ValueError, "Development"):
+                    validate_resources(self.root)
+                directory.rmdir()
+
+    def test_nested_history_and_generated_directories_are_rejected(self):
+        for name in (".git", "node_modules", "__pycache__"):
+            with self.subTest(name=name):
+                directory = self.root / "references" / name
                 directory.mkdir()
                 with self.assertRaisesRegex(ValueError, "Development"):
                     validate_resources(self.root)

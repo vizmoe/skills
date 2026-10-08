@@ -75,3 +75,9 @@ export { enrichEpub, applyBookWalkerMetadata } from "./enrich-epub.js";
 
 export { packageManga } from "./manga.js";
 export { checkNotes } from "./check-notes.js";
+export {
+  auditFileRatings,
+  cleanRatings,
+  auditRatings,
+  applyRatings,
+} from "./ratings.js";

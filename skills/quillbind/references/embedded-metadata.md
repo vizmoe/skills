@@ -1,6 +1,6 @@
 # Maintain embedded book metadata
 
-Use this workflow to write metadata directly into existing EPUB packages and CBZ `ComicInfo.xml`. Choose sources with [bibliography by book type](bibliography.md): BookWalker for light novels/manga, publisher information and book contents for other types. It guides scoped file edits and verification; it does not add a generic runtime writer. `tags.mjs audit` only proposes labels, `epub enrich` has its own supplementation contract, and `manga package` makes a new image archive.
+Use this workflow to write metadata directly into existing EPUB packages and CBZ `ComicInfo.xml`. Choose sources with [bibliography by book type](bibliography.md): BookWalker for light novels/manga, publisher information and book contents for other types. Use the dedicated rating commands below for score cleanup and scoped ZIP/XML edits for other fields. `tags.mjs audit` only proposes labels, `epub enrich` has its own supplementation contract, and `manga package` makes a new image archive.
 
 ## Bind the plan to the book and selected fields
 
@@ -25,11 +25,30 @@ These mappings describe equivalent meanings, not permission to rewrite every fie
 | Publisher | `Publisher`, separately verified `Imprint` | `dc:publisher` |
 | Publication date | Verified components in `Year`, `Month`, `Day` | `dc:date`, retaining known precision |
 | Language/script | `LanguageISO` | `dc:language` |
-| ISBN in general supplementation, or other identifiers when selected | No ISBN field in the 2.0 profile; report the limitation without inventing an element | Appropriate `dc:identifier`, preserving the publication's primary identity |
+| ISBN in general supplementation, or other identifiers when selected | No ISBN field in the 2.0 profile; skip without inventing an element or blocking completion | Appropriate `dc:identifier`, preserving the publication's primary identity |
 
 Keep description paragraphs and original contributor roles. Never flatten translators into authors because a format lacks a role field. `Number` is the book's series position; `Volume` has a different comic-series meaning and is not a substitute. Do not infer totals, dates, cover roles or reading direction from filenames. Use the [type-specific date policy](bibliography.md) without mandatory cross-verification; preserve available precision. General supplementation actively completes ISBNs under the [ISBN policy](bibliography.md#complete-isbns-where-supported); failed lookup must not blank an existing value. Preserve unrelated identifiers and keep restricted tasks within their selected fields.
 
 Preserve language/script during tag edits. When language is selected, use content-verified language tags and verify file readback; leave library compatibility columns untouched. The scan packager's base-language output is a separate contract, not a reason to truncate an existing `zh-Hans` or `zh-Hant` during maintenance. Scores and age classifications are distinct: authorized score cleanup can remove `CommunityRating` or OPF rating fields, but must not erase `AgeRating` as though it were a star score. Do not introduce zero-value score nodes to represent absence.
+
+## Remove score metadata completely
+
+Apply this operation when score cleanup is requested or included in a full library-rule cleanup. Do not add it to a tags-only or other explicitly restricted operation. Remove scores themselves, including zero, empty and default-value residues; do not set them to zero or import ratings again from a retailer. Preserve age classifications, reader opinions in `Review`/`Summary` or body text, reading state and unrelated metadata.
+
+With the runtime available, audit each selected EPUB or CBZ without changing it:
+
+```sh
+node <skill-directory>/scripts/quillbind.mjs metadata ratings-audit original.epub --output ratings.json --json
+node <skill-directory>/scripts/quillbind.mjs metadata ratings-clean original.epub --plan ratings.json --output clean.epub --json
+```
+
+Use the same commands with `.cbz` paths. Between these steps, inspect the complete plan `inventory` and its original XML. The plan binds the source SHA-256 and a frozen modification timestamp. It automatically identifies `calibre:rating`, Calibre custom metadata explicitly typed as `rating`, and ComicInfo `CommunityRating`. Add other verified score fields to `customScores` using their exact inventory `key` and an `evidence` explanation. A score-like name is only a candidate; the tool never deletes by a loose substring match. Resolve every candidate: a `retain` decision must explain why it is a non-score field, not excuse leaving an actual rating behind. Review opaque custom fields too, since a name alone cannot establish their meaning. Leave inventory records unchanged and set `reviewed: true` once classification is complete; this is the agent's evidence review, not an additional user permission step.
+
+The writer removes all recognized and selected scores plus their attached OPF refinements. It protects standard bibliography, `AgeRating`, pages and review text; unsupported nested/custom representations require a separately scoped, verified patch rather than a false complete-cleanup claim. After writing, re-audit the delivered file: no recognized score or unresolved score candidate may remain, and every custom decision must be accounted for. An unchanged result retains its original bytes and modification date.
+
+The output must be new; the original remains the recoverable source. The tool rejects stale hashes, collisions, malformed/ambiguous metadata, signed or unsupported EPUBs and unsafe ZIPs. It preserves non-target archive members as compressed records, including their order, compression method and attributes; only the metadata member is reserialized/recompressed. EPUB 2 retains its version; EPUB 3 records the planned modification time. The staged output is independently reopened and checked with EPUBCheck or the pinned ComicInfo 2.0 XSD through `xmllint --nonet`. A missing validator or failed check blocks output. Report directories are exclusive and retain failure evidence; use a fresh destination for a retry after addressing a failure.
+
+`<output>.reports/metadata.json` records removed fields, attached refinements, reviewed non-score fields, resource preservation hashes, source/output hashes and actual validator results. This is file maintenance, not a new publication release or proof of native-reader rendering. Follow the backup and verified replacement procedure above only if installation over the original is requested. No Calibre import or database update is part of cleanup.
 
 ## CBZ: edit ComicInfo without processing pages
 

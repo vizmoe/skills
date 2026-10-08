@@ -20,6 +20,8 @@ The repository launcher is `./bin/quillbind.mjs`; it locates the CLI from any wo
 
 ## Commands
 
+Use [local anthology splitting](../../../skills/quillbind/references/local-splitting.md) for `epub split-plan` and `epub split`. Source/vocabulary-bound plans control boundaries, metadata and cross-volume dispositions. Every volume must pass actual format/reading checks before batch delivery; full publication release remains a separate contract.
+
 For existing-file official covers, use the [cover workflow](../../../skills/quillbind/references/covers.md). It binds source/candidate images, preserves non-target ZIP members and runs actual format and whole-cover render checks before publishing a new maintenance output. Browser screenshots are not native-reader certification.
 
 | Command                                                         | Result                                                                    |

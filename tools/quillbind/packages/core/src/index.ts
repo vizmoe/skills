@@ -56,6 +56,8 @@ export const formats = {
     "repair-copy",
     "convert",
     "enrich",
+    "split-plan",
+    "split",
   ],
 } as const;
 
@@ -93,3 +95,5 @@ export {
   auditCover,
   applyCover,
 } from "./covers.js";
+export { auditFileSplit, auditSplit, applySplit, splitEpub } from "./split.js";
+export type { SplitPlan } from "./split.js";

@@ -1,6 +1,6 @@
 # BookWalker edition metadata
 
-Use this special source workflow for light novels and manga. Other book types follow [ordinary-book bibliography](bibliography.md). For existing EPUBs or CBZs, write the selected fields [directly to the file](embedded-metadata.md), without Calibre database changes. ISBN is optional for maintenance; the [authoring metadata contract](metadata.md) applies only when creating a new publication project.
+Use this special source workflow for light novels and manga. Other book types follow [ordinary-book bibliography](bibliography.md). For existing EPUBs or CBZs, write the selected fields [directly to the file](embedded-metadata.md), without Calibre database changes. General metadata supplementation includes [ISBN completion](bibliography.md#complete-isbns-where-supported); the [authoring metadata contract](metadata.md) applies only when creating a new publication project.
 
 ## Select matching editions
 
@@ -46,7 +46,7 @@ bookwalker: metadata/bookwalker.lock.json
 
 `metadata resolve BOOK --json` supplements missing title, authors, description and language offline. Supplied values remain authoritative; conflicts appear as `BOOKWALKER_CONFLICT` warnings. Inspect those warnings before release. Resolve controlled tags separately using the [library vocabulary and work-type evidence](tags.md); a matching light-novel or manga record can support classification, but retailer keywords are not automatically accepted tags. Publisher, original date, series/volume, contributor roles and source URLs are carried into OPF metadata. The command does not edit `book.yaml`. Changing the source lock invalidates resolved metadata; resolve again before building.
 
-The lock records print and electronic ISBNs separately. Existing-file maintenance preserves identifiers by default and needs no ISBN search or eISBN approval. Only an authored project with a deliberately supplied publication ISBN uses the separate authoring decision contract; that is not a reason to block a file edit. A metadata pass alone is not a publication release; authored books still build through every existing EPUB gate.
+The lock records print and electronic ISBNs separately. For existing-file supplementation, actively adopt a supported ISBN under the bibliography policy and preserve existing values when no supported replacement is available; an eISBN approval is not required. Only an authored project with a deliberately supplied publication ISBN uses the separate authoring decision contract; that is not a reason to block a file edit. A metadata pass alone is not a publication release; authored books still build through every existing EPUB gate.
 
 ## Supplement an existing EPUB
 
@@ -58,7 +58,7 @@ Inspect the EPUB and verify that the selected BookWalker volume is the same edit
 node <skill-directory>/scripts/quillbind.mjs epub enrich original.epub --bookwalker bookwalker.lock.json --output enriched.epub --json
 ```
 
-The command runs offline. It fills absent bibliographic fields and contributors, keeps supplied values with conflict warnings, and applies the Japanese-original publication date with before/after evidence. It preserves identifiers and existing contributor records. Only the OPF metadata changes; spine, navigation, text, image and font resource bytes remain intact. Native EPUB images are not converted to JXL or CBZ.
+The command runs offline. It fills absent bibliographic fields and contributors, keeps supplied values with conflict warnings, and applies the Japanese-original publication date with before/after evidence. It preserves identifiers and existing contributor records, so it does not fill a missing ISBN. Complete supported ISBN changes through the direct OPF maintenance workflow; enrichment success alone does not establish ISBN completion. Only the OPF metadata changes; spine, navigation, text, image and font resource bytes remain intact. Native EPUB images are not converted to JXL or CBZ.
 
 `<output>.reports/metadata.json` binds the original hash to the source-lock digest and lists field changes and preserved resource hashes. The summary records EPUBCheck, Ace, browser QA, platform lint and reproducibility. A new output appears only after every gate passes. An exclusive `<output>.metadata.lock` protects concurrent writes; inspect the owning process before removing a stale lock. An existing destination is never replaced.
 

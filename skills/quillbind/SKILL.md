@@ -4,7 +4,7 @@ license: MIT
 description: Maintain metadata directly in EPUB files and CBZ ComicInfo.xml, using the library's controlled English tags, BookWalker for light novels and manga, and publisher sources for other books. Audit tag cleanup, build EPUB 3.3 from Markdown or supported novel websites, inspect and repair EPUBs, check scripted popup notes, convert Chinese scripts, and package manga scans as lossless JPEG XL CBZ. Arbitrary HTML, PDF and LaTeX import are unsupported.
 compatibility: Tag audits need Node.js; file metadata edits use ZIP/XML tools and validators. Publishing needs tools/quillbind from vizmoe/skills with dependencies installed, exposed through QUILLBIND_ROOT or quillbind on PATH. EPUB release checks need Java, EPUBCheck and Chromium; CBZ packaging needs libjxl cjxl and djxl. Setup and online collection/refreshes need network; saved books and locks support offline builds. Calibre database access is not required.
 metadata:
-  version: "0.1.8"
+  version: "0.1.9"
 ---
 
 # Quillbind
@@ -32,7 +32,7 @@ For tag tasks, use the standalone helper in [tag management](references/tags.md)
 
 ## Shared boundaries
 
-Metadata maintenance writes the selected EPUB's internal OPF or CBZ's `ComicInfo.xml`. Do not update Calibre's database, library sidecars or `cover.jpg`, or make Calibre synchronization a completion requirement. Read the library vocabulary as a reference. ISBN is optional for maintenance; use the selected source's date without mandatory cross-verification. See [bibliography](references/bibliography.md) for the type-specific policy.
+Metadata maintenance writes the selected EPUB's internal OPF or CBZ's `ComicInfo.xml`. Do not update Calibre's database, library sidecars or `cover.jpg`, or make Calibre synchronization a completion requirement. Read the library vocabulary as a reference. General metadata completion includes actively filling ISBNs from supported evidence and preserving existing values when no supported replacement is available; keep explicitly restricted tasks scoped. Use the selected source's date without mandatory cross-verification. See [bibliography](references/bibliography.md) for source selection, ISBN handling and format limits.
 
 Run `doctor --json` before EPUB release work. Manga packaging checks its own required codec tools. A missing validator is an environment error; every release gate is required. Preparation, inspection and preview have their own results.
 

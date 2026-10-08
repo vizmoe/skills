@@ -1,6 +1,6 @@
 # Metadata for authored publications
 
-For existing ebook metadata, use [bibliography by book type](bibliography.md) and [direct file maintenance](embedded-metadata.md). ISBN is optional there, dates do not require cross-verification, and Calibre's database/sidecars are never write targets. The project resolution below serves new authored publications; do not impose its ISBN decision file or online lookup on existing-file edits.
+For existing ebook metadata, use [bibliography by book type](bibliography.md) and [direct file maintenance](embedded-metadata.md). General supplementation actively completes ISBNs from supported evidence while preserving existing values when no supported replacement is available. Dates do not require cross-verification, and Calibre's database/sidecars are never write targets. The project resolution below serves new authored publications; do not impose its ISBN decision file or LoC lookup on existing-file edits.
 
 Tags follow the current Calibre library's controlled vocabulary. Use [tag management](tags.md) for vocabulary selection, type-specific evidence, cleanup and migration of old Quillbind IDs. The publishing runtime and tag audit share the bundled vocabulary; set `QUILLBIND_VOCABULARY` to the current library file when supplied. Use canonical labels including spaces in `book.tags`; runtime resolution rejects unknown IDs rather than guessing replacements.
 

@@ -33,16 +33,18 @@ export async function bookOutput(root: string, relative: string) {
   for (const segment of relative.split("/")) {
     current = path.join(current, segment);
     try {
-      const stat = await fs.lstat(current);
-      if (stat.isSymbolicLink() || !stat.isDirectory())
-        fail(
-          "OUTPUT_SYMLINK",
-          `Output component is not an ordinary directory: ${relative}`,
-        );
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       await fs.mkdir(current);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     }
+    // Another writer can create this component first. Validate what exists
+    // before descending; EEXIST alone does not establish an ordinary directory.
+    const stat = await fs.lstat(current);
+    if (stat.isSymbolicLink() || !stat.isDirectory())
+      fail(
+        "OUTPUT_SYMLINK",
+        `Output component is not an ordinary directory: ${relative}`,
+      );
   }
   return current;
 }

@@ -7,7 +7,12 @@ import {
 } from "../packages/core/src/enrich-epub.js";
 import { collectBookWalker } from "../packages/core/src/bookwalker.js";
 import { candidate, copyBook } from "./helpers.js";
-import { bookwalkerFetcher, selection } from "./bookwalker-fixture.js";
+import {
+  bookwalkerFetcher,
+  selection,
+  taiwanHtml,
+  twUrl,
+} from "./bookwalker-fixture.js";
 import { inspectBytes } from "../packages/core/src/epub.js";
 import { pack } from "../packages/core/src/zip.js";
 import { attr, elements, NS, serialize } from "../packages/core/src/xml.js";
@@ -122,6 +127,44 @@ it("fills absent fields without assigning the store's ISBN or upgrading EPUB ver
     path.join(repoRoot, "examples/repair/legacy.epub"),
   );
   expect(() => applyBookWalkerMetadata(legacy, lock)).toThrow(/EPUB 3/);
+});
+it("writes multiline descriptions to existing EPUB metadata without changing other resources", async () => {
+  const { bytes } = await fixture();
+  const info = inspectBytes(bytes);
+  for (const node of elements(info.packageDocument, "description", NS.dc))
+    node.parentNode!.removeChild(node);
+  const entries = new Map(
+    [...info.entries].map(([name, entry]) => [name, entry.bytes]),
+  );
+  entries.set(info.packagePath, Buffer.from(serialize(info.packageDocument)));
+  const source = pack(entries, 946684800);
+  const lock = await collectBookWalker(selection, {
+    online: true,
+    fetcher: async (input) => ({
+      ...(await bookwalkerFetcher(input)),
+      ...(input.url === twUrl
+        ? {
+            bytes: Buffer.from(
+              taiwanHtml({
+                introduction: "<p>甲 &amp; 乙</p><p>下一段<br>下一行</p>",
+              }),
+            ),
+          }
+        : {}),
+    }),
+  });
+  const result = applyBookWalkerMetadata(source, lock);
+  const output = inspectBytes(result.bytes, true);
+  expect(
+    elements(output.packageDocument, "description", NS.dc)[0].textContent,
+  ).toBe("甲 & 乙\n\n下一段\n下一行");
+  expect(
+    elements(output.packageDocument, "identifier", NS.dc).map(serialize),
+  ).toEqual(elements(info.packageDocument, "identifier", NS.dc).map(serialize));
+  for (const [name, entry] of info.entries)
+    if (name !== info.packagePath)
+      expect(output.entries.get(name)!.bytes).toEqual(entry.bytes);
+  expect(validateInternal(result.bytes).status).toBe("pass");
 });
 it("never overwrites an original or existing output and rejects signed packages", async () => {
   const { root, bytes, lock } = await fixture();

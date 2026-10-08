@@ -33,7 +33,9 @@ export function japaneseHtml(
 <script type="application/ld+json">{"@type":"Review","datePublished":"2099-01-01"}</script>
 </body></html>`;
 }
-export function taiwanHtml(options: { number?: string; kind?: string } = {}) {
+export function taiwanHtml(
+  options: { number?: string; kind?: string; introduction?: string } = {},
+) {
   const page = {
     props: {
       product_id: 1001,
@@ -42,7 +44,9 @@ export function taiwanHtml(options: { number?: string; kind?: string } = {}) {
         product_name: `虛構物語 (${options.number ?? "1"})`,
         product_series_name: "虛構物語",
         product_series_num: 99,
-        product_detail: { introduction: "<p>中文介紹 &amp; 資料。</p>" },
+        product_detail: {
+          introduction: options.introduction ?? "<p>中文介紹 &amp; 資料。</p>",
+        },
         product_detail_info: {
           author: "作者甲",
           illustrator: "画家乙",

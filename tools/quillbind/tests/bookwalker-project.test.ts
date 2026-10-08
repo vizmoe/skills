@@ -10,7 +10,12 @@ import {
 import { inspectBytes } from "../packages/core/src/epub.js";
 import { elements, NS, attr } from "../packages/core/src/xml.js";
 import { copyBook, candidate } from "./helpers.js";
-import { bookwalkerFetcher, selection } from "./bookwalker-fixture.js";
+import {
+  bookwalkerFetcher,
+  selection,
+  taiwanHtml,
+  twUrl,
+} from "./bookwalker-fixture.js";
 
 const temporary: string[] = [];
 afterEach(async () => {
@@ -20,7 +25,7 @@ afterEach(async () => {
       .map((root) => fs.rm(root, { recursive: true, force: true })),
   );
 });
-async function book(empty = true) {
+async function book(empty = true, introduction?: string) {
   const root = await copyBook();
   temporary.push(root);
   const config = {
@@ -38,7 +43,12 @@ async function book(empty = true) {
   await fs.mkdir(path.join(root, "metadata"), { recursive: true });
   const lock = await collectBookWalker(selection, {
     online: true,
-    fetcher: bookwalkerFetcher,
+    fetcher: async (input) => ({
+      ...(await bookwalkerFetcher(input)),
+      ...(introduction && input.url === twUrl
+        ? { bytes: Buffer.from(taiwanHtml({ introduction })) }
+        : {}),
+    }),
   });
   await fs.writeFile(
     path.join(root, "metadata/bookwalker.lock.json"),
@@ -83,6 +93,16 @@ it("supplements missing fields offline and writes original-date bibliographic me
         node.textContent === "虛構物語",
     ),
   ).toBe(true);
+});
+it("retains plain-text paragraph and list boundaries in an authored EPUB", async () => {
+  const root = await book(
+    true,
+    "<p>第一段。</p><p>第二段。</p><ul><li>甲</li><li>乙</li></ul>",
+  );
+  const info = inspectBytes(await candidate(root));
+  expect(
+    elements(info.packageDocument, "description", NS.dc)[0].textContent,
+  ).toBe("第一段。\n\n第二段。\n\n甲\n乙");
 });
 it("preserves supplied fields, exposes conflicts and invalidates a lock when its source changes", async () => {
   const root = await book(false);

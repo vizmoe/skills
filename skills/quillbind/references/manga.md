@@ -2,6 +2,8 @@
 
 Use this workflow for caller-supplied manga scans. A native EPUB stays EPUB and uses [BookWalker EPUB enrichment](bookwalker.md#supplement-an-existing-epub); do not extract or flatten its pages into this workflow.
 
+For an existing CBZ's labels or bibliography, use [embedded metadata maintenance](embedded-metadata.md#cbz-edit-comicinfo-without-processing-pages). Edit root `ComicInfo.xml` on a staged copy while preserving existing page bytes and order. Packaging below generates new ComicInfo from its source lock and does not import the library's controlled tags; completing a library tag task requires the separate field mapping and readback workflow.
+
 ## Prepare one volume
 
 Confirm the work, edition and volume, then obtain a manga source lock through the [BookWalker workflow](bookwalker.md). Chinese metadata comes from Taiwan; Japanese metadata and the original date come from Japan. The date policy is Japanese print publication first, Japanese electronic release only if print is absent.

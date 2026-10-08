@@ -1,6 +1,6 @@
 # Environment and commands
 
-Invoke `node <skill-directory>/scripts/quillbind.mjs ...`. The helper uses Node built-ins and searches `QUILLBIND_ROOT/bin/quillbind.mjs`, the source checkout's `tools/quillbind/bin/quillbind.mjs`, then `quillbind` on `PATH`. skills.sh installs the skill resources; the Node workspace is a separate runtime prerequisite. Python is used solely for repository development validation of the skill, not for book operations.
+For publishing operations, invoke `node <skill-directory>/scripts/quillbind.mjs ...`. The helper uses Node built-ins and searches `QUILLBIND_ROOT/bin/quillbind.mjs`, the source checkout's `tools/quillbind/bin/quillbind.mjs`, then `quillbind` on `PATH`. skills.sh installs the skill resources; the Node workspace is a separate runtime prerequisite. Retain the checkout's `skills/quillbind` alongside the workspace for its shared tag vocabulary and loader. Python is used solely for repository development validation of the skill, not for book operations. The standalone [tag audit](tags.md) needs only Node.js, with no publishing workspace or validators.
 
 Use the exact Node version in `tools/quillbind/.node-version` and pnpm version in that workspace's `package.json`. Its `standards/tools.lock.json` pins release tools and external archive hashes. For an installed skill, clone the runtime once into a chosen new directory, install its dependencies, and expose its absolute path to the agent process:
 

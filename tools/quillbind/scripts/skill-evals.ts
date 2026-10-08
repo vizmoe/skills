@@ -49,7 +49,6 @@ async function runtimeWithoutTools(directory: string) {
     "package.json",
     "tsconfig.json",
     "bin",
-    "taxonomy",
     "standards",
     "styles",
     "packages/core/src",
@@ -64,6 +63,9 @@ async function runtimeWithoutTools(directory: string) {
       recursive: true,
     });
   }
+  await fs.cp(skill, path.resolve(directory, "../../skills/quillbind"), {
+    recursive: true,
+  });
   for (const relative of ["node_modules", "packages/core/node_modules"])
     await fs.symlink(
       path.join(repoRoot, relative),
@@ -223,7 +225,7 @@ for (const scenario of catalog.scenarios) {
       );
     } else if (scenario.id === "author-preview") {
       await prepare();
-      environment = path.join(root, "runtime-without-tools");
+      environment = path.join(root, "runtime-without-tools/tools/quillbind");
       await runtimeWithoutTools(environment);
       const dist = path.join(output, "dist");
       await fs.mkdir(path.join(dist, "reports"), { recursive: true });
@@ -261,7 +263,7 @@ for (const scenario of catalog.scenarios) {
       );
     } else if (scenario.id === "missing-validator") {
       await prepare();
-      environment = path.join(root, "runtime-without-tools");
+      environment = path.join(root, "runtime-without-tools/tools/quillbind");
       await runtimeWithoutTools(environment);
       assert.equal(
         (await invoke(["inspect", epub, "--summary"])).validation,

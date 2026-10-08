@@ -300,7 +300,7 @@ describe("chapters and rendering", () => {
     expect(schemaJson().$schema).toContain("2020-12");
     expect(
       (await taxonomy()).subjects.find(
-        (t) => t.id === "Technology.SoftwareEngineering",
+        (t) => t.id === "Science.Software Engineering",
       )?.basis.scheme,
     ).toBe("LCC-inspired");
   });

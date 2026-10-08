@@ -1,18 +1,19 @@
 ---
 name: quillbind
 license: MIT
-description: Build EPUB 3.3 books from Markdown or supported Bilinovel, Lightnovel.fun and Lightnovel.app book URLs; inspect and repair existing EPUBs, check scripted popup notes, convert Chinese scripts with zhconvert, enrich light-novel and manga metadata from BookWalker, package manga scans as lossless JPEG XL CBZ with ComicInfo, and verify EPUB compatibility with Apple Books/Kindle. Arbitrary HTML, PDF and LaTeX import are unsupported.
-compatibility: Requires Node.js and the tools/quillbind workspace from vizmoe/skills with dependencies installed, exposed through QUILLBIND_ROOT or a quillbind CLI on PATH. Runtime pins live in that workspace. EPUB release checks need Java, EPUBCheck and Chromium; manga CBZ needs libjxl cjxl and djxl. Setup, website collection and explicit online metadata/conversion refreshes need network access; saved books and locks support offline builds.
+description: Manage controlled English book tags using the Calibre library's vocabulary, audit and plan tag cleanup, and guide scoped metadata synchronization. Build EPUB 3.3 from Markdown or supported Bilinovel, Lightnovel.fun and Lightnovel.app URLs; inspect and repair EPUBs, check scripted popup notes, convert Chinese scripts with zhconvert, enrich metadata from BookWalker, package manga as lossless JPEG XL CBZ with ComicInfo, and verify Apple Books/Kindle compatibility. Arbitrary HTML, PDF and LaTeX import are unsupported.
+compatibility: Tag audits need Node.js; live library work needs Calibre. Publishing needs the tools/quillbind workspace from vizmoe/skills with dependencies installed, exposed through QUILLBIND_ROOT or quillbind on PATH. Runtime pins live there. EPUB release checks need Java, EPUBCheck and Chromium; manga CBZ needs libjxl cjxl and djxl. Setup, website collection and online metadata/conversion refreshes need network; saved books and locks support offline builds.
 metadata:
-  version: "0.1.5"
+  version: "0.1.6"
 ---
 
 # Quillbind
 
-Invoke [scripts/quillbind.mjs](scripts/quillbind.mjs) with Node from the caller's directory. Pass `--json` for structured results; `--help --json` lists commands.
+For tag tasks, use the standalone helper in [tag management](references/tags.md). For publishing operations, invoke [scripts/quillbind.mjs](scripts/quillbind.mjs) with Node from the caller's directory. Pass `--json` for structured results; `--help --json` lists commands.
 
 ## Choose the operation
 
+- Calibre Tags, controlled subjects, label cleanup or library metadata synchronization → [tag management](references/tags.md). The current library vocabulary is authoritative for both auditing and publishing.
 - EPUB inventory or diagnosis → [inspection](references/inspection.md).
 - Existing EPUB popup footnotes, script behavior or hover/touch notes → [note checks](references/notes.md).
 - New book, local Markdown import or author preview → [authoring](references/authoring.md).

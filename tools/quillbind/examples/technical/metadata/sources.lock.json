@@ -1,5 +1,5 @@
 {
-  "configHash": "856e8d96daac280c5c51eaf3bc5201efd3aa58c7ba10b2b5820fc54b7114b1a1",
+  "configHash": "f0befbca6bad89d074129f5a65068919ef2f2b94498a21d1806157f0b2b8c9e3",
   "fields": {
     "authors": "supplied",
     "description": "supplied",
@@ -26,13 +26,13 @@
     },
     "tags": [
       {
-        "id": "Technology.SoftwareEngineering",
-        "label": "Software engineering"
+        "id": "Science.Software Engineering",
+        "label": "Software Engineering"
       }
     ],
     "title": "Small Systems, Clear Contracts"
   },
   "schemaVersion": 1,
   "sources": [],
-  "taxonomyVersion": "1.0.0"
+  "taxonomyVersion": "calibre-2-547e27e5f359d78a1f693d2bf0aeecd371c78ad28f1c6bbef441e79dbf602b07"
 }

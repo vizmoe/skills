@@ -44,7 +44,7 @@ Place the lock inside the project and reference it at the top level of `book.yam
 bookwalker: metadata/bookwalker.lock.json
 ```
 
-`metadata resolve BOOK --json` supplements missing title, authors, description and language offline. Supplied values remain authoritative; conflicts appear as `BOOKWALKER_CONFLICT` warnings. Inspect those warnings before release. Resolve controlled tags separately. Publisher, original date, series/volume, contributor roles and source URLs are carried into OPF metadata. The command does not edit `book.yaml`. Changing the source lock invalidates resolved metadata; resolve again before building.
+`metadata resolve BOOK --json` supplements missing title, authors, description and language offline. Supplied values remain authoritative; conflicts appear as `BOOKWALKER_CONFLICT` warnings. Inspect those warnings before release. Resolve controlled tags separately using the [library vocabulary and work-type evidence](tags.md); a matching light-novel or manga record can support classification, but retailer keywords are not automatically accepted tags. Publisher, original date, series/volume, contributor roles and source URLs are carried into OPF metadata. The command does not edit `book.yaml`. Changing the source lock invalidates resolved metadata; resolve again before building.
 
 Print and electronic ISBNs are recorded separately. Neither is automatically assigned as the EPUB identifier: the existing electronic-edition ISBN approval remains required. A metadata pass alone is not a release; build through every existing EPUB gate.
 

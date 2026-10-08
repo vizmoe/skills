@@ -247,7 +247,7 @@ export async function resolveMetadataWithLock(
       diagnostics.push(
         diagnostic(
           "UNKNOWN_TAG",
-          `Unknown or deprecated subject: ${tag}`,
+          `Unknown or deprecated subject: ${tag}. Use taxonomy list and the tag-management migration guidance; library labels are authoritative.`,
           "book.yaml",
         ),
       );
@@ -351,11 +351,15 @@ export async function resolveMetadataWithLock(
   if (!book.tags.length || !book.title) {
     const source = (await safeRead(root, config.chapters[0])).toString("utf8");
     const heading = /^#\s+(.+)$/m.exec(source)?.[1];
-    const inferredTag = /\b(code|typescript|software|api|programming)\b/i.test(
-      [book.title, book.description, source].join(" "),
-    )
-      ? "Technology.SoftwareEngineering"
-      : undefined;
+    const inferredTag =
+      subjectList.subjects.some(
+        (tag) => tag.id === "Science.Software Engineering",
+      ) &&
+      /\b(code|typescript|software|api|programming)\b/i.test(
+        [book.title, book.description, source].join(" "),
+      )
+        ? "Science.Software Engineering"
+        : undefined;
     for (const [field, value] of [
       ["title", !book.title ? heading : undefined],
       ["tags", !book.tags.length && inferredTag ? [inferredTag] : undefined],

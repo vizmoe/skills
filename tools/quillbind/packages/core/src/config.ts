@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { parseDocument } from "yaml";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { safeRead } from "./files.js";
 import { fail } from "./errors.js";
 import { repoRoot } from "./runtime.js";
@@ -147,12 +148,24 @@ export interface Taxon {
   migration?: string;
 }
 export async function taxonomy() {
-  const value = parseYaml(
-    await fs.readFile(path.join(repoRoot, "taxonomy/subjects.v1.yaml"), "utf8"),
-  ) as { schemaVersion: number; version: string; subjects: Taxon[] };
-  if (value.schemaVersion !== 1)
-    fail("TAXONOMY_VERSION", "Unsupported taxonomy");
-  return value;
+  // Use the same installable loader/data as the standalone tag audit helper.
+  // Resolve from repoRoot so source and compiled CLI paths behave identically.
+  const loader = (await import(
+    pathToFileURL(
+      path.resolve(
+        repoRoot,
+        "../../skills/quillbind/scripts/tag-vocabulary.mjs",
+      ),
+    ).href
+  )) as {
+    loadVocabulary(): Promise<{
+      schemaVersion: number;
+      version: string;
+      subjects: Taxon[];
+    }>;
+  };
+  const { schemaVersion, version, subjects } = await loader.loadVocabulary();
+  return { schemaVersion, version, subjects };
 }
 export async function standards() {
   return readJson(path.join(repoRoot, "standards/registry.json"));

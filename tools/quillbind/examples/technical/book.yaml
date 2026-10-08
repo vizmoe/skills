@@ -6,7 +6,7 @@ book:
   language: en
   publication:
     isbn: null
-  tags: [Technology.SoftwareEngineering]
+  tags: [Science.Software Engineering]
 theme: technical
 chapters:
   - chapters/01-contracts.md

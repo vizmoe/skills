@@ -11,6 +11,16 @@ Use this workflow when Series and reading order are selected, including full lib
 - Verify position independently of membership, using the selected edition's volume or the supported reading order. This does not require another source: one source can establish both facts. Preserve supported existing positions, including fractions such as `1.5`; failed lookup is not a reason to clear one. Never use a series total as the position, default a missing number to `1`, or renumber by filename sorting. Use `null` when the position is absent or evidenced as invalid, and explain the gap or removal in the external report.
 - For a non-series grouping, explicitly clear both name and position. Removing a bad grouping does not authorize splitting the book or changing its title.
 
+## Arabic series positions for all books
+
+Whenever a field expresses a book's position in a series, use ASCII Arabic digits, for every book type. This includes EPUB `group-position`, embedded `calibre:series_index`, CBZ `Number`, and any other explicitly selected, supported series-order field. The rule does not create story membership for a non-series collection or expand the selected edit scope.
+
+Resolve the value against the target publication edition: an evidenced `II` or `Ⅱ` becomes `2`, `六` becomes `6`, and `０６` becomes `6`. Do not mix another edition's numbering, parse numeral-like words in a title, or guess an ambiguous number. Record the original notation, selected numeric value and source evidence. A missing lookup does not authorize clearing an existing value; report unresolved cases and do not claim complete normalization.
+
+Preserve the original title's language, characters, numeral forms and punctuation. Two-digit zero padding belongs to the filename/title naming convention, not the numeric metadata value. Local insertion labels such as `06.5` and `06.5-01` are filename/sort decisions, not evidence of official volume numbers. Do not copy them into official metadata or invent `6.501` to fit a numeric field. A genuine official fractional position may remain numeric, such as `6.5`, with its own evidence. The source title and local filename are never sufficient evidence for that decision.
+
+The existing normalization writer accepts only numeric positions and leaves evidence-based numeral conversion to the plan author. For a format with several selected representations, read them back together after writing and confirm all express the same supported Arabic value. Unsupported hierarchical, lettered or ranged positions require a compatible scoped representation; do not force them into a decimal or substitute a default.
+
 ## Audit and apply an evidenced decision
 
 ```sh

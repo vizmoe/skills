@@ -78,6 +78,22 @@ class ResourceTests(unittest.TestCase):
             source.write("Use [the template](templates/example.txt).\n")
         validate_resources(self.root)
 
+    def test_a_linked_binary_asset_is_reachable_without_decoding_it(self):
+        (self.root / "assets").mkdir()
+        (self.root / "assets/cover.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+        with (self.root / "SKILL.md").open("a") as source:
+            source.write("Use [the cover](assets/cover%2Epng).\n")
+        validate_resources(self.root)
+
+    def test_linked_data_cannot_make_an_undocumented_resource_reachable(self):
+        (self.root / "templates").mkdir()
+        (self.root / "templates/example.txt").write_text("unused.json\n")
+        (self.root / "templates/unused.json").write_text("{}\n")
+        with (self.root / "SKILL.md").open("a") as source:
+            source.write("Use [the template](templates/example.txt).\n")
+        with self.assertRaisesRegex(ValueError, "Unreachable resource.*unused.json"):
+            validate_resources(self.root)
+
     def test_markdown_link_examples_inside_code_are_literal(self):
         with (self.root / "SKILL.md").open("a") as source:
             source.write("Use `[1](#fn1)` only with an existing target.\n\n```md\n[example](missing.md)\n```\n")

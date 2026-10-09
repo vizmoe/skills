@@ -105,9 +105,9 @@ def validate_resources(skill: Path) -> None:
         if document not in reached:
             raise ValueError(f"Unreachable reference: {document}")
     # Scripts and data are often named inside fenced commands, so match mentions in the reachable text.
-    mentions = "\n".join(document.read_text(encoding="utf-8") for document in sorted(reached))
+    mentions = "\n".join(document.read_text(encoding="utf-8") for document in sorted(graph))
     for resource in sorted(skill.rglob("*")):
-        if not resource.is_file() or resource.suffix == ".md" or resource.name == "LICENSE":
+        if not resource.is_file() or resource in reached or resource.name == "LICENSE":
             continue
         relative = resource.relative_to(skill).as_posix()
         if relative not in mentions and resource.name not in mentions:

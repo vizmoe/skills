@@ -4,7 +4,7 @@ description: Maintain metadata directly in EPUB files and CBZ ComicInfo.xml, usi
 license: MIT
 compatibility: Tag audits and naming plans need Node.js; file metadata edits use ZIP/XML tools and validators. Publishing needs tools/quillbind from vizmoe/skills with dependencies installed, exposed through QUILLBIND_ROOT or quillbind on PATH. EPUB release checks need Java, EPUBCheck and Chromium; CBZ packaging needs libjxl cjxl and djxl. Setup and online collection/refreshes need network; saved books and locks support offline builds. Calibre database access is not required.
 metadata:
-  version: "0.1.15"
+  version: "0.1.16"
 ---
 
 # Quillbind
@@ -13,25 +13,41 @@ For tag tasks, use the standalone helper in [tag management](references/tags.md)
 
 ## Choose the operation
 
-- Controlled subjects or label cleanup → [tag management](references/tags.md). The current library vocabulary supplies the labels; edits target ebook files.
-- Missing or incorrect metadata in existing books → [bibliography by book type](references/bibliography.md): BookWalker for light novels/manga and the publisher workflow for other books.
-- Existing CBZ `ComicInfo.xml` or EPUB metadata writes → [embedded metadata maintenance](references/embedded-metadata.md), together with tag management for label changes.
-- Remove scores, including custom or zero-value ratings → [rating cleanup](references/embedded-metadata.md#remove-score-metadata-completely), with a reviewed file-bound plan and format validation.
-- Correct Series, remove marketing collections or verify volume order → [story series normalization](references/series.md).
-- Unify light-novel names across main volumes, side stories and extras → [whole-series naming](references/naming.md), with edition-specific official numbering before local insertion labels.
-- Supplement or correct official cover artwork and its display → [cover selection and adoption](references/covers.md).
-- EPUB inventory or diagnosis → [inspection](references/inspection.md).
-- Split an existing local EPUB anthology into independent volumes → [local splitting](references/local-splitting.md).
-- Existing EPUB popup footnotes, script behavior or hover/touch notes → [note checks](references/notes.md).
+Choose the branches needed for the request, including their supporting source, inspection and write procedures. A request may span groups; keep all actions within its authorized scope.
+
+**Existing-file metadata, naming and covers.** Follow each branch's staging, preservation and verification contract.
+
+- Controlled subjects or label cleanup → [tag management](references/tags.md). The current library vocabulary supplies the labels.
+- Missing or incorrect bibliography → [bibliography by book type](references/bibliography.md): BookWalker for light novels/manga and the publisher workflow for other books.
+- Light-novel or manga source records → [BookWalker](references/bookwalker.md).
+- Performing the write, staging and readback → [embedded metadata maintenance](references/embedded-metadata.md).
+- Scores, including custom or zero-value ratings → [rating cleanup](references/embedded-metadata.md#remove-score-metadata-completely), with a reviewed file-bound plan and format validation.
+- Series, marketing collections or volume order → [story series normalization](references/series.md).
+- Names across main volumes, side stories and extras → [whole-series naming](references/naming.md), with edition-specific official numbering before local insertion labels.
+- Official cover artwork and its display → [cover selection and adoption](references/covers.md).
+
+**Existing books: inspect, check or restructure.**
+
+- Inventory or diagnosis → [inspection](references/inspection.md).
+- Popup footnotes, script behavior or hover/touch notes → [note checks](references/notes.md).
+- Split a local EPUB anthology into independent volumes → [local splitting](references/local-splitting.md).
+- Reading copy, publication upgrade or directory repair → [repair](references/repair.md).
+- Chinese script or regional vocabulary → [conversion](references/conversion.md).
+
+**New publications.** These create a book from sources instead of editing an existing file; preparation and preview have their own results below.
+
 - New book, local Markdown import or author preview → [authoring](references/authoring.md).
 - Website book URL, novel collection or volume merging → [novels](references/novels.md).
+- Metadata configuration for a new authored publication → [authoring metadata](references/metadata.md). Its ISBN gates do not apply to existing-file maintenance.
 - Emphasis, lists, tables, quotes, images or typography → [Markdown](references/markdown.md).
 - Blog/Astro chapters, Properties, footnotes or heading jumps → [blog Markdown](references/blog-markdown.md).
-- Manga scan directories or image archives to CBZ → [manga](references/manga.md).
-- Light-novel or manga metadata from BookWalker → [BookWalker](references/bookwalker.md).
-- Metadata configuration for a new authored publication → [authoring metadata](references/metadata.md). Its ISBN gates do not apply to existing-file maintenance.
-- EPUB reading copy, publication upgrade or directory repair → [repair](references/repair.md).
-- Chinese script or regional vocabulary conversion → [conversion](references/conversion.md).
+
+**Manga scans.** A separate pipeline with its own codec and archive verification, not the EPUB release gates.
+
+- Scan directories or image archives to CBZ → [manga](references/manga.md).
+
+**Every run.**
+
 - Artifact handoff, warnings or release status → [quality](references/quality.md).
 - Setup or `ENVIRONMENT_ERROR` → [environment](references/environment.md).
 

@@ -37,7 +37,7 @@ class MetadataTests(unittest.TestCase):
         original = rules.read_whitelist()
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / 'fields.md'
-            text = (Path(rules.__file__).resolve().parents[1] / 'references/METADATA_WHITELIST.md').read_text()
+            text = (Path(rules.__file__).resolve().parents[1] / 'references/metadata-whitelist.md').read_text()
             text = text.replace('## 表演类 credit 成对规则', '| `TEST_NEW_FIELD` | Temporary test field |\n\n## 表演类 credit 成对规则')
             path.write_text(text)
             updated = rules.read_whitelist(path)
@@ -113,7 +113,7 @@ class MetadataTests(unittest.TestCase):
         original = rules.read_whitelist()
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / 'fields.md'
-            text = (Path(rules.__file__).resolve().parents[1] / 'references/METADATA_WHITELIST.md').read_text()
+            text = (Path(rules.__file__).resolve().parents[1] / 'references/metadata-whitelist.md').read_text()
             text = text.replace('| `COUNTRY` / 国家或地区 | 所有音轨；可记录缺失 |', '| `COUNTRY` / 国家或地区 | 所有音轨 |')
             path.write_text(text)
             updated = rules.read_whitelist(path)

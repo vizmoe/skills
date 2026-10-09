@@ -2,22 +2,22 @@
 
 本文件集中维护当前允许的 **47 个 FLAC / Vorbis Comment 用户字段**：11 个必填或按场景必填字段（其中 2 个允许按下文例外记录缺失）、8 个选填发行与识别字段、28 个选填人员署名与作品字段。封面另用原生图片结构，不计入文本字段数。
 
-读取、映射、写入或校验标签时，以本文件查询字段范围、输入别名、存储格式和排除项。元数据保留与覆盖条件遵循[元数据规则](METADATA.md)；艺人署名规则见[艺人规则](ARTISTS.md)，Genre 与封面分别见[流派规则](METADATA.md#genre-受控词表)和[封面规则](COVER.md)。
+读取、映射、写入或校验标签时，以本文件查询字段范围、输入别名、存储格式和排除项。元数据保留与覆盖条件遵循[元数据规则](metadata.md)；艺人署名规则见[艺人规则](artists.md)，Genre 与封面分别见[流派规则](metadata.md#genre-受控词表)和[封面规则](cover.md)。
 
 ## 必填白名单
 
-下表列出最终 Vorbis 键及适用范围；适用字段缺失且不符合[可靠信息缺失例外](#可靠信息缺失例外)时进入 `REVIEW_REQUIRED`。标题、艺人和专辑名称均受[元数据规则](METADATA.md)的“当前内嵌元数据优先”规则约束。
+下表列出最终 Vorbis 键及适用范围；适用字段缺失且不符合[可靠信息缺失例外](#可靠信息缺失例外)时进入 `REVIEW_REQUIRED`。标题、艺人和专辑名称均受[元数据规则](metadata.md)的“当前内嵌元数据优先”规则约束。
 
 | Vorbis 键 / 语义 | 适用范围 | 要求 |
 | --- | --- | --- |
 | `TITLE` / 标题 | 所有音轨 | 保留可信值，仅在缺失或明显错误时可靠补正 |
-| `ARTIST` / 艺人 | 所有音轨 | 按[艺人规则](ARTISTS.md)保存有序多值 |
+| `ARTIST` / 艺人 | 所有音轨 | 按[艺人规则](artists.md)保存有序多值 |
 | `DATE` / 发行日期 | 所有音轨 | 至少确定四位年份；有可靠月日时优先保存完整日期，路径只取年份 |
 | `COUNTRY` / 国家或地区 | 所有音轨；可记录缺失 | 使用所选发行的国家或地区名称；可靠信息不可得时按下文例外省略，不以艺人国籍代替 |
-| `GENRE` / 流派 | 所有音轨；可记录缺失 | 使用[流派规则](METADATA.md#genre-受控词表)受控英文词表；可靠信息不可得时按下文例外省略 |
-| 封面 | 格式支持嵌入时 | 唯一、正确且符合[封面规则](COVER.md)比例要求的正面封面；FLAC 使用原生 picture block，不写为文本键 |
-| `ALBUM` / 专辑 | 有专辑归属的音轨 | 保留可信值；补正条件与 Apple 发行类型后缀清理见[元数据规则](METADATA.md) |
-| `ALBUMARTIST` / 专辑艺人 | 有专辑归属的音轨 | 保留可信实际艺人名单；补正、多值及 `Various Artists` 的写入与保留条件见[艺人规则](ARTISTS.md) |
+| `GENRE` / 流派 | 所有音轨；可记录缺失 | 使用[流派规则](metadata.md#genre-受控词表)受控英文词表；可靠信息不可得时按下文例外省略 |
+| 封面 | 格式支持嵌入时 | 唯一、正确且符合[封面规则](cover.md)比例要求的正面封面；FLAC 使用原生 picture block，不写为文本键 |
+| `ALBUM` / 专辑 | 有专辑归属的音轨 | 保留可信值；补正条件与 Apple 发行类型后缀清理见[元数据规则](metadata.md) |
+| `ALBUMARTIST` / 专辑艺人 | 有专辑归属的音轨 | 保留可信实际艺人名单；补正、多值及 `Various Artists` 的写入与保留条件见[艺人规则](artists.md) |
 | `TRACKNUMBER` / 轨号 | 有专辑归属的音轨 | 当前轨号明确；FLAC 至少两位补零 |
 | `TRACKTOTAL` / 总轨数 | 有专辑归属的音轨 | 所在音乐碟最终实际轨数明确，不含被排除的 DVD / BD 曲目；FLAC 至少两位补零 |
 | `DISCNUMBER` / 碟号 | 有专辑归属的音轨 | 按[下文计数规则](#轨号碟号与日期)对排除 DVD / BD 后的音乐碟连续编号；FLAC 至少两位补零，单碟为 `01` |
@@ -29,11 +29,11 @@
 
 ## 可靠信息缺失例外
 
-冷门、同人或自主发行按[来源规则](SOURCES.md)完成适用查证后，仍无法可靠确定 COUNTRY 或受控 GENRE 时，允许分别省略其中一项或两项。将受影响音轨、缺失字段、查询证据和具体原因记入计划、恢复记录及最终报告；其它完成条件满足后可正常发布、清理并标记 `COMPLETED`，仅这些已记录的缺失不触发 `REVIEW_REQUIRED`。
+冷门、同人或自主发行按[来源规则](sources.md)完成适用查证后，仍无法可靠确定 COUNTRY 或受控 GENRE 时，允许分别省略其中一项或两项。将受影响音轨、缺失字段、查询证据和具体原因记入计划、恢复记录及最终报告；其它完成条件满足后可正常发布、清理并标记 `COMPLETED`，仅这些已记录的缺失不触发 `REVIEW_REQUIRED`。
 
 已有可信 COUNTRY 或可靠且符合受控词表的 GENRE 继续保留，有可靠来源时补齐。缺失以不写该键表示，不写空值、Unknown 或猜测值；无法可靠映射的原始信息保存在快照中。发行身份不明、版本存在阻断性冲突或其它必填项缺失仍按对应规则复核。
 
-调用字段校验与路径生成时，用[工具的 omissions 输入](TOOLS.md#白名单字段检查)逐字段提供缺失原因，原因引用相应查询记录；工具只检查例外范围和记录结构，可靠性仍由调用者核验。
+调用字段校验与路径生成时，用[工具的 omissions 输入](tools.md#白名单字段检查)逐字段提供缺失原因，原因引用相应查询记录；工具只检查例外范围和记录结构，可靠性仍由调用者核验。
 
 ## 选填白名单
 
@@ -94,7 +94,7 @@
 - `PERFORMER=Name (role)`：通用 Vorbis/Picard 表示。
 - `PERSONNEL=Name - Credit Role`：角色使用 Roon Credit Roles 的 canonical role，如 `Vocals`、`Featured Artist`、`Voice Synthesizer`。
 
-每项 credit 各用一个独立重复值；两字段姓名必须一致，角色语义必须一致。Producer、Engineer、Mixer 等非表演类 credit 不得为成对而伪造 `PERFORMER`。具体署名示例见[艺人规则](ARTISTS.md)。
+每项 credit 各用一个独立重复值；两字段姓名必须一致，角色语义必须一致。Producer、Engineer、Mixer 等非表演类 credit 不得为成对而伪造 `PERFORMER`。具体署名示例见[艺人规则](artists.md)。
 
 `ORCHESTRA` 不在 Roon 支持标签中，不输出该独立键；可靠的乐团信息优先使用 `ENSEMBLE`。需明确 Orchestra 表演 credit 时，成对写入 `PERFORMER=Name (orchestra)` 与 `PERSONNEL=Name - Orchestra`。
 
@@ -111,8 +111,8 @@ Roon Import Settings 支持下列跨格式输入别名及上表 credit 键。扫
 | `TPE1` | `ARTIST` |
 | `TPE2`、`ALBUM ARTIST`、`ALBUM_ARTIST`、`ALBUM_PERFORMER` | `ALBUMARTIST` |
 | `SOLOISTS` | `SOLOIST` |
-| `STYLE`、`GENRES`、`STYLES` | 重复 `GENRE`，受[流派规则](METADATA.md#genre-受控词表)词表约束 |
-| `FEATURING` | [艺人规则](ARTISTS.md)的成对 Featured Artist credit，不输出独立 `FEATURING` |
+| `STYLE`、`GENRES`、`STYLES` | 重复 `GENRE`，受[流派规则](metadata.md#genre-受控词表)词表约束 |
+| `FEATURING` | [艺人规则](artists.md)的成对 Featured Artist credit，不输出独立 `FEATURING` |
 | `TPE3`、`IPRO`、`TPUB` | 按官方定义解析到本文件对应语义 |
 
 无法可靠判断等价关系时，保留信息并标记复核，不静默丢失。最终字段名大小写按白名单表中形式输出。FLAC 多值使用重复键，不压成单个 `A & B` 字符串；`LYRICS` 保留为一个多行值，不按行拆成重复键。
@@ -133,7 +133,7 @@ MP3/ID3v2.4、M4A/MP4 等按相同语义白名单映射到常用原生字段，�
 
 ## 轨号、碟号与日期
 
-总碟数（含输入别名 `TOTALDISC` / `TOTALDISCS`）按[DVD 与 BD 排除与计数规则](AUDIO.md#dvd-与-bd-碟排除与计数)计算，最终 FLAC 写为 `DISCTOTAL`。DVD / BD 不占用碟号、不计入总碟数或总轨数；`DISCNUMBER` 按保留音乐碟的相对顺序连续编号。该计数语义同样适用于 ID3 的 `TPOS` 和 MP4 的 `disk`，不能直接照搬含 DVD / BD 的来源总数。
+总碟数（含输入别名 `TOTALDISC` / `TOTALDISCS`）按[DVD 与 BD 排除与计数规则](audio.md#dvd-与-bd-碟排除与计数)计算，最终 FLAC 写为 `DISCTOTAL`。DVD / BD 不占用碟号、不计入总碟数或总轨数；`DISCNUMBER` 按保留音乐碟的相对顺序连续编号。该计数语义同样适用于 ID3 的 `TPOS` 和 MP4 的 `disk`，不能直接照搬含 DVD / BD 的来源总数。
 
 | 格式 | Track / Disc 表示 |
 | --- | --- |

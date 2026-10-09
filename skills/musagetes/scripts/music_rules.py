@@ -25,7 +25,7 @@ class Whitelist:
 
 
 def read_whitelist(path: Path | None = None) -> Whitelist:
-    path = path or Path(__file__).resolve().parent.parent / "references/METADATA_WHITELIST.md"
+    path = path or Path(__file__).resolve().parent.parent / "references/metadata-whitelist.md"
     allowed, common, album, omittable = set(), set(), set(), set()
     section = None
     for line in path.read_text(encoding="utf-8").splitlines():

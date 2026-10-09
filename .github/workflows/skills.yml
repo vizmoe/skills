@@ -2,9 +2,9 @@ name: Skills
 on:
   push:
     branches: [main]
-    paths: ['skills/**', 'tests/**', 'scripts/**', 'LICENSE', 'requirements-skill.txt', '.github/workflows/skills.yml']
+    paths: ['skills/**', 'docs/**', 'tests/**', 'scripts/**', 'tools/**/*.md', '*.md', 'LICENSE', 'requirements-skill.txt', '.github/workflows/skills.yml']
   pull_request:
-    paths: ['skills/**', 'tests/**', 'scripts/**', 'LICENSE', 'requirements-skill.txt', '.github/workflows/skills.yml']
+    paths: ['skills/**', 'docs/**', 'tests/**', 'scripts/**', 'tools/**/*.md', '*.md', 'LICENSE', 'requirements-skill.txt', '.github/workflows/skills.yml']
 permissions:
   contents: read
 jobs:

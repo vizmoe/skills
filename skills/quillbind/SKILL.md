@@ -13,9 +13,9 @@ For tag tasks, use the standalone helper in [tag management](references/tags.md)
 
 ## Choose the operation
 
-Identify the group first, then take one branch and read only its references. A request scoped to one group does not authorize work from another.
+Choose the branches needed for the request, including their supporting source, inspection and write procedures. A request may span groups; keep all actions within its authorized scope.
 
-**Metadata in existing files.** These edit the selected EPUB's package metadata or the CBZ's `ComicInfo.xml` in place; none of them rebuild or re-encode the book.
+**Existing-file metadata, naming and covers.** Follow each branch's staging, preservation and verification contract.
 
 - Controlled subjects or label cleanup → [tag management](references/tags.md). The current library vocabulary supplies the labels.
 - Missing or incorrect bibliography → [bibliography by book type](references/bibliography.md): BookWalker for light novels/manga and the publisher workflow for other books.

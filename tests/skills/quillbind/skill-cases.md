@@ -23,16 +23,20 @@ The runtime's [scenario evaluation](../../../tools/quillbind/docs/skill-evaluati
 | Request names only tag changes | Stays in tag management; does not expand into ISBN revision or a full rebuild |
 | Request names a light novel with both BookWalker and publisher pages available | Uses the BookWalker route and records the selected edition |
 | Request asks to correct a volume title and the series position together | Applies the naming policy and the Arabic series-position rule, with separate evidence for each |
-| An existing EPUB needs a tag-only edit | Uses the scoped file-level procedure; does not run enrichment, which would update the modification date |
+| Request asks to inspect an EPUB and correct its metadata | Combines the requested inspection and metadata branches, including their supporting source and write procedures |
+| A new Markdown light novel uses a BookWalker lock | Uses the BookWalker source workflow with the authoring branch, then runs the publication gates |
+| An existing EPUB needs a tag-only edit | Uses the scoped file-level procedure; does not run enrichment, which would update the original publication date |
 | Request mentions popup footnotes | Uses the note checks, reporting static and interaction results separately |
 
 ## File-only maintenance boundary
 
 | Raw material or situation | Checkable result |
 | --- | --- |
-| Library has a Calibre database, sidecar `metadata.opf` and `cover.jpg` beside the book | Only the selected EPUB's internal OPF or the CBZ's `ComicInfo.xml` changes; the other three are untouched and their sync is not a completion requirement |
+| Metadata-only task; library has a Calibre database, sidecar `metadata.opf` and `cover.jpg` beside the book | Only the selected EPUB's internal OPF or the CBZ's `ComicInfo.xml` changes; the other three are untouched and their sync is not a completion requirement |
 | Tag change applies to a CBZ | Writes `Genre` in the stable ComicInfo 2.0 profile; page bytes, names and order are unchanged and no image is re-encoded |
 | Tag change applies to an EPUB | Writes package `dc:subject`; non-OPF members keep their bytes, and EPUBCheck actually runs on the result |
+| A metadata command is asked to write a new output | Keeps the source and refuses destination collisions; replacement follows the branch's verified installation procedure only when requested |
+| Cover correction selects an existing JXL page in a CBZ | Uses the cover workflow's lossless encoding and verification for that page, preserves the original and other page bytes/order, and produces a new verified output |
 | Validator or ComicInfo schema tool is missing | Reports incomplete verification; does not claim a completed write |
 | Only staged files were produced | Reports staged-only or partial completion explicitly, with source, staged and final hashes distinguished |
 

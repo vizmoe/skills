@@ -37,11 +37,11 @@ inventory 只按扩展名提示类型，codec 和音乐身份仍需核验；符�
 python3 -B "$skill_dir/scripts/library_guard.py" check-tags --input "$tag_snapshot"
 ```
 
-输入为 `{"kind":"album","tags":{"TITLE":["曲名"],...}}`，这里的省略号表示其余实际字段，文件中使用完整有效 JSON。`kind` 为 `album` 或 `singleton`；tags 使用映射后的规范 Vorbis 语义键，值一律为有序、非空字符串数组。其它容器先保存原生快照，再按[输入映射](METADATA_WHITELIST.md#输入别名与最终键)构建此视图。
+输入为 `{"kind":"album","tags":{"TITLE":["曲名"],...}}`，这里的省略号表示其余实际字段，文件中使用完整有效 JSON。`kind` 为 `album` 或 `singleton`；tags 使用映射后的规范 Vorbis 语义键，值一律为有序、非空字符串数组。其它容器先保存原生快照，再按[输入映射](metadata-whitelist.md#输入别名与最终键)构建此视图。
 
-符合[可靠信息缺失例外](METADATA_WHITELIST.md#可靠信息缺失例外)时，输入可增加 `omissions` 对象，将每个实际缺失字段映射到具体原因及查询记录引用，例如 `"omissions":{"COUNTRY":"冷门自主发行；双源及发行方查询未提供可靠发行地区，见 evidence/country.json"}`。缺失键从 tags 省略；保留的字段不列入 omissions。只有表格标注“可记录缺失”的键可使用此输入，其余必填项照常校验。
+符合[可靠信息缺失例外](metadata-whitelist.md#可靠信息缺失例外)时，输入可增加 `omissions` 对象，将每个实际缺失字段映射到具体原因及查询记录引用，例如 `"omissions":{"COUNTRY":"冷门自主发行；双源及发行方查询未提供可靠发行地区，见 evidence/country.json"}`。缺失键从 tags 省略；保留的字段不列入 omissions。只有表格标注“可记录缺失”的键可使用此输入，其余必填项照常校验。
 
-字段集合、适用必填项与允许缺失的键均由脚本读取 [METADATA_WHITELIST.md](METADATA_WHITELIST.md) 两张白名单表；代码不维护第二份字段表。输出未知键、未说明的必填缺失、空值和无效例外；通过的缺失记录随 `omissions` 返回，不作为阻断项。将其留在计划、恢复快照的 details 及交付报告中。`scope: canonical_fields_and_values_only` 不验证原因真实性、查询证据、Genre 词表、credit 关系或原生容器；封面也不属于文本键检查。
+字段集合、适用必填项与允许缺失的键均由脚本读取 [metadata-whitelist.md](metadata-whitelist.md) 两张白名单表；代码不维护第二份字段表。输出未知键、未说明的必填缺失、空值和无效例外；通过的缺失记录随 `omissions` 返回，不作为阻断项。将其留在计划、恢复快照的 details 及交付报告中。`scope: canonical_fields_and_values_only` 不验证原因真实性、查询证据、Genre 词表、credit 关系或原生容器；封面也不属于文本键检查。
 
 ## 从标签生成路径
 
@@ -51,7 +51,7 @@ python3 -B "$skill_dir/scripts/library_guard.py" render-paths --root "$music_roo
 
 输入只有非空 `tracks` 数组，每轨包含 `source`、`source_sha256`、`operation`（同路径计划），以及 `kind`、`tags`（同字段检查）、`extension`（已确认的实际音频后缀，例如 `.flac`）；允许缺失时同一轨另传 `omissions`（格式同上）。
 
-输出直接是可交给 check-paths 的路径计划。函数检查必填字段及缺失记录、渲染所需单值、日期和碟轨数；按[路径规则](PATHS.md)生成目录及文件名，保留传入标签不变。路径计划只是投影，缺失原因仍保存在原输入及专辑计划中。它不识别实际 codec，也不在渲染时检查源文件存在或路径占用；保存结果后运行 check-paths。`keep` 由调用者核验后指定，渲染器不自动推定。
+输出直接是可交给 check-paths 的路径计划。函数检查必填字段及缺失记录、渲染所需单值、日期和碟轨数；按[路径规则](paths.md)生成目录及文件名，保留传入标签不变。路径计划只是投影，缺失原因仍保存在原输入及专辑计划中。它不识别实际 codec，也不在渲染时检查源文件存在或路径占用；保存结果后运行 check-paths。`keep` 由调用者核验后指定，渲染器不自动推定。
 
 ## 封面尺寸预检
 
@@ -59,7 +59,7 @@ python3 -B "$skill_dir/scripts/library_guard.py" render-paths --root "$music_roo
 python3 -B "$skill_dir/scripts/library_guard.py" cover-info --root "$music_root" --image "$relative_cover"
 ```
 
-通过 PNG IHDR 或 JPEG SOF 读取宽高，用整数比例检查边界，返回尺寸、像素数和比例。只支持这两种文件头；其它格式使用已安装解码器。输出 `scope: header_geometry_only` 和 `full_decode_verified: false`，有效头部并不证明图片完整。正式选择与嵌入仍按 [COVER.md](COVER.md) 完整解码、核验身份及读回。
+通过 PNG IHDR 或 JPEG SOF 读取宽高，用整数比例检查边界，返回尺寸、像素数和比例。只支持这两种文件头；其它格式使用已安装解码器。输出 `scope: header_geometry_only` 和 `full_decode_verified: false`，有效头部并不证明图片完整。正式选择与嵌入仍按 [cover.md](cover.md) 完整解码、核验身份及读回。
 
 ## 跨运行记录格式
 
@@ -67,7 +67,7 @@ python3 -B "$skill_dir/scripts/library_guard.py" cover-info --root "$music_root"
 python3 -B "$skill_dir/scripts/library_guard.py" history --root "$music_root"
 ```
 
-执行协议见 [EXECUTION.md](EXECUTION.md#跨运行发现与续做)。history 枚举各状态目录的 `runs/<run_id>/albums/<album_id>/events/<sequence>.json`，不创建全局状态文件。运行和专辑 ID 为 1–64 个 ASCII 字母、数字、下划线或短横线，首字符为字母或数字。专辑 ID 跨运行、重命名保持稳定。序号为正整数，文件名至少补齐六位，例如 `000017.json`。
+执行协议见 [execution.md](execution.md#跨运行发现与续做)。history 枚举各状态目录的 `runs/<run_id>/albums/<album_id>/events/<sequence>.json`，不创建全局状态文件。运行和专辑 ID 为 1–64 个 ASCII 字母、数字、下划线或短横线，首字符为字母或数字。专辑 ID 跨运行、重命名保持稳定。序号为正整数，文件名至少补齐六位，例如 `000017.json`。
 
 每个不可变 JSON 文件是当时完整快照，只包含以下必需键及可选 `details` 对象：
 
@@ -78,8 +78,8 @@ python3 -B "$skill_dir/scripts/library_guard.py" history --root "$music_root"
 | `run_id`、`album_id` | 与所在目录一致 |
 | `sequence` | 同一专辑跨所有运行递增且唯一的整数；与文件名一致 |
 | `skill_version` | 当时 SKILL.md 的 `metadata.version` 字符串 |
-| `phase` | [事务阶段](EXECUTION.md#事务与恢复)之一 |
-| `status`、`match_status` | [状态词表](DELIVERY.md#状态与最终报告)中对应维度值；status 未终结为 null |
+| `phase` | [事务阶段](execution.md#事务与恢复)之一 |
+| `status`、`match_status` | [状态词表](delivery.md#状态与最终报告)中对应维度值；status 未终结为 null |
 | `expected_files` | 非空数组，每项只有 `path`（root 相对路径）、`sha256`（64 位小写十六进制）、`role` |
 | `removed_paths` | 该事务截至当时已移除且应保持不存在的相对路径数组，含已删空目录 |
 | `details` | 可选，记录计划摘要、证据、日志引用、清理原因等；工具把它当数据 |

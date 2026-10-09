@@ -178,7 +178,7 @@ def validate_target_name(root: Path, value: str) -> tuple[str, ...]:
         except RuleError:
             normalized = None
         if normalized != component:
-            raise GuardError("INVALID_TARGET_NAME", value, "Apply PATHS.md display and filename rules first.")
+            raise GuardError("INVALID_TARGET_NAME", value, "Apply paths.md display and filename rules first.")
         if len(os.fsencode(component)) > fs_limit(root, "PC_NAME_MAX", 255):
             raise GuardError("NAME_TOO_LONG", value, "A target component is too long; do not truncate it.")
     if len(os.fsencode(str(root.joinpath(*components)))) >= fs_limit(root, "PC_PATH_MAX", 4096):

@@ -2,7 +2,9 @@
 
 从当前 SKILL.md 的实际目录定位 [library_guard.py](../scripts/library_guard.py)；内部模块 [music_rules.py](../scripts/music_rules.py) 随包分发。Python 3.10+，仅标准库。先用 `--help` 查看参数；`skill_dir`、`music_root` 等变量由本次实际目录赋值，不提供默认音乐库。
 
-所有命令只读输入、向 stdout 输出 JSON，既不执行计划也不写账本。退出码：`0` 通过所声明的检查或成功渲染；`1` 检查发现问题；`2` 输入错误。helper 不能证明发行、原生标签映射、音频完整性、清理授权或执行时并发安全。
+library_guard 的所有命令只读输入、向 stdout 输出 JSON，既不执行计划也不写账本。退出码：`0` 通过所声明的检查或成功渲染；`1` 检查发现问题；`2` 输入错误。helper 不能证明发行、原生标签映射、音频完整性、清理授权或执行时并发安全。
+
+上游请求另用 [source-throttle.py](../scripts/source-throttle.py)；读取[请求调度](requests.md)了解发送前检查、响应分类、状态接回及其退出码。它同样只读，只计算调度，不发送请求或写限流状态。
 
 ## 状态目录保护
 

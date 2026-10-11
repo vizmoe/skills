@@ -36,3 +36,21 @@ class MusagetesInstallationTests(SkillInstallationTestCase):
             self.assertEqual(recorded.returncode, 0, recorded.stderr)
             self.assertEqual(json.loads(recorded.stdout)["scope"], "recorded_files_only")
             self.assertEqual(list(library.iterdir()), [track])
+            # Installed scheduling reads its own policy reference, without HTTP or writes.
+            throttle = [sys.executable, "-B", str(installed / "scripts/source-throttle.py"), "--input", "-"]
+            observation = subprocess.run(throttle, input=json.dumps({
+                "operation": "observe", "url": "https://musicbrainz.org/ws/2/release/test",
+                "attempt": 1, "now": 1000, "status": 503, "headers": {"Retry-After": "120"}}),
+                cwd=library, text=True, capture_output=True, timeout=30)
+            self.assertEqual(observation.returncode, 0, observation.stderr)
+            decision = json.loads(observation.stdout)
+            self.assertEqual(decision["action"], "defer")
+            check = subprocess.run(throttle, input=json.dumps({
+                "operation": "check", "url": "https://musicbrainz.org/ws/2/artist/other",
+                "attempt": 1, "now": 1010, "state": decision["state"]}),
+                cwd=library, text=True, capture_output=True, timeout=30)
+            self.assertEqual(check.returncode, 0, check.stderr)
+            self.assertEqual(json.loads(check.stdout)["not_before"], 1120)
+            self.assertEqual(json.loads(check.stdout)["action"], "defer")
+            self.assertEqual(list(library.iterdir()), [track])
+            self.assertFalse(list(installed.rglob("__pycache__")))

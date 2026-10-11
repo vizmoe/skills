@@ -57,6 +57,9 @@ class NamingTests(unittest.TestCase):
         self.assertEqual(report["inputs"]["inventory"]["sha256"], digest)
         self.assertFalse(report["libraryWritten"])
         self.assertEqual(report["sourceVerification"], "declared-only")
+        self.assertEqual(report["schemaVersion"], 1)
+        self.assertEqual(report["operation"], "light-novel-naming-plan")
+        self.assertEqual(report["status"], "reviewable")
         return {b["id"]: b for b in report["books"]}
 
     def failure(self, data, message):

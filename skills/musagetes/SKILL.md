@@ -4,7 +4,7 @@ description: 整理本地音乐库；organize music folders, fix music tags, spl
 license: MIT
 compatibility: 辅助脚本需要 Python 3.10+，仅使用标准库；音频工具按具体步骤选用，见 references/audio.md；在线发行检索需要网络访问。
 metadata:
-  version: "0.2.3"
+  version: "0.2.4"
 ---
 
 # Musagetes

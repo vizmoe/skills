@@ -20,6 +20,8 @@ python3 -B "$skill_dir/scripts/library_guard.py" check-paths --root "$music_root
 
 inventory 只按扩展名提示类型，codec 和音乐身份仍需核验；符号链接只记录，硬链接提示复核。大库先不加 hash 扫描，再为当前专辑的拟变更文件采集 SHA-256。
 
+受保护状态项和符号链接记 `disposition: "SKIPPED"`，多链接文件和特殊文件记 `disposition: "REVIEW_REQUIRED"`。该字段取[状态词表](delivery.md#状态与最终报告)执行维度的值，只是扫描阶段的提示，不是已判定的执行结果；专辑的实际状态仍按交付规则记录。
+
 路径计划只含 `schema_version: 1` 和非空 `entries`，每项严格包含：
 
 | 键 | 值 |

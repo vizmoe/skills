@@ -24,6 +24,64 @@ class Whitelist:
     omittable: frozenset[str]
 
 
+@dataclass(frozen=True)
+class Vocabulary:
+    phases: tuple[str, ...]
+    execution: frozenset[str]
+    match: frozenset[str]
+    disposition: frozenset[str]
+
+
+DIMENSIONS = {"执行": "execution", "匹配": "match", "处置": "disposition"}
+# Values the helpers branch on. A reference rename must fail loudly, not silently disable a check.
+BRANCHED_ON = {"phases": ("PLANNED", "FINALIZED"),
+               "execution": ("COMPLETED", "SKIPPED", "REVIEW_REQUIRED"), "match": ("FULL",)}
+
+
+def read_vocabulary(delivery: Path | None = None, execution: Path | None = None) -> Vocabulary:
+    """Parse transaction phases and status values from the reference tables, never a second copy."""
+    references = Path(__file__).resolve().parent.parent / "references"
+    groups: dict[str, set[str]] = {name: set() for name in DIMENSIONS.values()}
+    section = None
+    for line in (delivery or references / "delivery.md").read_text(encoding="utf-8").splitlines():
+        if line.startswith("## "):
+            section = line[3:].strip()
+        if section != "状态与最终报告" or not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if len(cells) < 3:
+            raise RuleError("INVALID_STATUS_TABLE", "Malformed status table row.")
+        if cells[0] == "维度" or re.fullmatch(r":?-+:?", cells[0]):
+            continue
+        if cells[0] not in DIMENSIONS:
+            raise RuleError("INVALID_STATUS_TABLE", f"Unknown status dimension: {cells[0]}")
+        value = re.fullmatch(r"`([A-Z][A-Z_]*)`", cells[1])
+        if not value:
+            raise RuleError("INVALID_STATUS_TABLE", f"Expected one backtick-delimited status value: {cells[1]}")
+        if any(value[1] in group for group in groups.values()):
+            raise RuleError("INVALID_STATUS_TABLE", f"Duplicate status declaration: {value[1]}")
+        groups[DIMENSIONS[cells[0]]].add(value[1])
+    if not all(groups.values()):
+        raise RuleError("INVALID_STATUS_TABLE", "References must declare every status dimension.")
+    phases: tuple[str, ...] = ()
+    section = None
+    for line in (execution or references / "execution.md").read_text(encoding="utf-8").splitlines():
+        if line.startswith("## "):
+            section = line[3:].strip()
+        if section == "事务与恢复" and (found := re.search(r"`([A-Z_]+(?:\s*→\s*[A-Z_]+)+)`", line)):
+            phases = tuple(part.strip() for part in found[1].split("→"))
+            break
+    if len(phases) != len(set(phases)):
+        raise RuleError("INVALID_STATUS_TABLE", "Transaction phases must be unique.")
+    vocabulary = Vocabulary(phases, frozenset(groups["execution"]),
+                            frozenset(groups["match"]), frozenset(groups["disposition"]))
+    for name, expected in BRANCHED_ON.items():
+        declared = getattr(vocabulary, name)
+        if not declared or not set(expected) <= set(declared):
+            raise RuleError("INVALID_STATUS_TABLE", f"References must declare {name}: {', '.join(expected)}")
+    return vocabulary
+
+
 def read_whitelist(path: Path | None = None) -> Whitelist:
     path = path or Path(__file__).resolve().parent.parent / "references/metadata-whitelist.md"
     allowed, common, album, omittable = set(), set(), set(), set()

@@ -13,7 +13,8 @@ import stat
 import sys
 import unicodedata
 
-from music_rules import RuleError, check_tags, inspect_cover, read_whitelist, render_path, sanitize_component
+from music_rules import (RuleError, check_tags, inspect_cover, read_vocabulary, read_whitelist,
+                         render_path, sanitize_component)
 
 
 class GuardError(ValueError):
@@ -299,7 +300,9 @@ def actual_state_roots(root: Path, state_dirs: list[str] | None) -> tuple[list[s
     return list(dict.fromkeys(result)), issues
 
 
-def validate_event(event: dict, root: Path, run_id: str, album_id: str, filename: str, state_dirs: list[str] | None) -> None:
+def validate_event(event: dict, root: Path, run_id: str, album_id: str, filename: str,
+                   state_dirs: list[str] | None, vocabulary=None) -> None:
+    vocabulary = vocabulary or read_vocabulary()
     required = {"schema_version", "root", "run_id", "album_id", "sequence", "skill_version", "phase", "status", "match_status", "expected_files", "removed_paths"}
     if not isinstance(event, dict) or set(event) not in (required, required | {"details"}):
         raise GuardError("INVALID_HISTORY", filename, "Event fields do not match the documented schema.")
@@ -308,9 +311,9 @@ def validate_event(event: dict, root: Path, run_id: str, album_id: str, filename
             or event["root"] != str(root) or event["run_id"] != run_id or event["album_id"] != album_id
             or type(sequence) is not int or sequence < 1 or filename != f"{sequence:06d}.json"
             or not isinstance(event["skill_version"], str) or not event["skill_version"]
-            or event["phase"] not in ("PLANNED", "STAGED", "VERIFIED", "COMMITTED", "FINALIZED")
-            or event["status"] not in (None, "COMPLETED", "SKIPPED", "REVIEW_REQUIRED", "FAILED")
-            or event["match_status"] not in ("FULL", "PARTIAL_MATCH", "UNCONFIRMED")
+            or event["phase"] not in vocabulary.phases
+            or event["status"] not in (None, *vocabulary.execution)
+            or not isinstance(event["match_status"], str) or event["match_status"] not in vocabulary.match
             or not isinstance(event["expected_files"], list) or not event["expected_files"]
             or not isinstance(event["removed_paths"], list)
             or ("details" in event and not isinstance(event["details"], dict))):
@@ -335,8 +338,9 @@ def validate_event(event: dict, root: Path, run_id: str, album_id: str, filename
         if key in seen:
             raise GuardError("INVALID_HISTORY", removed, "Removed path duplicates an expected or removed path.")
         seen.add(key)
-    if event["status"] == "COMPLETED" and (event["phase"] != "FINALIZED" or not outputs):
-        raise GuardError("INVALID_HISTORY", filename, "COMPLETED requires FINALIZED and verified output manifest entries.")
+    if event["status"] == "COMPLETED" and (event["phase"] != vocabulary.phases[-1] or not outputs):
+        raise GuardError("INVALID_HISTORY", filename,
+                         f"COMPLETED requires {vocabulary.phases[-1]} and verified output manifest entries.")
 
 
 def check_event_files(root: Path, event: dict) -> list[dict]:
@@ -366,6 +370,7 @@ def check_event_files(root: Path, event: dict) -> list[dict]:
 def history(root: Path, state_dirs: list[str] | None = None) -> dict:
     """Rebuild a cross-run view from immutable per-album snapshots; never write state."""
     version = skill_version()
+    vocabulary = read_vocabulary()
     issues, albums = [], {}
     try:
         states, state_issues = actual_state_roots(root, state_dirs)
@@ -401,7 +406,7 @@ def history(root: Path, state_dirs: list[str] | None = None) -> dict:
                                 event = json.loads(file.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
                                 if fingerprint(file) != before:
                                     raise GuardError("HISTORY_CHANGED", rel, "History changed while it was being read.")
-                                validate_event(event, root, run.name, album.name, file.name, state_dirs)
+                                validate_event(event, root, run.name, album.name, file.name, state_dirs, vocabulary)
                                 view["records"].append({"record_path": rel, "event": event})
                         except (OSError, ValueError) as error:
                             view["issues"].append(error.issue if isinstance(error, GuardError) else {"code": "INVALID_HISTORY", "path": album_rel, "detail": str(error)})

@@ -39,7 +39,9 @@ class TagAuditTests(unittest.TestCase):
         self.assertEqual(book["proposed"], ["Literature.Fantasy", "Science.Computer Science", "简体中文", "Author Name"])
         self.assertEqual([f["tag"] for f in book["unresolved"]], ["简体中文", "Author Name"])
         self.assertEqual(report["status"], "needs-review")
+        self.assertEqual(report["operation"], "tag-audit")
         self.assertFalse(report["libraryWritten"])
+        self.assertFalse(report["publicationReady"])
         self.assertEqual(report["inputs"]["inventory"]["sha256"], hashlib.sha256(before["inventory.json"]).hexdigest())
         self.assertEqual(report["inputs"]["vocabulary"]["sha256"], hashlib.sha256(before["vocabulary.json"]).hexdigest())
 
@@ -70,6 +72,10 @@ class TagAuditTests(unittest.TestCase):
         self.assertEqual(report["books"][0]["proposed"], ["Literature.Light Novel", "Literature.Fantasy"])
         self.assertEqual(report["books"][0]["unresolved"], [])
         self.assertEqual(report["books"][0]["removed"], ["简体中文"])
+        # Fully resolved input is the documented `reviewable` status; it still is not a write.
+        self.assertEqual(report["status"], "reviewable")
+        self.assertFalse(report["libraryWritten"])
+        self.assertFalse(report["publicationReady"])
 
     def test_invalid_inputs_and_unscoped_or_unsupported_decisions_fail(self):
         inventory = [{"id": 1, "title": "Synthetic", "tags": []}]

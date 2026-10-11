@@ -4,8 +4,8 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
-from validate_skills import (discover_skills, validate_distribution, validate_documentation,
-                             validate_license, validate_resources, walk)
+from validate_skills import (discover_skills, validate_dependencies, validate_distribution,
+                             validate_documentation, validate_license, validate_resources, walk)
 
 
 class ProjectLicenseTests(unittest.TestCase):
@@ -190,6 +190,134 @@ class DistributionBoundaryTests(unittest.TestCase):
             vendored.mkdir(parents=True)
             (vendored / "SKILL.md").write_text("---\nname: other\ndescription: Vendored.\n---\n")
             validate_distribution(root, [skill], list(walk(root)))
+
+
+class DependencyTests(unittest.TestCase):
+    """Bundled scripts must run from the installed directory with no package manager."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name) / "example"
+        (self.root / "scripts").mkdir(parents=True)
+        (self.root / "SKILL.md").write_text("Run the helper.\n")
+
+    def script(self, name, body):
+        path = self.root / "scripts" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body)
+        return path
+
+    def test_standard_library_and_bundled_siblings_are_allowed(self):
+        self.script("helper.py", "from __future__ import annotations\nimport json\nfrom pathlib import Path\nimport shared\n")
+        self.script("shared.py", "VALUE = 1\n")
+        self.script("helper.mjs", 'import fs from "node:fs/promises";\nimport { value } from "./shared.mjs";\n')
+        self.script("shared.mjs", "export const value = 1;\n")
+        validate_dependencies(self.root)
+
+    def test_a_third_party_python_package_is_rejected(self):
+        self.script("helper.py", "import json\nimport requests\n")
+        with self.assertRaisesRegex(ValueError, "external package"):
+            validate_dependencies(self.root)
+
+    def test_a_third_party_python_package_in_a_from_import_is_rejected(self):
+        self.script("helper.py", "from mutagen.flac import FLAC\n")
+        with self.assertRaisesRegex(ValueError, "external package"):
+            validate_dependencies(self.root)
+
+    def test_a_bare_node_builtin_specifier_is_rejected(self):
+        self.script("helper.mjs", 'import path from "path";\n')
+        with self.assertRaisesRegex(ValueError, "external package"):
+            validate_dependencies(self.root)
+
+    def test_dynamic_imports_and_requires_are_inspected(self):
+        for body in ('const fs = await import("fs-extra");\n', 'const yaml = require("js-yaml");\n'):
+            with self.subTest(body=body):
+                self.script("helper.mjs", body)
+                with self.assertRaisesRegex(ValueError, "external package"):
+                    validate_dependencies(self.root)
+
+    def test_a_relative_import_leaving_the_skill_is_rejected(self):
+        outside = self.root.parent / "runtime"
+        outside.mkdir()
+        (outside / "cli.mjs").write_text("export const run = 1;\n")
+        self.script("helper.mjs", 'import { run } from "../../runtime/cli.mjs";\n')
+        with self.assertRaisesRegex(ValueError, "missing or escaping file"):
+            validate_dependencies(self.root)
+
+    def test_a_relative_import_of_a_missing_file_is_rejected(self):
+        self.script("helper.mjs", 'import { gone } from "./gone.mjs";\n')
+        with self.assertRaisesRegex(ValueError, "missing or escaping file"):
+            validate_dependencies(self.root)
+
+    def test_all_javascript_extensions_are_checked(self):
+        for extension in ("js", "cjs", "mjs"):
+            with self.subTest(extension=extension):
+                source = self.script(f"helper.{extension}", 'const value = require("external-package");\n')
+                with self.assertRaisesRegex(ValueError, "external package"):
+                    validate_dependencies(self.root)
+                source.unlink()
+
+    def test_comments_between_import_tokens_do_not_hide_dependencies(self):
+        for body in ('import /* explanation */ "external-package";',
+                     'import value from /* explanation */ "external-package";',
+                     'const value = import /* explanation */ ("external-package");',
+                     'const value = require(/* explanation */ "external-package");',
+                     'export { value } from /* explanation */ "external-package";'):
+            with self.subTest(body=body):
+                self.script("helper.mjs", body)
+                with self.assertRaisesRegex(ValueError, "external package"):
+                    validate_dependencies(self.root)
+
+    def test_javascript_comments_and_literal_data_are_not_imports(self):
+        self.script("helper.mjs", '''
+// import value from "example-package";
+/* const example = require("example-package"); */
+const help = 'import value from "example-package";';
+const template = `require("example-package")`;
+const pattern = /import("example-package")/;
+const from = "example-package";
+import fs from "node:fs";
+''')
+        validate_dependencies(self.root)
+
+    def test_computed_javascript_dependencies_require_review(self):
+        for body in ('import(packageName);', 'require(packageName);',
+                     'import("./" + packageName);', 'import(`./${packageName}.mjs`);'):
+            with self.subTest(body=body):
+                self.script("helper.mjs", body)
+                with self.assertRaisesRegex(ValueError, "literal"):
+                    validate_dependencies(self.root)
+
+    def test_template_expressions_are_executable(self):
+        self.script("helper.mjs", 'const value = `result: ${await import("external-package")}`;')
+        with self.assertRaisesRegex(ValueError, "external package"):
+            validate_dependencies(self.root)
+
+    def test_bundled_python_packages_and_relative_modules_are_allowed(self):
+        self.script("helper.py", "from shared.rules import VALUE\n")
+        self.script("shared/__init__.py", "from .rules import VALUE\n")
+        self.script("shared/rules.py", "VALUE = 1\n")
+        validate_dependencies(self.root)
+
+    def test_missing_or_escaping_relative_python_imports_are_rejected(self):
+        self.script("shared/__init__.py", "")
+        for module in (".missing", "..missing", "....outside"):
+            with self.subTest(module=module):
+                self.script("shared/helper.py", f"from {module} import VALUE\n")
+                with self.assertRaisesRegex(ValueError, "missing or escaping"):
+                    validate_dependencies(self.root)
+
+    def test_python_submodule_must_exist_even_if_its_parent_is_bundled(self):
+        self.script("shared/__init__.py", "")
+        self.script("helper.py", "from shared.missing import VALUE\n")
+        with self.assertRaises(ValueError):
+            validate_dependencies(self.root)
+
+    def test_commonjs_can_resolve_a_bundled_extensionless_file(self):
+        self.script("helper.cjs", 'const value = require("./shared");')
+        self.script("shared.js", "module.exports = 1;")
+        validate_dependencies(self.root)
 
 
 class DocumentationTests(unittest.TestCase):

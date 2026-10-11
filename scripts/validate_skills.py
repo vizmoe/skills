@@ -2,10 +2,12 @@
 """Validate the catalog with skills-ref, bundled-resource isolation and repository-wide Markdown links."""
 from pathlib import Path
 import argparse
+import ast
 import json
 import re
 import shutil
 import subprocess
+import sys
 from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,6 +15,8 @@ GENERATED = {".git", ".hg", ".svn", ".local", ".cache", ".venv", "__pycache__",
              "node_modules", "dist", "coverage", "test-results", "playwright-report", "ci-output"}
 DEVELOPMENT = {"tests", "evals", "work", "AGENTS.md", "CONTRIBUTING.md"}
 LINK = re.compile(r"\[[^\]\n]*\]\(([^)\n]+)\)")
+JS_TOKEN = re.compile(r'''(?P<space>\s+)|(?P<comment>//[^\n]*|/\*.*?\*/)|(?P<string>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(?P<word>[\w$]+)|(?P<punct>.)''', re.S)
+JS_REGEX = re.compile(r"/(?:\\.|[^/\\\n\[]|\[(?:\\.|[^\]\\\n])*\])*/[a-z]*")
 
 
 def validate_license(skill: Path, project_license: Path, declared_license: str | None) -> None:
@@ -114,6 +118,131 @@ def validate_resources(skill: Path) -> None:
             raise ValueError(f"Unreachable resource: {resource}")
 
 
+def javascript_tokens(text: str) -> list[tuple[str, str]]:
+    """Keep executable tokens, including template expressions, separate from literal data."""
+    tokens = []
+
+    def scan(position: int, expression: bool = False) -> int:
+        depth = 0
+        while position < len(text):
+            token = JS_TOKEN.match(text, position)
+            kind, value = token.lastgroup, token.group()
+            position = token.end()
+            if kind in {"space", "comment"}:
+                continue
+            if value == "}" and expression and depth == 0:
+                return position
+            if value == "`":
+                tokens.append(("template", value))
+                while position < len(text):
+                    if text[position] == "\\":
+                        position += 2
+                    elif text[position] == "`":
+                        position += 1
+                        break
+                    elif text.startswith("${", position):
+                        tokens.append(("punct", "{"))
+                        position = scan(position + 2, True)
+                        tokens.append(("punct", "}"))
+                    else:
+                        position += 1
+                tokens.append(("template", "`"))
+                continue
+            previous = tokens[-1][1] if tokens else ";"
+            if value == "/" and previous in {"=", "(", "[", "{", ",", ":", ";", "!", "?", "&", "|", ">", "return", "throw", "case"}:
+                literal = JS_REGEX.match(text, token.start())
+                if literal:
+                    tokens.append(("regex", literal.group()))
+                    position = literal.end()
+                    continue
+            if value == "{":
+                depth += 1
+            elif value == "}":
+                depth -= 1
+            tokens.append((kind, value))
+        return position
+
+    scan(0)
+    return tokens
+
+
+def javascript_imports(source: Path):
+    tokens = javascript_tokens(source.read_text(encoding="utf-8"))
+    for index, (kind, value) in enumerate(tokens):
+        if kind != "word" or value not in {"import", "export", "require"}:
+            continue
+        if index and tokens[index - 1][1] == "." and not (value == "require" and index > 1 and tokens[index - 2][1] == "module"):
+            continue
+        following = tokens[index + 1:]
+        if not following or following[0][1] == ".":
+            continue
+        if value in {"import", "require"} and following[0][1] == "(":
+            endings = {")", ","} if value == "import" else {")"}
+            if len(following) < 3 or following[1][0] != "string" or following[2][1] not in endings:
+                raise ValueError(f"Bundled imports require a string literal for static validation: {source}")
+            yield value, ast.literal_eval(following[1][1])
+        elif value == "import" and following[0][0] == "string":
+            yield value, ast.literal_eval(following[0][1])
+        elif value == "import" or (value == "export" and following[0][1] in {"{", "*"}):
+            for offset, (next_kind, next_value) in enumerate(following[:-1]):
+                if next_value == ";":
+                    break
+                if next_kind == "word" and next_value == "from" and following[offset + 1][0] == "string":
+                    yield value, ast.literal_eval(following[offset + 1][1])
+                    break
+
+
+def python_module_exists(skill: Path, directory: Path, name: str) -> bool:
+    target = directory.joinpath(*name.split("."))
+    module = target.with_suffix(".py")
+    return ((module.resolve().is_relative_to(skill) and module.is_file())
+            or (target.resolve().is_relative_to(skill) and target.is_dir()))
+
+
+def validate_dependencies(skill: Path) -> None:
+    """A bundled script runs from the installed directory, so it may only use the standard
+    library or another bundled file. Adding a third-party dependency is a deliberate change
+    to this rule, not something a skill can introduce silently."""
+    skill = skill.resolve()
+    for source in sorted(skill.rglob("*.py")):
+        roots = [source.parent]
+        while (roots[-1] / "__init__.py").is_file() and roots[-1] != skill:
+            roots.append(roots[-1].parent)
+        for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"), filename=str(source))):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                if node.level:
+                    directory = source.parent
+                    for _ in range(node.level - 1):
+                        directory = directory.parent
+                    if not python_module_exists(skill, directory, node.module or ""):
+                        raise ValueError(f"Bundled script imports a missing or escaping file: {source} -> {'.' * node.level}{node.module or ''}")
+                    continue
+                names = [node.module or ""]
+            else:
+                continue
+            for name in names:
+                if name.split(".")[0] in sys.stdlib_module_names:
+                    continue
+                if any(python_module_exists(skill, directory, name) for directory in roots):
+                    continue
+                raise ValueError(f"Bundled script needs an external package: {source} -> {name}")
+    for source in sorted(path for path in skill.rglob("*") if path.is_file() and path.suffix in {".js", ".cjs", ".mjs"}):
+        for kind, specifier in javascript_imports(source):
+            if specifier.startswith("node:"):
+                continue
+            if not specifier.startswith(("./", "../")):
+                raise ValueError(f"Bundled script needs an external package: {source} -> {specifier}")
+            relative = specifier if kind == "require" else unquote(urlsplit(specifier).path)
+            target = source.parent / relative
+            candidates = [target]
+            if kind == "require":
+                candidates.extend(Path(str(target) + suffix) for suffix in (".js", ".json", ".node"))
+            if not any(path.resolve().is_relative_to(skill) and path.is_file() for path in candidates):
+                raise ValueError(f"Bundled script imports a missing or escaping file: {source} -> {specifier}")
+
+
 def validate_distribution(root: Path, skills: list[Path], files: list[Path]) -> None:
     """The skills CLI treats any discoverable SKILL.md as an installable unit; allow only the catalog's."""
     expected = {(skill / "SKILL.md").resolve() for skill in skills}
@@ -147,6 +276,7 @@ def main() -> None:
     for skill in skills:
         subprocess.run([validator, "validate", str(skill)], check=True, timeout=30)
         validate_resources(skill)
+        validate_dependencies(skill)
         properties = json.loads(subprocess.check_output(
             [validator, "read-properties", str(skill)], text=True, timeout=30,
         ))

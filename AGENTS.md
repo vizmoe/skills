@@ -4,7 +4,7 @@ Installable resources belong in `skills/<name>/`, with `SKILL.md` as the entrypo
 
 For catalog layout, licensing or a new skill, read [CONTRIBUTING.md](CONTRIBUTING.md). Validate with `python3 -B scripts/validate_skills.py` and run all Python catalog and skill tests with `python3 -B -m unittest discover -s tests -v`. Publish from Git through `npx skills add`.
 
-The validator enforces three conventions beyond the official format: every bundled file must be reachable from `SKILL.md` by link or by name in a reachable document, Markdown links and heading anchors must resolve across the whole repository, and `skills/<name>/SKILL.md` must be the only SKILL.md present. Bundled resources use lowercase hyphenated filenames, and frontmatter follows the spec's field order.
+The validator enforces four conventions beyond the official format: every bundled file must be reachable from `SKILL.md` by link or by name in a reachable document, bundled scripts may import only the standard library or another bundled file, Markdown links and heading anchors must resolve across the whole repository, and `skills/<name>/SKILL.md` must be the only SKILL.md present. Bundled resources use lowercase hyphenated filenames, and frontmatter follows the spec's field order.
 
 Prefer parsing a rule out of its reference over restating it in code, as `read_whitelist` and `read_vocabulary` do in musagetes. A rule that exists twice drifts silently; a rule the helper reads is verified every time it runs.
 

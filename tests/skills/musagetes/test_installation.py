@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import subprocess
 import sys
 import tempfile
@@ -26,3 +27,12 @@ class MusagetesInstallationTests(SkillInstallationTestCase):
             self.assertEqual(list(library.iterdir()), [track])
             self.assertEqual(track.read_bytes(), b"synthetic audio inventory fixture")
             self.assertFalse(list(installed.rglob("__pycache__")))
+            # history parses the status vocabulary from the bundled references at run time.
+            recorded = subprocess.run(
+                [sys.executable, "-B", str(installed / "scripts/library_guard.py"),
+                 "history", "--root", str(library)],
+                cwd=library, text=True, capture_output=True, timeout=30,
+            )
+            self.assertEqual(recorded.returncode, 0, recorded.stderr)
+            self.assertEqual(json.loads(recorded.stdout)["scope"], "recorded_files_only")
+            self.assertEqual(list(library.iterdir()), [track])

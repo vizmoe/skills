@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -72,6 +73,26 @@ class HistoryTests(unittest.TestCase):
         result = guard.history(self.root)
         self.assertFalse(result['albums'][0]['reuse_candidate'])
         self.assertFalse(result['ok'])
+
+    def test_non_string_match_status_returns_json_and_preserves_other_albums(self):
+        self.event(album='a2')
+        for value in ([], {}, None, True, 7):
+            with self.subTest(value=value):
+                record = self.event(match_status=value)
+                before = record.read_bytes()
+                result = subprocess.run(
+                    [sys.executable, '-B', guard.__file__, 'history', '--root', str(self.root)],
+                    text=True, capture_output=True, timeout=30,
+                )
+                self.assertEqual(result.returncode, 1, result.stderr)
+                report = json.loads(result.stdout)
+                self.assertFalse(report['ok'])
+                albums = {album['album_id']: album for album in report['albums']}
+                self.assertFalse(albums['a1']['reuse_candidate'])
+                self.assertIn('INVALID_HISTORY', [issue['code'] for issue in albums['a1']['issues']])
+                self.assertTrue(albums['a2']['reuse_candidate'])
+                self.assertEqual(record.read_bytes(), before)
+                self.assertEqual(self.output.read_bytes(), b'synthetic verified output')
 
     def test_duplicate_sequences_block_reuse(self):
         self.event()

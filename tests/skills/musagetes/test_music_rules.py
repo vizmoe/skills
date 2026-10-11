@@ -32,6 +32,114 @@ def jpeg_header(width, height, marker=0xC0):
     return b'\xff\xd8\xff\xe0\x00\x04xx\xff' + bytes([marker]) + struct.pack('>H', len(data) + 2) + data
 
 
+class VocabularyTests(unittest.TestCase):
+    """The reference tables, not a second copy in code, decide the accepted status values."""
+
+    def setUp(self):
+        self.references = Path(rules.__file__).resolve().parents[1] / 'references'
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.directory = Path(self.temp.name)
+
+    def rewritten(self, name, *replacements):
+        path = self.directory / name
+        text = (self.references / name).read_text()
+        for old, new in replacements:
+            self.assertIn(old, text)
+            text = text.replace(old, new)
+        path.write_text(text)
+        return path
+
+    def validate(self, vocabulary, **updates):
+        root = self.directory.resolve()
+        event = {'schema_version': 1, 'root': str(root), 'run_id': 'r1', 'album_id': 'a1',
+                 'sequence': 1, 'skill_version': guard.skill_version(), 'phase': 'FINALIZED',
+                 'status': 'COMPLETED', 'match_status': 'FULL',
+                 'expected_files': [{'path': 'album/01.flac', 'sha256': '0' * 64, 'role': 'output'}],
+                 'removed_paths': [], **updates}
+        guard.validate_event(event, root, 'r1', 'a1', '000001.json', None, vocabulary)
+
+    def test_documented_values_are_the_executed_values(self):
+        vocabulary = rules.read_vocabulary()
+        self.assertEqual(vocabulary.phases, ('PLANNED', 'STAGED', 'VERIFIED', 'COMMITTED', 'FINALIZED'))
+        self.assertEqual(vocabulary.execution, frozenset({'COMPLETED', 'SKIPPED', 'REVIEW_REQUIRED', 'FAILED'}))
+        self.assertEqual(vocabulary.match, frozenset({'FULL', 'PARTIAL_MATCH', 'UNCONFIRMED'}))
+        self.assertEqual(vocabulary.disposition, frozenset({'PRESERVED'}))
+
+    def test_a_status_added_to_the_table_is_accepted_by_history_validation(self):
+        delivery = self.rewritten('delivery.md', ('| 处置 | `PRESERVED` |', '| 执行 | `DEFERRED` | 临时测试状态 |\n| 处置 | `PRESERVED` |'))
+        vocabulary = rules.read_vocabulary(delivery)
+        self.assertIn('DEFERRED', vocabulary.execution)
+        self.assertNotIn('DEFERRED', rules.read_vocabulary().execution)
+        self.validate(vocabulary, status='DEFERRED')
+        with self.assertRaises(guard.GuardError):
+            self.validate(rules.read_vocabulary(), status='DEFERRED')
+
+    def test_the_documented_phase_order_decides_the_terminal_phase(self):
+        execution = self.rewritten('execution.md', ('`PLANNED → STAGED → VERIFIED → COMMITTED → FINALIZED`',
+                                                    '`PLANNED → STAGED → VERIFIED → FINALIZED → COMMITTED`'))
+        vocabulary = rules.read_vocabulary(None, execution)
+        self.validate(vocabulary, phase='COMMITTED')
+        with self.assertRaisesRegex(guard.GuardError, 'COMMITTED'):
+            self.validate(vocabulary, phase='FINALIZED')
+
+    def test_a_missing_status_dimension_fails(self):
+        delivery = self.rewritten('delivery.md', ('| 处置 | `PRESERVED` |', 'Removed disposition row:'))
+        with self.assertRaises(rules.RuleError):
+            rules.read_vocabulary(delivery)
+
+    def test_duplicate_transaction_phases_fail(self):
+        execution = self.rewritten('execution.md', ('PLANNED → STAGED', 'PLANNED → PLANNED → STAGED'))
+        with self.assertRaises(rules.RuleError):
+            rules.read_vocabulary(None, execution)
+
+    def test_dropping_a_value_the_helpers_branch_on_fails_loudly(self):
+        for row in ('| 执行 | `COMPLETED` |', '| 执行 | `SKIPPED` |', '| 匹配 | `FULL` |'):
+            with self.subTest(row=row):
+                text = (self.references / 'delivery.md').read_text()
+                start = text.index(row)
+                removed = text[:start] + text[text.index('\n', start) + 1:]
+                path = self.directory / 'dropped.md'
+                path.write_text(removed)
+                with self.assertRaisesRegex(rules.RuleError, 'must declare'):
+                    rules.read_vocabulary(path)
+
+    def test_an_unparsable_status_table_fails(self):
+        cases = {
+            'unknown dimension': ('| 执行 | `COMPLETED` |', '| 阶段 | `COMPLETED` |'),
+            'unquoted value': ('| 执行 | `FAILED` |', '| 执行 | FAILED |'),
+            'duplicate value': ('| 处置 | `PRESERVED` |', '| 执行 | `PRESERVED` |\n| 处置 | `PRESERVED` |'),
+        }
+        for label, (old, new) in cases.items():
+            with self.subTest(case=label):
+                with self.assertRaises(rules.RuleError):
+                    rules.read_vocabulary(self.rewritten('delivery.md', (old, new)))
+
+    def test_a_missing_phase_sequence_fails(self):
+        execution = self.rewritten('execution.md', ('`PLANNED → STAGED → VERIFIED → COMMITTED → FINALIZED`', 'the documented order'))
+        with self.assertRaisesRegex(rules.RuleError, 'must declare'):
+            rules.read_vocabulary(None, execution)
+
+    def test_history_validation_rejects_values_outside_the_tables(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory).resolve()
+            output = root / 'album/01.flac'
+            output.parent.mkdir()
+            output.write_bytes(b'synthetic verified output')
+            def event(**updates):
+                return {'schema_version': 1, 'root': str(root), 'run_id': 'r1', 'album_id': 'a1',
+                        'sequence': 1, 'skill_version': guard.skill_version(), 'phase': 'FINALIZED',
+                        'status': 'COMPLETED', 'match_status': 'FULL',
+                        'expected_files': [{'path': 'album/01.flac', 'sha256': guard.fingerprint(output), 'role': 'output'}],
+                        'removed_paths': [], **updates}
+            guard.validate_event(event(), root, 'r1', 'a1', '000001.json', None)
+            for updates in ({'status': 'DONE'}, {'match_status': 'PRESERVED'}, {'phase': 'ARCHIVED'},
+                            {'status': 'PRESERVED'}, {'match_status': 'COMPLETED'}):
+                with self.subTest(updates=updates):
+                    with self.assertRaises(guard.GuardError):
+                        guard.validate_event(event(**updates), root, 'r1', 'a1', '000001.json', None)
+
+
 class MetadataTests(unittest.TestCase):
     def test_fields_come_from_the_authoritative_tables(self):
         original = rules.read_whitelist()

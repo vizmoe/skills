@@ -4,7 +4,7 @@ description: 整理本地音乐库；organize music folders, fix music tags, spl
 license: MIT
 compatibility: 辅助脚本需要 Python 3.10+，仅使用标准库；音频工具按具体步骤选用，见 references/audio.md；在线发行检索需要网络访问。
 metadata:
-  version: "0.3.5"
+  version: "0.3.6"
 ---
 
 # Musagetes
@@ -38,7 +38,7 @@ metadata:
 
 | 当前步骤 | 读取条件与入口 | 完成条件 |
 | --- | --- | --- |
-| 范围、扫描、恢复队列 | 每次开始读[执行协议](references/execution.md)；扫描、压缩包或介质问题读[音频](references/audio.md) | 授权根目录、模式、工具、文件分组及历史对账完成；批量队列已记录 |
+| 范围、扫描、恢复队列 | 每次开始读[执行协议](references/execution.md)；扫描、压缩包或介质问题读[音频](references/audio.md) | 授权根目录、模式、工具、全部音频及侧车/内嵌 CUE 分组和历史对账完成；批量队列已记录 |
 | 标签与署名快照 | 读取或计划标签前读[元数据](references/metadata.md)、[白名单](references/metadata-whitelist.md)、[艺人](references/artists.md) | 原生字段、多值、顺序及封面已保存，可信值和缺失项可区分 |
 | 分轨、格式与介质 | 音频准备前读[音频](references/audio.md)适用章节 | DVD / BD 已排除登记；适用输出可完整解码，源可恢复 |
 | 发行与补缺 | 外部检索或匹配前读[来源](references/sources.md)和[请求调度](references/requests.md)；选封面时读[封面](references/cover.md) | 双源查询与限流状态有记录，HIGH 证据与逐轨映射明确，拟采用元数据及封面可追溯 |

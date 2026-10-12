@@ -4,7 +4,7 @@ description: 整理本地音乐库；organize music folders, fix music tags, spl
 license: MIT
 compatibility: 辅助脚本需要 Python 3.10+，仅使用标准库；音频工具按具体步骤选用，见 references/audio.md；在线发行检索需要网络访问。
 metadata:
-  version: "0.3.0"
+  version: "0.3.1"
 ---
 
 # Musagetes
@@ -45,7 +45,7 @@ metadata:
 | 写入副本、路径、发布 | 写入沿用已读标签规则；生成路径读[路径](references/paths.md)，发布前读[阻断检查](references/delivery.md#发布前阻断检查) | 读回与计划一致，整张路径预检通过，逐项发布有记录 |
 | 完整复核、清理、报告 | 发布后读[清理前完整复核](references/delivery.md#清理前完整复核)及后续清理章节 | 所有适用校验通过，逐项处置和空目录结果对账，最终快照可恢复 |
 
-不完整发行按[部分匹配](references/sources.md#完整匹配与部分匹配)处理可靠部分，并补全可确认的专辑级信息。字段缺失按[必填要求与缺失例外](references/metadata-whitelist.md#可靠信息缺失例外)判定。特殊姓名、固定组合、连接符、角色/CV、客席、声库和合辑署名按艺人对应分支核验。
+录音无发行关联、特典变体未识别或封面缺失时，先按[分维度规则](references/sources.md#分维度采用与安全部分整理)保留证据并完成安全字段，再按[部分匹配](references/sources.md#完整匹配与部分匹配)继续可靠部分。字段缺失按[必填要求与缺失例外](references/metadata-whitelist.md#可靠信息缺失例外)判定。特殊姓名、固定组合、连接符、角色/CV、客席、声库和合辑署名按艺人对应分支核验。
 
 ## 确定性辅助工具
 

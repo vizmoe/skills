@@ -346,11 +346,14 @@ def validate_event(event: dict, root: Path, run_id: str, album_id: str, filename
 def check_event_files(root: Path, event: dict) -> list[dict]:
     issues = []
     for item in event["expected_files"]:
+        actual = None
         try:
-            if fingerprint(source_path(root, item["path"])) != item["sha256"]:
+            actual = fingerprint(source_path(root, item["path"]))
+            if actual != item["sha256"]:
                 raise GuardError("HISTORY_FILE_CHANGED", item["path"], "Recorded SHA-256 differs from the current file.")
         except (OSError, GuardError) as error:
-            issues.append(error.issue if isinstance(error, GuardError) else {"code": "HISTORY_FILE_MISSING", "path": item["path"], "detail": str(error)})
+            issue = error.issue if isinstance(error, GuardError) else {"code": "HISTORY_FILE_MISSING", "path": item["path"], "detail": str(error)}
+            issues.append({**issue, "expected_sha256": item["sha256"], "actual_sha256": actual, "role": item["role"]})
     for relative in event["removed_paths"]:
         current = root
         try:
@@ -422,7 +425,9 @@ def history(root: Path, state_dirs: list[str] | None = None) -> dict:
             view["issues"].append({"code": "DUPLICATE_SEQUENCE", "path": album_id})
         latest = records[-1] if records else None
         if latest and not view["issues"]:
-            view["issues"].extend(check_event_files(root, latest["event"]))
+            view["issues"].extend({**issue, "record_path": latest["record_path"],
+                                   "sequence": latest["event"]["sequence"], "run_id": latest["event"]["run_id"]}
+                                  for issue in check_event_files(root, latest["event"]))
             if latest["event"]["skill_version"] != version:
                 view["issues"].append({"code": "SKILL_VERSION_CHANGED", "path": latest["record_path"], "detail": "Revalidate domain rules with the current skill before reuse."})
         valid = bool(latest) and not view["issues"] and not issues

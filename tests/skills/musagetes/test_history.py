@@ -67,6 +67,53 @@ class HistoryTests(unittest.TestCase):
         self.assertFalse(result['ok'])
         self.assertIn('REMOVED_PATH_REAPPEARED', [i['code'] for i in result['albums'][0]['issues']])
 
+    def test_same_path_retag_requires_a_new_snapshot_and_reports_both_hashes(self):
+        previous = self.event()
+        previous_bytes = previous.read_bytes()
+        original_hash = guard.fingerprint(self.output)
+        self.output.write_bytes(b'same audio with synthetic changed tags and cover')
+        final_hash = guard.fingerprint(self.output)
+        stale = guard.history(self.root)
+        self.assertFalse(stale['ok'])
+        issue = stale['albums'][0]['issues'][0]
+        self.assertEqual(issue['code'], 'HISTORY_FILE_CHANGED')
+        self.assertEqual(issue['expected_sha256'], original_hash)
+        self.assertEqual(issue['actual_sha256'], final_hash)
+        self.assertEqual(issue['record_path'], previous.relative_to(self.root).as_posix())
+        self.assertEqual(issue['sequence'], 1)
+        revision = {'previous_record': issue['record_path'], 'operations': [{
+            'operation': 'retag-and-cover', 'inputs': [{'path': 'album/01.flac', 'sha256': original_hash}],
+            'outputs': [{'path': 'album/01.flac', 'sha256': final_hash}],
+            'evidence': 'synthetic fixture; real caller must verify audio and native tag readback'}]}
+        self.event(run='r2', sequence=2, details=revision)
+        current = guard.history(self.root)
+        self.assertTrue(current['ok'])
+        self.assertTrue(current['albums'][0]['reuse_candidate'])
+        self.assertEqual(previous.read_bytes(), previous_bytes)
+
+    def test_every_surviving_output_is_checked_even_with_no_removed_paths(self):
+        second = self.root / 'album/02.flac'
+        second.write_bytes(b'second track')
+        record = self.event(expected_files=[
+            {'path': 'album/01.flac', 'sha256': guard.fingerprint(self.output), 'role': 'output'},
+            {'path': 'album/02.flac', 'sha256': guard.fingerprint(second), 'role': 'output'}])
+        second.write_bytes(b'retagged second track')
+        self.output.unlink()
+        result = guard.history(self.root)
+        issues = {issue['path']: issue for issue in result['albums'][0]['issues']}
+        self.assertFalse(result['ok'])
+        self.assertIsNone(issues['album/01.flac']['actual_sha256'])
+        self.assertEqual(issues['album/02.flac']['actual_sha256'], guard.fingerprint(second))
+        self.assertEqual(issues['album/02.flac']['record_path'], record.relative_to(self.root).as_posix())
+
+    def test_duplicate_output_paths_and_aliases_block_a_clean_audit(self):
+        output = {'path': 'album/01.flac', 'sha256': guard.fingerprint(self.output), 'role': 'output'}
+        for path in ('album/01.flac', 'ALBUM/01.FLAC'):
+            self.event(expected_files=[output, {**output, 'path': path}])
+            result = guard.history(self.root)
+            self.assertFalse(result['ok'])
+            self.assertFalse(result['albums'][0]['reuse_candidate'])
+
     def test_corrupt_latest_never_falls_back_to_earlier_complete(self):
         self.event()
         self.event(run='r2', sequence=2).write_text('{broken')

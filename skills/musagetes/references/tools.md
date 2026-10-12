@@ -95,3 +95,5 @@ python3 -B "$skill_dir/scripts/library_guard.py" history --root "$music_root"
 role 为 `source`、`output`、`preserved` 或 `staging`，表示原源、成品、保留资料或中间副本。source/output 位于受保护状态树之外；仍需恢复的状态副本也列入快照。删除某文件后从 expected_files 移出并加入 removed_paths。若原路径被已验证成品再次使用，则列该成品指纹，不列为已移除路径。终结的完成记录须有 FINALIZED 阶段和至少一个 output，所有适用领域证据在 details 或其引用内可追溯。
 
 工具验证目录归属、最新序号、当前已记录文件的 SHA-256 及移除路径是否重现；最新快照版本不同则要求重审。坏记录或重复序号阻断对应专辑复用，无法归属的历史异常阻断本根目录自动复用。输出 `reuse_candidate` 只表示进入领域复核的候选，`scope: recorded_files_only` 不覆盖遗漏或新增文件；与当前 inventory 对账后才可跳过执行。
+
+最新快照的每个 expected_files 都会检查，包含路径未变的已发布成品；文件异常给出 `expected_sha256`、`actual_sha256`（缺失或不可安全读取为 null）、`role`，并附对应的 `record_path`、`sequence`、`run_id`。按[历史修订流程](execution.md#成品改写与历史修订)核验操作并追加记录；helper 不替调用者解释哈希变化，也不校验 details 中领域证据的真实性。

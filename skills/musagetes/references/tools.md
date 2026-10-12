@@ -8,6 +8,8 @@ library_guard 的所有命令只读输入、向 stdout 输出 JSON，既不执�
 
 查询闭环用 [search-ledger.py](../scripts/search-ledger.py) 审计；输入、状态和退出码见[检索记录审计](search.md#只读记录审计)。缓存中的错误尝试保持在续做列表，不算有效零结果。
 
+工作/待复核重复副本的恢复检查用 [cleanup-audit.py](../scripts/cleanup-audit.py)；输入和证据局限见[清理审计](cleanup.md#只读清理审计)。它读取实际文件并给出可续做步骤，不移动或删除文件。
+
 ## 状态目录保护
 
 `inventory` 默认不遍历 `.musagetes/`，只报告 `state_boundary`；`check-paths`、`render-paths` 拒绝音乐源或目标进入该树，`keep` 同样受限。比较使用路径段 NFC + casefold；不会因大小写变化而绕过保护。

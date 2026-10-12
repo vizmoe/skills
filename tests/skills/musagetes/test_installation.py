@@ -57,5 +57,14 @@ class MusagetesInstallationTests(SkillInstallationTestCase):
                 cwd=library, text=True, capture_output=True, timeout=30)
             self.assertEqual(coverage.returncode, 1, coverage.stderr)
             self.assertEqual(json.loads(coverage.stdout)["pending"], ["variant"])
+            original = {"path": "track.wav", "sha256": json.loads(result.stdout)["files"][0]["sha256"]}
+            cleanup = subprocess.run([sys.executable, "-B", str(installed / "scripts/cleanup-audit.py"),
+                "--root", str(library), "--input", "-"], input=json.dumps({"schema_version": 1,
+                "originals": [original], "entries": [{"id": "original", "role": "review", "source": original,
+                "quarantine": ".musagetes/quarantine/track.wav", "outputs": [original], "reason": "invalid role claim",
+                "stage": "prepared", "equivalence": {"method": "bytes"}, "audit": None}]}),
+                cwd=library, text=True, capture_output=True, timeout=30)
+            self.assertEqual(cleanup.returncode, 1, cleanup.stderr)
+            self.assertFalse(json.loads(cleanup.stdout)["ok"])
             self.assertEqual(list(library.iterdir()), [track])
             self.assertFalse(list(installed.rglob("__pycache__")))

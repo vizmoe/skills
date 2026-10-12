@@ -94,7 +94,8 @@ class VocabularyTests(unittest.TestCase):
             rules.read_vocabulary(None, execution)
 
     def test_dropping_a_value_the_helpers_branch_on_fails_loudly(self):
-        for row in ('| 执行 | `COMPLETED` |', '| 执行 | `SKIPPED` |', '| 匹配 | `FULL` |'):
+        for row in ('| 执行 | `COMPLETED` |', '| 执行 | `SKIPPED` |', '| 匹配 | `FULL` |',
+                    '| 匹配 | `PARTIAL_MATCH` |', '| 匹配 | `UNCONFIRMED` |'):
             with self.subTest(row=row):
                 text = (self.references / 'delivery.md').read_text()
                 start = text.index(row)

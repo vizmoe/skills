@@ -35,7 +35,8 @@ class Vocabulary:
 DIMENSIONS = {"执行": "execution", "匹配": "match", "处置": "disposition"}
 # Values the helpers branch on. A reference rename must fail loudly, not silently disable a check.
 BRANCHED_ON = {"phases": ("PLANNED", "FINALIZED"),
-               "execution": ("COMPLETED", "SKIPPED", "REVIEW_REQUIRED"), "match": ("FULL",)}
+               "execution": ("COMPLETED", "SKIPPED", "REVIEW_REQUIRED"),
+               "match": ("FULL", "PARTIAL_MATCH", "UNCONFIRMED")}
 
 
 def read_vocabulary(delivery: Path | None = None, execution: Path | None = None) -> Vocabulary:

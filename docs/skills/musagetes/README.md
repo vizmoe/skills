@@ -26,6 +26,8 @@ $musagetes Fix music tags in /absolute/path/to/music; preview the changes first.
 
 以上是待替换的示例路径。根目录若为符号链接（例如指向外置卷的 Music），先确认其解析后的真实路径并以该路径调用。可以明确要求只预览、保留某些资料或调整处理数量；已有会话授权沿用。
 
+原始文件默认原位保留，标签和转换写入独立副本；删除或迁移原始文件需另有明确策略。LRC 生成也需单独启用，默认关闭；已有歌词不会因关闭生成而删除。文件角色与策略见[执行协议](../../../skills/musagetes/references/execution.md#文件角色与可选产物)。
+
 冷门发行查证后仍无法可靠确定 COUNTRY 或受控 GENRE 时，允许缺失并在报告中说明原因，其它条件满足后可完成整理。已有可靠值继续保留，具体条件见[可靠信息缺失例外](../../../skills/musagetes/references/metadata-whitelist.md#可靠信息缺失例外)。
 
 ## 运行条件与恢复

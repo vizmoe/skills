@@ -6,6 +6,8 @@ library_guard 的所有命令只读输入、向 stdout 输出 JSON，既不执�
 
 上游请求另用 [source-throttle.py](../scripts/source-throttle.py)；读取[请求调度](requests.md)了解发送前检查、响应分类、状态接回及其退出码。它同样只读，只计算调度，不发送请求或写限流状态。
 
+查询闭环用 [search-ledger.py](../scripts/search-ledger.py) 审计；输入、状态和退出码见[检索记录审计](search.md#只读记录审计)。缓存中的错误尝试保持在续做列表，不算有效零结果。
+
 ## 状态目录保护
 
 `inventory` 默认不遍历 `.musagetes/`，只报告 `state_boundary`；`check-paths`、`render-paths` 拒绝音乐源或目标进入该树，`keep` 同样受限。比较使用路径段 NFC + casefold；不会因大小写变化而绕过保护。

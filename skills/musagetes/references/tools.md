@@ -10,6 +10,8 @@ library_guard 的所有命令只读输入、向 stdout 输出 JSON，既不执�
 
 工作/待复核重复副本的恢复检查用 [cleanup-audit.py](../scripts/cleanup-audit.py)；输入和证据局限见[清理审计](cleanup.md#只读清理审计)。它读取实际文件并给出可续做步骤，不移动或删除文件。
 
+最终分类用 [report-audit.py](../scripts/report-audit.py) 联结最新发布、清理和 CUE 结果；输入、计数单位及局限见[报告审计](reporting.md#只读报告审计)。它不写报告或空 review 事件，类型和领域状态仍须先核验。
+
 ## 状态目录保护
 
 `inventory` 默认不遍历 `.musagetes/`，只报告 `state_boundary`；`check-paths`、`render-paths` 拒绝音乐源或目标进入该树，`keep` 同样受限。比较使用路径段 NFC + casefold；不会因大小写变化而绕过保护。

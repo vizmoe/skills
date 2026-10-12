@@ -66,5 +66,12 @@ class MusagetesInstallationTests(SkillInstallationTestCase):
                 cwd=library, text=True, capture_output=True, timeout=30)
             self.assertEqual(cleanup.returncode, 1, cleanup.stderr)
             self.assertFalse(json.loads(cleanup.stdout)["ok"])
+            report = subprocess.run([sys.executable, "-B", str(installed / "scripts/report-audit.py"),
+                "--root", str(library), "--input", "-"], input=json.dumps({
+                "files": [{"id": "track", "group": "g", **original, "kind": "audio", "match_status": "UNCONFIRMED"}],
+                "groups": [{"id": "g", "cover": "unknown"}], "publications": [], "cleanups": [], "cues": []}),
+                cwd=library, text=True, capture_output=True, timeout=30)
+            self.assertEqual(report.returncode, 0, report.stderr)
+            self.assertEqual(json.loads(report.stdout)["counts"]["unidentified_audio"], 1)
             self.assertEqual(list(library.iterdir()), [track])
             self.assertFalse(list(installed.rglob("__pycache__")))

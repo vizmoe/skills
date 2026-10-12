@@ -52,5 +52,10 @@ class MusagetesInstallationTests(SkillInstallationTestCase):
             self.assertEqual(check.returncode, 0, check.stderr)
             self.assertEqual(json.loads(check.stdout)["not_before"], 1120)
             self.assertEqual(json.loads(check.stdout)["action"], "defer")
+            coverage = subprocess.run([sys.executable, "-B", str(installed / "scripts/search-ledger.py"), "--input", "-"],
+                input=json.dumps({"routes": [{"id": "variant", "source": "musicbrainz-recording", "required": True, "attempts": []}]}),
+                cwd=library, text=True, capture_output=True, timeout=30)
+            self.assertEqual(coverage.returncode, 1, coverage.stderr)
+            self.assertEqual(json.loads(coverage.stdout)["pending"], ["variant"])
             self.assertEqual(list(library.iterdir()), [track])
             self.assertFalse(list(installed.rglob("__pycache__")))

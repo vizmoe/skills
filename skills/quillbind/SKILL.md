@@ -4,7 +4,7 @@ description: Maintain metadata directly in EPUB files and CBZ ComicInfo.xml, usi
 license: MIT
 compatibility: Tag audits and naming plans need Node.js; file metadata edits use ZIP/XML tools and validators. Publishing needs tools/quillbind from vizmoe/skills with dependencies installed, exposed through QUILLBIND_ROOT or quillbind on PATH. EPUB release checks need Java, EPUBCheck and Chromium; CBZ packaging needs libjxl cjxl and djxl. Setup and online collection/refreshes need network; saved books and locks support offline builds. Calibre database access is not required.
 metadata:
-  version: "0.1.16"
+  version: "0.1.17"
 ---
 
 # Quillbind

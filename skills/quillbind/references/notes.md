@@ -6,7 +6,7 @@ Preserve the source EPUB. Begin with static inspection, which does not execute b
 quillbind epub check-notes original.epub --json
 ```
 
-The report inventories manifest `scripted` declarations, actual XHTML scripts and event handlers, local script hashes, note references, targets and backlinks. `scripted-note-candidate` describes markup eligible for preservation; it does not establish the script's purpose, safety or working interactions. Undeclared scripts are still protected. Missing targets, duplicate IDs and unavailable script resources remain findings.
+The report inventories manifest `scripted` declarations, actual XHTML scripts and event handlers, local script hashes, note references, targets and backlinks. `scripted-note-candidate` marks the only note classification eligible for content-preserving reading repair; it does not establish the script's purpose, safety or working interactions. `scripted-content` means inspection could not establish that candidate pattern. Review its issues and script resources to identify the blocker. Undeclared scripts are still protected. Missing targets, duplicate IDs and unavailable script resources remain findings.
 
 When the user requests interaction verification, run the explicit script check in the configured Chromium environment:
 

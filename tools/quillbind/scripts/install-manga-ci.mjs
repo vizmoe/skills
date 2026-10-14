@@ -1,8 +1,8 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { downloadMangaPackage } from "./download-manga-package.ts";
 
 // Container-only tools: the pinned base supplies the remaining shared libraries.
 const lock = JSON.parse(
@@ -22,16 +22,7 @@ const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "quillbind-codecs-"));
 try {
   const files = [];
   for (const entry of lock.packages) {
-    const response = await fetch(entry.url, {
-      signal: AbortSignal.timeout(60000),
-    });
-    if (!response.ok)
-      throw new Error(
-        `Package download failed: ${entry.name} (${response.status})`,
-      );
-    const bytes = Buffer.from(await response.arrayBuffer());
-    if (createHash("sha256").update(bytes).digest("hex") !== entry.sha256)
-      throw new Error(`Package checksum mismatch: ${entry.name}`);
+    const bytes = await downloadMangaPackage(entry);
     const file = path.join(temporary, `${entry.name}.deb`);
     await fs.writeFile(file, bytes, { flag: "wx" });
     files.push(file);

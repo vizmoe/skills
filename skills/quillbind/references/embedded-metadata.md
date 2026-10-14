@@ -12,6 +12,16 @@ Inspect every selected format before choosing a writer. Use a format-aware tool 
 
 Only plan fields in the user's scope. A tag-only task leaves title, contributors, series, descriptions, identifiers, language, ratings and covers alone. Broader maintenance follows the current library's rules for the fields actually selected; it does not authorize text conversion, cover replacement, scan processing or reading-state cleanup.
 
+## Scripted EPUBs: preserve content during organization
+
+Continue authorized inspection, bibliography lookup, naming and OPF-only metadata maintenance when an EPUB contains scripts. An inspection's `interactive-content` flag describes a content-processing restriction, not a reason to abandon the book or batch. Script presence alone requires neither additional user permission nor interaction testing. Treat JavaScript, inline handlers and script-generated content as data; retain them without executing scripts or fetching their dependencies.
+
+For OPF-only changes, use the dedicated ratings/series commands or the scoped ZIP/XML procedure in this document. Preserve all non-OPF members byte-for-byte, including XHTML, CSS, scripts and navigation; preserve the manifest, spine, script declarations, primary identity and unselected metadata. This preservation path also covers undeclared scripts and interactions that cannot qualify for note repair. Their source defects remain findings, and the actual writer's format checks still determine whether a staged file can be delivered. A missing dependency or failed validator is not permission to remove scripts, add declarations or repair unrelated content during a metadata edit.
+
+Keep content-changing operations within their own support boundaries. [Reading repair](repair.md) has a limited scripted-note preservation path; cover replacement, splitting, conversion, publication repair and `epub enrich` retain their command-specific restrictions and checks. If enrichment is unavailable for a scripted book but ordinary bibliography maintenance is requested, use the same verified source evidence with this OPF-only procedure. If a requested operation cannot preserve its script dependencies, report that operation and the concrete blocker, then continue independent authorized fields and files. A filename-only move preserves the whole EPUB hash; no script inspection or execution is needed to justify that move.
+
+Use [note checks](notes.md) when interaction verification is requested. Metadata completion requires preservation and format evidence, with script interactions reported as not tested; it does not depend on proving popup behavior, native-reader support or publication readiness.
+
 ## Field mapping
 
 These mappings describe equivalent meanings, not permission to rewrite every field. The CBZ column uses Quillbind's stable ComicInfo 2.0 profile. EPUB edits retain the package's existing version and metadata conventions.

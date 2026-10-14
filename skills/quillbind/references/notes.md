@@ -1,5 +1,7 @@
 # Existing EPUB popup notes
 
+For metadata or naming requests involving scripted books, follow [preservation during organization](embedded-metadata.md#scripted-epubs-preserve-content-during-organization). This note-check workflow is for requested note inspection or interaction verification, not a prerequisite for routine organization.
+
 Preserve the source EPUB. Begin with static inspection, which does not execute book scripts:
 
 ```sh

@@ -31,6 +31,7 @@ export function metadataFormat(file: string): MetadataFormat {
 export function openMetadata(
   bytes: Buffer,
   format: MetadataFormat,
+  options: { preserveContent?: boolean } = {},
 ): MetadataFile {
   const entries = unpack(bytes, {
     ...maintenanceLimits,
@@ -38,9 +39,14 @@ export function openMetadata(
   });
   if (format === "epub") {
     const info = inspectBytes(bytes, true);
+    // Only OPF-only callers can retain scripting without changing its dependencies.
+    const unsupported = info.unsupported.filter(
+      (reason) =>
+        !(options.preserveContent && reason === "interactive-content"),
+    );
     if (
       !["2.0", "3.0"].includes(info.version) ||
-      info.unsupported.length ||
+      unsupported.length ||
       [...entries.keys()].some(
         (name) => name.toLowerCase() === "meta-inf/signatures.xml",
       )
@@ -48,7 +54,7 @@ export function openMetadata(
       fail(
         "METADATA_UNSUPPORTED",
         "Unsupported, ambiguous or protected EPUB",
-        info.unsupported,
+        unsupported,
       );
     const nodes = elements(info.packageDocument, "metadata", NS.opf);
     if (
@@ -110,7 +116,7 @@ export function writeMetadata(bytes: Buffer, file: MetadataFile) {
     bytes,
     new Map([[file.location, Buffer.from(serialize(file.document))]]),
   );
-  const readback = openMetadata(result, file.format);
+  const readback = openMetadata(result, file.format, { preserveContent: true });
   if (serialize(readback.document) !== serialize(file.document))
     fail(
       "METADATA_READBACK",
@@ -137,6 +143,7 @@ export async function deliverMetadata<Verification = undefined>(
     format: MetadataFormat;
     bytes: Buffer;
     report: unknown;
+    preserveContent?: boolean;
     signal?: AbortSignal;
     verify?: (candidate: string, reports: string) => Promise<Verification>;
   },
@@ -172,7 +179,7 @@ export async function deliverMetadata<Verification = undefined>(
   try {
     await fs.writeFile(candidate, options.bytes, { flag: "wx" });
     const actual = await readSourceFile(candidate);
-    const opened = openMetadata(actual, options.format);
+    const opened = openMetadata(actual, options.format, options);
     let validation;
     if (options.format === "epub")
       validation = await checkEpubConformance(candidate, {

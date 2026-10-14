@@ -40,6 +40,18 @@ The runtime's [scenario evaluation](../../../tools/quillbind/docs/skill-evaluati
 | Validator or ComicInfo schema tool is missing | Reports incomplete verification; does not claim a completed write |
 | Only staged files were produced | Reports staged-only or partial completion explicitly, with source, staged and final hashes distinguished |
 
+## Scripted-book organization
+
+| Raw material or situation | Checkable result |
+| --- | --- |
+| An otherwise supported EPUB has declared popup JavaScript; request is rating cleanup and series normalization | Completes the dedicated metadata operations with actual EPUBCheck, independent field readback, unchanged source and non-OPF bytes, and unchanged manifest/spine; scripts are not executed |
+| A tag-only request encounters `unsupported: ["interactive-content"]` | Continues the scoped OPF edit and format checks; does not require popup repair, new permission or interaction tests |
+| Source has undeclared handlers, missing script dependencies or ambiguous note markup | Can inspect and stage OPF-only edits while preserving source defects; failed format checks still block writers that require a clean validation result, and no script or dependency is deleted to pass |
+| A filename-only rename is requested for a dynamic EPUB | Performs the authorized collision-checked move and verifies the whole-file hash without requiring script execution |
+| Bibliography supplementation is requested but publication enrichment rejects scripting | Uses verified bibliography evidence with the scoped OPF-only workflow; does not claim an enrichment/publication release |
+| A batch requests metadata cleanup and splitting; a scripted book cannot be split | Reports splitting as blocked for that file and completes independent authorized metadata work and other files; does not mark the whole request complete |
+| A scripted source is also signed, encrypted or ambiguous across renditions | Retains the applicable protection/ambiguity guard for the affected write; allowing inert script preservation does not waive those checks |
+
 ## Controlled vocabulary and tags
 
 | Raw material or situation | Checkable result |

@@ -4,7 +4,7 @@ description: Maintain metadata directly in EPUB files and CBZ ComicInfo.xml, usi
 license: MIT
 compatibility: Tag audits and naming plans need Node.js; file metadata edits use ZIP/XML tools and validators. Publishing needs tools/quillbind from vizmoe/skills with dependencies installed, exposed through QUILLBIND_ROOT or quillbind on PATH. EPUB release checks need Java, EPUBCheck and Chromium; CBZ packaging needs libjxl cjxl and djxl. Setup and online collection/refreshes need network; saved books and locks support offline builds. Calibre database access is not required.
 metadata:
-  version: "0.1.16"
+  version: "0.1.17"
 ---
 
 # Quillbind
@@ -21,6 +21,7 @@ Choose the branches needed for the request, including their supporting source, i
 - Missing or incorrect bibliography → [bibliography by book type](references/bibliography.md): BookWalker for light novels/manga and the publisher workflow for other books.
 - Light-novel or manga source records → [BookWalker](references/bookwalker.md).
 - Performing the write, staging and readback → [embedded metadata maintenance](references/embedded-metadata.md).
+- Organizing books that contain scripts → [preserve scripted content during organization](references/embedded-metadata.md#scripted-epubs-preserve-content-during-organization); select restrictions by the requested operation.
 - Scores, including custom or zero-value ratings → [rating cleanup](references/embedded-metadata.md#remove-score-metadata-completely), with a reviewed file-bound plan and format validation.
 - Series, marketing collections or volume order → [story series normalization](references/series.md).
 - Names across main volumes, side stories and extras → [whole-series naming](references/naming.md), with edition-specific official numbering before local insertion labels.

@@ -93,7 +93,7 @@ export function auditSeries(
   format: MetadataFormat,
   options: { modified?: string } = {},
 ): SeriesPlan {
-  const file = openMetadata(bytes, format),
+  const file = openMetadata(bytes, format, { preserveContent: true }),
     nodes = children(file.metadata);
   const names = nodes.filter((node) =>
     format === "cbz"
@@ -226,7 +226,7 @@ export function applySeries(bytes: Buffer, value: unknown) {
       "SERIES_CONFLICT",
       "Conflicting Series representations require an explicit conflict resolution",
     );
-  const file = openMetadata(bytes, plan.format),
+  const file = openMetadata(bytes, plan.format, { preserveContent: true }),
     original = serialize(file.document),
     nodes = children(file.metadata);
   let outputCollectionId: string | undefined;
@@ -420,6 +420,7 @@ export async function normalizeSeries(
     ...options,
     ...result,
     format,
+    preserveContent: true,
     sourceSha256: sha256(bytes),
   });
 }

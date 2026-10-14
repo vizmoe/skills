@@ -71,7 +71,7 @@ export function auditRatings(
   format: MetadataFormat,
   options: { modified?: string } = {},
 ): RatingsPlan {
-  const file = openMetadata(bytes, format);
+  const file = openMetadata(bytes, format, { preserveContent: true });
   const inventory = children(file.metadata).map((node, index) => {
     const opfMeta = node.namespaceURI === NS.opf && node.localName === "meta";
     const label =
@@ -191,7 +191,7 @@ export function applyRatings(bytes: Buffer, value: unknown) {
       "Unresolved custom score candidates require a score or non-score decision",
       unresolved,
     );
-  const file = openMetadata(bytes, plan.format),
+  const file = openMetadata(bytes, plan.format, { preserveContent: true }),
     nodes = children(file.metadata);
   const removed = actual.inventory.filter((row) => selected.has(row.key));
   const removals = new Set(
@@ -280,6 +280,7 @@ export async function cleanRatings(
     ...options,
     ...result,
     format,
+    preserveContent: true,
     sourceSha256: sha256(bytes),
   });
 }

@@ -16,7 +16,7 @@ Full inspection adds:
 - `readingOrder`: each spine `idref`, resolved path, `linear` value (default `yes`) and properties. Reading order and the displayed TOC can differ.
 - `covers`: explicit `cover-image`, legacy cover metadata, guide and navigation associations. Multiple associations can identify the same cover; their count is not an image count.
 - `references`, `resources[].referencedBy`: links from XML URL attributes and CSS URLs/imports, with local resolution or external/unsafe/missing status. No external link is contacted.
-- `diagnostics`, `unsupported`: parsing caveats and limitations of the maintenance engine.
+- `diagnostics`, `unsupported`: parsing caveats and operation-specific limitations. For `interactive-content`, use the [scripted-book organization boundary](embedded-metadata.md#scripted-epubs-preserve-content-during-organization) before deciding which requested operations can continue.
 
 Inspection success means the inventory was produced. `validation: not-run` is explicit; an inventory is not an EPUBCheck or platform result. For suspected formatting bugs, locate the referenced chapter and inspect its packaged XHTML through the CLI/core reader or ZIP tools as data. Keep the original unchanged. Only use `validate`/`qa` when their report-writing operation is in scope, and only repair when the user requested it.
 

@@ -51,7 +51,16 @@ python3 -B "$skill_dir/scripts/library_guard.py" check-tags --input "$tag_snapsh
 
 符合[可靠信息缺失例外](metadata-whitelist.md#可靠信息缺失例外)时，输入可增加 `omissions` 对象，将每个实际缺失字段映射到具体原因及查询记录引用，例如 `"omissions":{"COUNTRY":"冷门自主发行；双源及发行方查询未提供可靠发行地区，见 evidence/country.json"}`。缺失键从 tags 省略；保留的字段不列入 omissions。只有表格标注“可记录缺失”的键可使用此输入，其余必填项照常校验。
 
-字段集合、适用必填项与允许缺失的键均由脚本读取 [metadata-whitelist.md](metadata-whitelist.md) 两张白名单表；代码不维护第二份字段表。输出未知键、未说明的必填缺失、空值和无效例外；通过的缺失记录随 `omissions` 返回，不作为阻断项。将其留在计划、恢复快照的 details 及交付报告中。`scope: canonical_fields_and_values_only` 不验证原因真实性、查询证据、Genre 词表、credit 关系或原生容器；封面也不属于文本键检查。
+字段集合、适用必填项与允许缺失的键均由脚本读取 [metadata-whitelist.md](metadata-whitelist.md) 两张白名单表；代码不维护第二份字段表。输出未知键、未说明的必填缺失、空值和无效例外；同时按路径生成所需的值规则检查已有字段，与 render-paths 共用同一实现：
+
+| 违反时的问题代码 | 规则 |
+| --- | --- |
+| `MULTIPLE_VALUES` | `TITLE`、`DATE`、`ALBUM` 各只有一个值 |
+| `INVALID_DATE` | `DATE` 为 `YYYY`、`YYYY-MM` 或 `YYYY-MM-DD`，且是真实日历日期 |
+| `INVALID_NUMBER` | `TRACKNUMBER`、`TRACKTOTAL`、`DISCNUMBER`、`DISCTOTAL` 各为一个正整数（允许前导零），不含斜杠 |
+| `NUMBER_EXCEEDS_TOTAL` | 当前轨号或碟号不大于对应总数 |
+
+因此 check-tags 通过的标签可直接交给 render-paths。通过的缺失记录随 `omissions` 返回，不作为阻断项。将其留在计划、恢复快照的 details 及交付报告中。`scope: canonical_fields_and_values_only` 不验证原因真实性、查询证据、Genre 词表、credit 关系或原生容器；封面也不属于文本键检查。
 
 ## 从标签生成路径
 

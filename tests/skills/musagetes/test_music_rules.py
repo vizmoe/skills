@@ -238,6 +238,27 @@ class MetadataTests(unittest.TestCase):
             with self.subTest(updates=updates):
                 self.assertFalse(rules.check_tags(album_tags() | updates)['ok'])
 
+    def test_tag_check_rejects_every_value_the_path_renderer_rejects(self):
+        cases = [({'DATE': ['2023-02-29']}, 'INVALID_DATE'), ({'DATE': ['20']}, 'INVALID_DATE'),
+                 ({'DATE': ['2024/02/29']}, 'INVALID_DATE'), ({'TRACKNUMBER': ['01/02']}, 'INVALID_NUMBER'),
+                 ({'DISCNUMBER': ['00']}, 'INVALID_NUMBER'), ({'TRACKTOTAL': ['two']}, 'INVALID_NUMBER'),
+                 ({'DISCNUMBER': ['03']}, 'NUMBER_EXCEEDS_TOTAL'), ({'TRACKNUMBER': ['03']}, 'NUMBER_EXCEEDS_TOTAL'),
+                 ({'TITLE': ['a', 'b']}, 'MULTIPLE_VALUES'), ({'ALBUM': ['a', 'b']}, 'MULTIPLE_VALUES'),
+                 ({'DATE': ['2024', '2025']}, 'MULTIPLE_VALUES')]
+        for updates, code in cases:
+            with self.subTest(updates=updates):
+                checked = rules.check_tags(album_tags() | updates)
+                self.assertFalse(checked['ok'])
+                self.assertIn(code, [issue['code'] for issue in checked['issues']])
+                with self.assertRaises(rules.RuleError):
+                    rules.render_path(album_tags() | updates, '.flac')
+
+    def test_tag_check_keeps_multivalued_and_partial_date_values_valid(self):
+        for updates in [{'DATE': ['2024']}, {'DATE': ['2024-02']}, {'GENRE': ['J-Pop', 'Anime']},
+                        {'TRACKNUMBER': ['2'], 'TRACKTOTAL': ['2']}]:
+            with self.subTest(updates=updates):
+                self.assertTrue(rules.check_tags(album_tags() | updates)['ok'])
+
     def test_singleton_required_scope_comes_from_table(self):
         tags = {k: v for k, v in album_tags().items() if k not in rules.read_whitelist().album_required}
         self.assertTrue(rules.check_tags(tags, 'singleton')['ok'])

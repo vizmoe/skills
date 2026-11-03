@@ -118,6 +118,48 @@ def read_whitelist(path: Path | None = None) -> Whitelist:
     return Whitelist(frozenset(allowed), frozenset(common), frozenset(album), frozenset(omittable))
 
 
+# Path rendering reads these as one value each; tools.md documents the value rules.
+SINGLE_VALUED = ("TITLE", "DATE", "ALBUM")
+NUMBER_PAIRS = (("TRACKNUMBER", "TRACKTOTAL"), ("DISCNUMBER", "DISCTOTAL"))
+DATE_PATTERN = re.compile(r"[0-9]{4}(?:-[0-9]{2}(?:-[0-9]{2})?)?")
+
+
+def valid_date(value: str) -> bool:
+    if not DATE_PATTERN.fullmatch(value):
+        return False
+    components = [int(v) for v in value.split("-")]
+    try:
+        date(*(components + [1] * (3 - len(components))))
+    except ValueError:
+        return False
+    return True
+
+
+def value_issues(tags: dict) -> list[dict]:
+    """Value rules shared by check-tags and render-paths, so a passing check always renders."""
+    issues = []
+    usable = lambda key: isinstance(tags.get(key), list) and tags[key] and all(isinstance(v, str) and v.strip() for v in tags[key])
+    for key in SINGLE_VALUED:
+        if usable(key) and len(tags[key]) != 1:
+            issues.append({"code": "MULTIPLE_VALUES", "field": key})
+    if usable("DATE") and len(tags["DATE"]) == 1 and not valid_date(tags["DATE"][0]):
+        issues.append({"code": "INVALID_DATE", "field": "DATE"})
+    numbers = {}
+    for pair in NUMBER_PAIRS:
+        for key in pair:
+            if not usable(key):
+                continue
+            values = tags[key]
+            if len(values) != 1 or not re.fullmatch(r"[0-9]+", values[0]) or int(values[0]) < 1:
+                issues.append({"code": "INVALID_NUMBER", "field": key})
+            else:
+                numbers[key] = int(values[0])
+        current, total = pair
+        if current in numbers and total in numbers and numbers[current] > numbers[total]:
+            issues.append({"code": "NUMBER_EXCEEDS_TOTAL", "field": current})
+    return issues
+
+
 def check_tags(tags: dict, kind: str = "album", whitelist: Whitelist | None = None, *, omissions: dict | None = None) -> dict:
     whitelist = whitelist or read_whitelist()
     if kind not in ("album", "singleton") or not isinstance(tags, dict):
@@ -146,6 +188,7 @@ def check_tags(tags: dict, kind: str = "album", whitelist: Whitelist | None = No
     for key in sorted(required):
         if key not in tags and key not in accepted_omissions:
             issues.append({"code": "MISSING_REQUIRED_TAG", "field": key})
+    issues.extend(value_issues(tags))
     return {"ok": not issues, "scope": "canonical_fields_and_values_only", "issues": issues, "omissions": accepted_omissions}
 
 
@@ -185,13 +228,6 @@ def render_path(tags: dict, extension: str, kind: str = "album", whitelist: Whit
     title = scalar(tags, "TITLE")
     artist = " & ".join(tags["ARTIST"])
     release_date = scalar(tags, "DATE")
-    if not re.fullmatch(r"[0-9]{4}(?:-[0-9]{2}(?:-[0-9]{2})?)?", release_date):
-        raise RuleError("INVALID_DATE", "DATE must be YYYY, YYYY-MM or YYYY-MM-DD.")
-    components = [int(v) for v in release_date.split("-")]
-    try:
-        date(*(components + [1] * (3 - len(components))))
-    except ValueError as error:
-        raise RuleError("INVALID_DATE", str(error)) from error
     if kind == "singleton":
         if any(k in tags for k in (whitelist or read_whitelist()).album_required):
             raise RuleError("KIND_MISMATCH", "A singleton has no album/track/disc fields.")
@@ -200,8 +236,6 @@ def render_path(tags: dict, extension: str, kind: str = "album", whitelist: Whit
     album_artist = " & ".join(tags["ALBUMARTIST"])
     disc, disc_total = positive_number(tags, "DISCNUMBER"), positive_number(tags, "DISCTOTAL")
     track, track_total = positive_number(tags, "TRACKNUMBER"), positive_number(tags, "TRACKTOTAL")
-    if disc > disc_total or track > track_total:
-        raise RuleError("INVALID_LOCAL_NUMBERING", "Current disc/track exceeds its total.")
     prefix = f"{disc:02d}{track:02d}" if disc_total > 1 else f"{track:02d}"
     directory = sanitize_component(f"[{album_artist}][{album}][{release_date[:4]}]")
     filename = sanitize_component(f"{prefix} - {title} - {artist}") + extension

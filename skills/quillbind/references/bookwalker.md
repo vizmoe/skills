@@ -21,7 +21,7 @@ Create a selection JSON file using actual product URLs:
 }
 ```
 
-Use `kind: "manga"` for manga. Japanese editions use `language: "ja"` and omit `translatedUrl`. Chinese metadata comes from Taiwan, including when the caller explicitly selects `zh-Hans` for a Simplified Chinese book; the source's Traditional Chinese spelling is preserved, not silently transliterated. Set `number: null` only for an unnumbered work. The parser recognizes Arabic/fullwidth numeric volume suffixes, including decimals; ambiguous numbering fails matching instead of guessing. The Taiwan series count is never a volume number.
+Use `kind: "manga"` for manga. Japanese editions use `language: "ja"` and omit `translatedUrl`. For a Chinese book with [no Taiwan volume](bibliography.md#no-taiwan-volume), fetch the Japanese volume the same way, with `language: "ja"`; that lock is evidence for direct file maintenance, not an `epub enrich` or `metadata resolve` input for the Chinese book. Chinese metadata comes from Taiwan, including when the caller explicitly selects `zh-Hans` for a Simplified Chinese book; the source's Traditional Chinese spelling is preserved, not silently transliterated. Set `number: null` only for an unnumbered work. The parser recognizes Arabic/fullwidth numeric volume suffixes, including decimals; ambiguous numbering fails matching instead of guessing. The Taiwan series count is never a volume number.
 
 ## Fetch once, replay offline
 

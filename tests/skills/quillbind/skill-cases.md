@@ -73,6 +73,12 @@ The runtime's [scenario evaluation](../../../tools/quillbind/docs/skill-evaluati
 | Task was scoped to tags only | No ISBN revision is attempted or reported as outstanding |
 | Selected source gives a release date | That date and its precision are used directly; cross-verification is not required |
 | Existing file needs an ISBN | The new-publication eISBN approval gate does not apply |
+| Matched record lists both a print and an electronic ISBN | The print ISBN is written; the report records that the electronic ISBN exists |
+| Matched record lists only an electronic ISBN | The electronic ISBN is written and reported as the electronic edition's number |
+| EPUB 3 gets a new ISBN | One `dc:identifier` with 13 digits plus an `identifier-type` refinement (`onix:codelist5`, `15`); the primary identifier is untouched |
+| EPUB 2 gets a new ISBN | One `dc:identifier` with `opf:scheme="ISBN"`; no EPUB 3 refinement is added |
+| The package already has the same ISBN as `urn:isbn:` or a hyphenated ISBN-10 | No second identifier is added; the existing node keeps its form |
+| A mainland Simplified Chinese light novel has no BOOK☆WALKER Taiwan volume | The Japanese volume is fetched with `language: ja`; date, series position and a translated synopsis are adopted; the Chinese title, names and language stay; publisher and ISBN come only from a Chinese-edition source or are reported as gaps; `epub enrich` is not used |
 
 ## Descriptions
 

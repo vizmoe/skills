@@ -5,14 +5,14 @@
 For ordinary repairs intended for personal reading, preserve the source EPUB version, metadata and reading order. Use a reading plan and `repair-copy`. The copy applies only structurally safe changes, verifies protected content and byte idempotence, runs EPUBCheck and platform lints, and performs a bounded browser smoke test. Existing conformance or semantic findings remain explicit in the report. This operation produces a reading copy, not a publication release; full publication QA and Ace are recorded as not run.
 
 ```sh
-quillbind epub repair-plan original.epub --purpose reading --output plan.json --json
-quillbind epub repair-copy original.epub --plan plan.json --output repaired.epub --json
+node <skill-directory>/scripts/quillbind.mjs epub repair-plan original.epub --purpose reading --output plan.json --json
+node <skill-directory>/scripts/quillbind.mjs epub repair-copy original.epub --plan plan.json --output repaired.epub --json
 ```
 
 For a directory request, recursively process all original EPUBs with the typed CLI command:
 
 ```sh
-quillbind epub repair-directory fix --output fix/repaired --jobs 2 --json
+node <skill-directory>/scripts/quillbind.mjs epub repair-directory fix --output fix/repaired --jobs 2 --json
 ```
 
 The command snapshots inputs before processing, excludes its output tree, preserves subdirectories, isolates reports per relative source path and continues after individual failures. `README.md` links every result; `repair-summary.json` records each input/output hash, status, checks and remaining findings. Reruns reuse only copies whose source hash, output hash and saved success summary match; unrelated existing files remain protected. Read the aggregate and individual summaries before reporting completion.
@@ -20,10 +20,10 @@ The command snapshots inputs before processing, excludes its output tree, preser
 For an EPUB 3.3 publication upgrade, use the default publication plan and the complete release workflow:
 
 ```sh
-quillbind epub inspect original.epub --json
-quillbind epub audit original.epub --json
-quillbind epub repair-plan original.epub --output plan.json --json
-quillbind epub repair original.epub --plan plan.json --output repaired.epub --json
+node <skill-directory>/scripts/quillbind.mjs epub inspect original.epub --json
+node <skill-directory>/scripts/quillbind.mjs epub audit original.epub --json
+node <skill-directory>/scripts/quillbind.mjs epub repair-plan original.epub --output plan.json --json
+node <skill-directory>/scripts/quillbind.mjs epub repair original.epub --plan plan.json --output repaired.epub --json
 ```
 
 Use a new output path. Plans bind the source SHA-256, purpose and rule version; regenerate after any of these change. The engine validates the plan again and applies only `safe` actions. It preserves the original bytes for untouched resources and checks protected text, order, headings, code, tables, mathematics, images, page markers, identifiers, rights and unknown metadata.

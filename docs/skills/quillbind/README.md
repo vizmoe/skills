@@ -18,6 +18,7 @@ npx skills add vizmoe/skills --skill quillbind
 $quillbind 按 /absolute/library 的当前受控词表审计所选 EPUB/CBZ 的标签，生成文件修改计划。
 $quillbind 统一所选轻小说系列的正传、外传、短篇集和番外命名，采用目标版本官方编号；确无官方编号时才按首次出版顺序使用本地 .5 排序。
 $quillbind 从出版社官方资料补充 /absolute/path/to/book.epub 的元数据，尽可能补全 ISBN，保留有效值，直接写入 EPUB。
+$quillbind 这本书是没有正式书号的自制录入本，按书名、作者和卷次匹配作品资料后补充元数据，不要把版本来源或跳过 ISBN 的理由写进简介。
 $quillbind 按书库标签维护所选 CBZ 的 ComicInfo.xml 和 EPUB 内嵌元数据，保留图片、页序、正文和非目标字段，不修改 Calibre 数据库。
 $quillbind 检查 /absolute/path/to/book.epub，报告问题并保留源文件。
 $quillbind 将 /absolute/path/to/anthology.epub 按实际目录与正文边界拆成独立卷，核对单卷元数据、章节覆盖、资源和脚注，保留原套书。
@@ -34,6 +35,8 @@ $quillbind 将 /absolute/path/to/volume-01 的漫画扫图制作为 CBZ，使用
 标签以书库当前受控词表为准，书库只提供分类依据。审计与出版运行时共用[词表来源及迁移规则](../../../skills/quillbind/references/tags.md)。有当前书库文件时，审计指定 `--vocabulary`，出版命令设置 `QUILLBIND_VOCABULARY`；未知标签保留待核对。审计可使用本次任务分配的整数 ID，并保留 ID 与文件路径、哈希的映射，无需 Calibre 书目 ID。
 
 [普通书与专用来源规则](../../../skills/quillbind/references/bibliography.md)区分轻小说/漫画的 BookWalker 流程与其他书籍的出版社流程。常规补资料主动检索并尽可能补全 ISBN，保留有效值，有可靠替代时修正错号；检索失败或候选冲突不能成为清空已有 ISBN 的理由。确无可靠候选或格式无法表达时，保留现状并说明已查来源及限制。仅改标签等限定字段的任务不扩大为 ISBN 修订。发行日直接采用选定来源的日期和精度，不要求交叉复验；已有文件补 ISBN 不使用新书出版项目的 eISBN 审批门槛。
+
+录入本、个人汇编、同人志和扫图转制本按书名、署名人员和卷次[识别作品](../../../skills/quillbind/references/bibliography.md#self-made-and-non-retail-editions)，再按作品类型补全字段。简介只写作品内容，[规则](../../../skills/quillbind/references/bibliography.md#describe-the-work-not-the-file)包括中文轻小说和漫画采用日文来源时的翻译；版本来源和字段缺口写进运行报告。
 
 [内嵌元数据维护](../../../skills/quillbind/references/embedded-metadata.md)直接修改 EPUB 实际 OPF 或 CBZ 根目录的 `ComicInfo.xml`。ComicInfo 2.0 用 `Genre` 承载受控标签，EPUB 用 `dc:subject`。先备份目标文件、暂存并验证，再写回指定文件并独立读回。Calibre 数据库、旁置 `metadata.opf` 和 `cover.jpg` 保持不变，不要求三处同步。现有运行时没有通用全字段写入命令，代理使用文件级工具执行该流程；漫画元数据修订不经过扫图重编码，标签专用编辑也不借用会更新日期的 enrichment。
 

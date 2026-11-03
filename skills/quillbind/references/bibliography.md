@@ -6,12 +6,17 @@ Use this workflow to supplement or correct existing books, then apply the select
 
 - **Confirmed prose light novels and manga:** use the [BookWalker workflow](bookwalker.md) with the correct work type; an adaptation and its prose original are separate records. For Chinese metadata select the corresponding Taiwan volume; use the Japanese original's date, with the existing print-date-first, electronic-date-fallback rule. Use the chosen source field directly; publisher cross-verification is not required. Preserve its available precision rather than shortening a complete date or inventing a missing day.
 - **Other books, including ordinary fiction, nonfiction and art books:** prefer the publisher's or imprint's official page for that book, edition and volume. Use the book's title/copyright pages and contents when the official page is unavailable or lacks a field. Apply this route without requiring a BookWalker record, Japanese counterpart or the light-novel/manga date policy. Use the selected edition's publication date from the available source; repeated cross-verification is not required.
+- **Self-made and non-retail editions** (录入本, personal compilations, doujin or self-published books, scan-derived EPUBs): use the route for the work's type above, after identifying the work as in [self-made and non-retail editions](#self-made-and-non-retail-editions).
 
 Check title, credited people and volume/edition sufficiently to avoid a wrong work or adaptation. One appropriate source can support a field; do not turn every lookup into a mandatory two-source investigation. Record the source URL or book location and adopted values in an external report. If evidence conflicts or is missing, preserve that field and finish other supported changes. The source rule for light novels does not classify every book from the same author or series as a light novel.
 
+## Self-made and non-retail editions
+
+A file its retail publisher did not issue still describes a published work. Identify that work by title, credited people and volume, checked against the file's own title/copyright pages or text, instead of requiring an ISBN inside the file. An ISBN already in the file is a lead to verify like any other, not proof of the edition. Once the work is identified, fill every selected field — ISBN, publisher/imprint, date, series and description — from the work's type-specific source exactly as for a retail file, with the usual ISBN, edition and file-write checks. Record the edition class and the identification evidence in the run report; they never enter the book's metadata.
+
 ## Complete ISBNs where supported
 
-General metadata supplementation includes ISBN completion without a separate ISBN request. Inspect the current identifiers, then actively look for missing ISBNs in the matched type-specific source above and the book's bibliography. Use title, credited people, edition and volume to find the correct record; one inaccessible page is not proof that no ISBN is available. A tags-only task or an explicit list of other fields does not expand to ISBN edits.
+General metadata supplementation includes ISBN completion without a separate ISBN request. Inspect the current identifiers, then actively look for missing ISBNs in the matched type-specific source above and the book's bibliography. Use title, credited people, edition and volume to find the correct record. One inaccessible page is not proof that no ISBN is available. A tags-only task or an explicit list of other fields does not expand to ISBN edits.
 
 Retain existing ISBNs when supported; replace an evidenced wrong value only when a supported replacement is available. Validate ISBN syntax and checksum, normalize a valid ISBN-10 to ISBN-13 where appropriate, and distinguish format normalization from work/edition matching. A valid checksum alone does not establish a match. Do not borrow a number from an adaptation, another volume, a bundle or another work by the same author.
 
@@ -28,7 +33,7 @@ Identify each target by file path and SHA-256. Read its current package metadata
 | Field | Adoption rule |
 | --- | --- |
 | Title and contributors | Use the matched edition's title and credited names/roles. When light-novel naming is selected, apply [whole-series naming](naming.md) while preserving the volume title's original text. Keep author, translator and illustrator distinct; do not guess an original name from a translation. |
-| Description | Use the matching publisher/BookWalker description or a factual summary of inspected book content. Keep plain text and meaningful paragraph breaks; a collection-wide description is not automatically a single volume's description. |
+| Description | The work's synopsis under [describe the work, not the file](#describe-the-work-not-the-file). |
 | Language/script | Follow the actual text; preserve `zh-Hans` / `zh-Hant` where applicable. Do not convert the book's text as a metadata edit. |
 | Tags | Use exact labels from the current library vocabulary, supported by the work's content and the type-appropriate source. |
 | Publisher, series and position | Adopt actual edition information. Follow [story series normalization](series.md) for narrative membership, quantity-marketing cleanup, subseries and verified order; shared authors, publisher collections and nonfiction volume counts do not establish Series. |
@@ -36,6 +41,12 @@ Identify each target by file path and SHA-256. Read its current package metadata
 | ISBN | Actively fill from matched evidence during general supplementation; preserve supported values and report unresolved cases under the ISBN policy above. |
 
 A metadata supplementation task does not by itself select covers, ratings, reading state or body text for replacement. A request for complete library-rule cleanup includes the [score cleanup workflow](embedded-metadata.md#remove-score-metadata-completely); tags-only and explicitly restricted tasks retain their field boundaries. Never import retailer/reviewer scores when supplementing bibliography. When a field is selected, correct an evidenced wrong value as well as filling a blank; keep ambiguous values for review. Do not fabricate missing bibliography from a filename or a plausible title.
+
+## Describe the work, not the file
+
+`dc:description` and ComicInfo `Summary` hold only the work's synopsis: the matched source's description for that volume, or a factual summary of the inspected text. Keep plain text and meaningful paragraph breaks, and keep credited names in contributor fields. A collection-wide description is not a single volume's synopsis. Provenance, edition comparisons, source notes and reasons a field stayed empty belong in the run report; when correcting a description that mixes these into the synopsis, keep the synopsis and report what was removed. With no supported synopsis, preserve the current value or leave the field unset and report it.
+
+Use the source's language as published, with one exception: a Chinese light novel or manga whose adopted description comes from a Japanese record (BOOK☆WALKER Japan or a Japanese publisher) gets a faithful Chinese translation in the book's script, `zh-Hans` or `zh-Hant`. Record the translation and its source in the run report. Other book types and Japanese-language books keep the source text.
 
 ## Choose a file operation
 

@@ -29,7 +29,7 @@ These mappings describe equivalent meanings, not permission to rewrite every fie
 | Selected field | CBZ root `ComicInfo.xml` | EPUB package metadata |
 | --- | --- | --- |
 | Controlled library tags | `Genre`, comma-separated full labels | One `dc:subject` per full label |
-| Title and description | `Title`, `Summary` | `dc:title`, `dc:description` |
+| Title and description ([synopsis only](bibliography.md#describe-the-work-not-the-file)) | `Title`, `Summary` | `dc:title`, `dc:description` |
 | Contributors | Role-specific fields such as `Writer` and `Penciller` | `dc:creator` / `dc:contributor` and existing role refinements |
 | Series and position | `Series`, `Number` | Existing collection metadata and position; preserve Calibre series compatibility fields when present |
 | Publisher | `Publisher`, separately verified `Imprint` | `dc:publisher` |

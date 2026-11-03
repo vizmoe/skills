@@ -46,6 +46,12 @@ def classify(attempt, source, allowed, outcomes):
     status = attempt.get('http_status')
     if status is not None and (type(status) is not int or not 100 <= status <= 599):
         raise ValueError('http_status must be an HTTP integer or null.')
+    # Transport errors are the request policy's non-HTTP response keys, never a second list.
+    transport = attempt.get('transport_error')
+    if (status is None) == (transport is None):
+        raise ValueError('Each attempt needs exactly one of http_status or transport_error.')
+    if transport is not None and (not isinstance(transport, str) or transport.isdigit() or transport not in outcomes):
+        raise ValueError('transport_error must be a transport error declared in requests.md.')
     count = attempt.get('result_count')
     if count is not None and (type(count) is not int or count < 0):
         raise ValueError('result_count must be a nonnegative integer.')
@@ -53,7 +59,7 @@ def classify(attempt, source, allowed, outcomes):
     if (not attempt['syntax_valid'] or not balanced or (source == 'musicbrainz-recording'
             and (set(fields) - allowed or ('dur' in fields and attempt.get('duration_unit') != 'ms')))):
         outcome = 'INVALID_QUERY'
-    elif outcomes.get(str(status if status is not None else attempt.get('transport_error'))) in {'throttle', 'transient'}:
+    elif outcomes.get(str(status if status is not None else transport)) in {'throttle', 'transient'}:
         outcome = 'TEMPORARY_FAILURE'
     elif status is None or not 200 <= status < 300 or not attempt['response_valid']:
         outcome = 'FAILED'

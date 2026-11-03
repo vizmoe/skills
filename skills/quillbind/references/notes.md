@@ -5,7 +5,7 @@ For metadata or naming requests involving scripted books, follow [preservation d
 Preserve the source EPUB. Begin with static inspection, which does not execute book scripts:
 
 ```sh
-quillbind epub check-notes original.epub --json
+node <skill-directory>/scripts/quillbind.mjs epub check-notes original.epub --json
 ```
 
 The report inventories manifest `scripted` declarations, actual XHTML scripts and event handlers, local script hashes, note references, targets and backlinks. `scripted-note-candidate` describes markup eligible for preservation; it does not establish the script's purpose, safety or working interactions. Undeclared scripts are still protected. Missing targets, duplicate IDs and unavailable script resources remain findings.
@@ -13,7 +13,7 @@ The report inventories manifest `scripted` declarations, actual XHTML scripts an
 When the user requests interaction verification, run the explicit script check in the configured Chromium environment:
 
 ```sh
-quillbind epub check-notes original.epub --execute-scripts --reports /absolute/path/to/reports --json
+node <skill-directory>/scripts/quillbind.mjs epub check-notes original.epub --execute-scripts --reports /absolute/path/to/reports --json
 ```
 
 This creates a separate report directory per run. Each selected activation gets a fresh browser context. Only packaged local resources are served; the opaque-origin CSP sandbox and request interception block network connections, workers, frames, unexpected navigation, popups, downloads and dialogs. Regular layout/publication QA still disables book scripts. For untrusted books, the pinned QA container with `--network none` also isolates the process network. Browser restrictions do not prove arbitrary JavaScript safe.
@@ -43,7 +43,7 @@ Inspect the XHTML, CSS and script as data before selecting a different interacti
 ```
 
 ```sh
-quillbind epub check-notes original.epub --execute-scripts --cases cases.json --reports /absolute/path/to/reports --json
+node <skill-directory>/scripts/quillbind.mjs epub check-notes original.epub --execute-scripts --cases cases.json --reports /absolute/path/to/reports --json
 ```
 
 Use unique CSS selectors. `click` and `keyboard` cases dismiss via `{"selector":"#close"}` or `{"key":"Escape"}`; add `returnFocus` to check the exact return target. `hover` and `touch` can use `{"gesture":"release"}` for pointer leave or touch end. Touch uses Chromium mobile emulation, not a physical reading device. A hover/touch-only result says nothing about keyboard accessibility. Regenerate the source hash and review cases after any EPUB change; stale plans are rejected.

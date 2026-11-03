@@ -20,7 +20,7 @@ build:
   optimizeImages: true
 ```
 
-Use `quillbind schema --json` for additional settings, and `taxonomy explain <id> --json` for controlled classifications. Themes express layout intent independently of tags.
+Use `node <skill-directory>/scripts/quillbind.mjs schema --json` for additional settings, and its `taxonomy explain <id> --json` for controlled classifications. Themes express layout intent independently of tags.
 
 ## Prepare a project from local sources
 

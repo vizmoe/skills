@@ -32,6 +32,6 @@ MusicBrainz 与 Apple 的适用查询都要建立路由记录。路由是一个�
 
 ## 只读记录审计
 
-[search-ledger.py](../scripts/search-ledger.py) 从 `--input` JSON 文件（`-` 为 stdin）读取 `routes` 非空数组。每路包含唯一 `id`、`source`（MusicBrainz 录音查询用上表实体）、布尔 `required` 和按先后排列的 `attempts`；未执行为 []。每个尝试保存完整 `query`、布尔 `syntax_valid`、`http_status`（无可见状态为 null）、布尔 `response_valid`，成功响应另有非负整数 `result_count`（已获取的总候选数）及布尔 `pages_complete`；dur 查询明确 `duration_unit: "ms"`。无状态时另记录 `transport_error`（timeout / connection / unknown）；语法依据、分页范围与原响应另存证据。
+[search-ledger.py](../scripts/search-ledger.py) 从 `--input` JSON 文件（`-` 为 stdin）读取 `routes` 非空数组。每路包含唯一 `id`、`source`（MusicBrainz 录音查询用上表实体）、布尔 `required` 和按先后排列的 `attempts`；未执行为 []。每个尝试保存完整 `query`、布尔 `syntax_valid`、布尔 `response_valid`，以及 `http_status` 与 `transport_error` 恰好其一：有可见 HTTP 状态时记录整数 `http_status`、`transport_error` 省略或为 null；否则 `http_status` 为 null，`transport_error` 取[响应分类](requests.md#响应分类)表中的非数字传输错误。成功响应另有非负整数 `result_count`（已获取的总候选数）及布尔 `pages_complete`；dur 查询明确 `duration_unit: "ms"`。语法依据、分页范围与原响应另存证据。
 
 输出各路最新状态/字段、`completed_routes`、`pending`、`coverage_complete`、当前 `error_count` 与累计 `attempt_error_count`。`no_results` 只对全部列入路由均为有效 ZERO 且存在必需路由时为 true；它不是录音身份判定。返回码 0 为覆盖完整，1 为存在必需未完成路由，2 为输入/规则损坏。helper 不联网、不写缓存、不证明调用者声明的语法/分页/响应真实性；显式字段校验不能替代完整 Lucene 语法检查。

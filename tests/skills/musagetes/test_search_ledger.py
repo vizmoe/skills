@@ -78,6 +78,20 @@ class SearchLedgerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.ledger.audit({'routes': [route, route]})
 
+    def test_transport_errors_come_from_the_request_policy(self):
+        for error, status in [('timeout', 'TEMPORARY_FAILURE'), ('connection', 'TEMPORARY_FAILURE'),
+                              ('tls', 'FAILED'), ('unknown', 'FAILED')]:
+            with self.subTest(error=error):
+                result = self.audit([self.attempt(http_status=None, transport_error=error)])
+                self.assertEqual(result['routes'][0]['status'], status)
+        with self.assertRaises(ValueError):
+            self.audit([self.attempt(http_status=None, transport_error='dns')])
+
+    def test_attempt_has_exactly_one_response_outcome(self):
+        for updates in [{'http_status': None}, {'transport_error': 'timeout'}]:
+            with self.subTest(updates=updates), self.assertRaises(ValueError):
+                self.audit([self.attempt(**updates)])
+
     def test_audit_does_not_modify_cached_attempts(self):
         attempts = [self.attempt(http_status=503), self.attempt(result_count=1)]
         snapshot = copy.deepcopy(attempts)

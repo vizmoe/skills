@@ -88,13 +88,28 @@ Start with [EPUB inspection](inspection.md); full JSON includes the package path
 
 Replace the selected subject set with one namespace-correct `dc:subject` per canonical label. Reuse unchanged nodes where possible. If removing/replacing a subject with an `id`, account for its `refines` links and attached authority/term metadata in the plan: do not leave dangling references or label the library's custom taxonomy as official LCC/BISAC. Unrelated refinements remain intact; an ambiguous reference blocks that edit until resolved.
 
-Patch only planned metadata nodes. Preserve primary UUID/`unique-identifier`, unrelated identifiers, creator roles, series/order, cover declarations and non-target custom metadata. Add or update a supported ISBN without replacing the primary identifier or disturbing identifier-dependent font obfuscation; account for any refinements attached to an edited identifier. If the ISBN itself is the protected primary identity, report that constraint instead of changing the identity as a routine supplement. Signed or unsupported protected books require separate supported handling; do not strip protection or signatures to make an edit pass. Use the actual EPUB file as the write target, without a Calibre database or sidecar update.
+Patch only planned metadata nodes. Preserve primary UUID/`unique-identifier`, unrelated identifiers, creator roles, series/order, cover declarations and non-target custom metadata. Add or update a supported ISBN using the [ISBN identifier form](#isbn-identifiers), without replacing the primary identifier or disturbing identifier-dependent font obfuscation; account for any refinements attached to an edited identifier. If the ISBN itself is the protected primary identity, report that constraint instead of changing the identity as a routine supplement. Signed or unsupported protected books require separate supported handling; do not strip protection or signatures to make an edit pass. Use the actual EPUB file as the write target, without a Calibre database or sidecar update.
 
 Keep the existing EPUB version, manifest, spine, navigation, text, styles, fonts and images. For EPUB 3, record one UTC `dcterms:modified` value for the actual edit and include it as an expected housekeeping difference; publication date is separate. Reuse that planned timestamp for retries of the same edit, and leave an unchanged book alone. Do not add EPUB 3 metadata conventions to EPUB 2 as an incidental upgrade.
 
 Reopen the staged archive, verify OCF packaging/CRC and all references, compare non-target OPF semantics, and require identical bytes for every non-OPF member. Run EPUBCheck on the changed file and record actual results, distinguishing pre-existing findings from new ones. A missing validator or failed launch is incomplete verification. Do not repair unrelated source warnings to make a tag edit look successful. Native-reader rendering remains unverified unless actually tested.
 
 For edition-matched bibliography supplementation, [BookWalker enrichment](bookwalker.md#supplement-an-existing-epub) already preserves non-OPF resources and runs all release gates. It does not rewrite subjects, and its deliberate original-date update makes it inappropriate for tag-only edits. It also does not replace a general field-specific maintenance plan. Any result claimed as a Quillbind publication must still satisfy every [release gate](quality.md).
+
+### ISBN identifiers
+
+Before adding an ISBN, collect every existing ISBN in the package. Count a `dc:identifier` as an ISBN when its value starts with `urn:isbn:`, it carries EPUB 2 `opf:scheme="ISBN"` (any case), or it has an `identifier-type` refinement with `scheme="onix:codelist5"` and value `15` (ISBN-13) or `02` (ISBN-10). A value refined as `03` (GTIN-13) and a bare value also count when they pass the ISBN-13 or ISBN-10 checksum (ISBN-10 may end in `X`); ignore hyphens and spaces. Compare candidates by their normalized ISBN-13 digits. A matching number is already present; keep its node and form. Otherwise add one node with the normalized 13 digits and no hyphens, in the same form as the runtime's split writer:
+
+```xml
+<!-- EPUB 3 -->
+<dc:identifier id="isbn">9780306406157</dc:identifier>
+<meta refines="#isbn" property="identifier-type" scheme="onix:codelist5">15</meta>
+
+<!-- EPUB 2 -->
+<dc:identifier id="isbn" opf:scheme="ISBN">9780306406157</dc:identifier>
+```
+
+Choose an `id` not already used in the package. Replacing an evidenced wrong ISBN updates that node's value in place and keeps its form and refinements. The number above shows the shape only.
 
 ## Read back and report
 

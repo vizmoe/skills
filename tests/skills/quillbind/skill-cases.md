@@ -22,6 +22,7 @@ The runtime's [scenario evaluation](../../../tools/quillbind/docs/skill-evaluati
 | --- | --- |
 | Request names only tag changes | Stays in tag management; does not expand into ISBN revision or a full rebuild |
 | Request names a light novel with both BookWalker and publisher pages available | Uses the BookWalker route and records the selected edition |
+| Request says the book is a self-made 录入本 with no ISBN in the file | Identifies the work by title, credited people and volume, then uses the route for its type; provenance stays out of the description |
 | Request asks to correct a volume title and the series position together | Applies the naming policy and the Arabic series-position rule, with separate evidence for each |
 | Request asks to inspect an EPUB and correct its metadata | Combines the requested inspection and metadata branches, including their supporting source and write procedures |
 | A new Markdown light novel uses a BookWalker lock | Uses the BookWalker source workflow with the authoring branch, then runs the publication gates |
@@ -72,6 +73,27 @@ The runtime's [scenario evaluation](../../../tools/quillbind/docs/skill-evaluati
 | Task was scoped to tags only | No ISBN revision is attempted or reported as outstanding |
 | Selected source gives a release date | That date and its precision are used directly; cross-verification is not required |
 | Existing file needs an ISBN | The new-publication eISBN approval gate does not apply |
+
+## Descriptions
+
+| Raw material or situation | Checkable result |
+| --- | --- |
+| A Chinese light novel or manga adopts its description from BOOK☆WALKER Japan or a Japanese publisher | The description is a faithful Chinese translation in the book's script; the report names the translation and its source; no Japanese text or source note remains in the field |
+| An ordinary Chinese book has only a Japanese publisher description | The description is not translated; the translation exception covers light novels and manga only |
+| A Japanese-language light novel uses the Japanese record | The Japanese synopsis is used as published |
+| An existing description mixes the synopsis with provenance or ISBN notes | The correction keeps the synopsis, drops the notes and reports the removal |
+| The illustrator is named only inside the description | The name moves to contributor fields; the description keeps only the synopsis |
+| A selected field has no supported value | The field follows its own policy and the report lists attempted sources; the description does not explain the gap |
+| A Chinese Markdown book uses a Japanese-only BookWalker lock and leaves `book.description` empty | The agent sets `book.description` to the Chinese synopsis before `metadata resolve`, instead of shipping the Japanese text the resolver would fill in |
+
+## Self-made and non-retail editions
+
+| Raw material or situation | Checkable result |
+| --- | --- |
+| A fan-transcribed 录入本 of a light novel has no ISBN in the file | The work is identified by title, credited people and volume; ISBN, publisher, date and series come from the BookWalker route and pass the normal ISBN and edition checks |
+| A self-made file carries a valid ISBN | The ISBN is checked against the identified work and volume like any lead; a number from another volume or work is not adopted |
+| A self-made file's metadata write completes | The report names the edition class and the identification evidence; no metadata field mentions that the file is a 录入本 |
+| A self-made file goes through the write path | Staging, backup, format validation and independent readback are unchanged |
 
 ## Series naming and positions
 

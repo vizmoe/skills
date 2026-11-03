@@ -39,6 +39,21 @@ python3 -B "$skill_dir/scripts/report-audit.py" --root "$music_root" --input "$r
 
 三个结果数组各自按文件取最新 sequence；发布或移除成功必须有非空 outputs，且包含在 files 中。原路径未变的发布可指向同一 ID；独立副本指向另一个 ID。旧副本和成品均列入 files，已知移除项也保留其预期哈希以供归并。全部输入先与 inventory/history 对账，不能只提交希望统计的文件来掩盖遗漏；仍有隔离副本时保留为待办或在清理报告说明，不能伪造 removed。
 
-输出 `categories` 是分类 ID 数组，`counts` 对应文件数，唯独封面类别为组数；`review_groups` 只包含仍存在、未发布且未被成品取代的音频 ID，不出现空数组。缺失且无有效发布/清理映射、成品哈希变化、链接/无法安全读取或虚假的移除结果令 `ok: false`；不能在此时用零个实际文件宣称待办已解决。未知引用、重复路径/ID/序号或无效输入直接报错。退出码 0 为此范围内对账通过、1 为文件/结果不一致、2 为输入错误。
+输出 `categories` 是以下列键为名的对象，每个值为排序后的 ID 数组；`counts` 对同一键给出数组长度。报告类别列指向上文的分类表。音频、CUE 与证据类只计当前存在且未被成品取代的文件。
+
+| 键 | 计数单位 | 报告类别与判定 |
+| --- | --- | --- |
+| `unidentified_audio` | 文件 | 未识别音频：`match_status` 为 `UNCONFIRMED` |
+| `partial_matches` | 文件 | 已确认部分事实的音频：`match_status` 为 `PARTIAL_MATCH` |
+| `missing_cover` | 组 | 缺封面：组 `cover` 为 `missing` |
+| `unknown_cover` | 组 | 封面尚未核验：组 `cover` 为 `unknown` |
+| `cue_missing_source` | 文件 | CUE 缺源：最新 CUE 结果为 `missing_source` |
+| `cue_duplicates` | 文件 | CUE 重复：最新 CUE 结果为 `duplicate` |
+| `cue_other` | 文件 | CUE 其它：`resolved`、`pending` 或尚无 CUE 结果 |
+| `evidence_files` | 文件 | 证据与审计资料：`kind` 为 `evidence` |
+| `published` | 文件 | 已发布：最新 `published` 结果中仍存在的成品 ID |
+| `cleaned_duplicates` | 文件 | 已清理重复副本：最新 `removed` 结果已生效的源 ID |
+
+`review_groups` 只包含仍存在、未发布且未被成品取代的音频 ID，不出现空数组。缺失且无有效发布/清理映射、成品哈希变化、链接/无法安全读取或虚假的移除结果令 `ok: false`；不能在此时用零个实际文件宣称待办已解决。未知引用、重复路径/ID/序号或无效输入直接报错。退出码 0 为此范围内对账通过、1 为文件/结果不一致、2 为输入错误。
 
 `scope: recorded_files_and_latest_outcomes_only` 不证明文件类型、媒体身份、封面、证据内容、授权或未列入清单的文件；kind 必须来自实际 codec/文档检查，不能直接把 inventory 的扩展名提示当确认。helper 不执行音频解码、检索或清理；报告读者应保留这些局限与各独立审计的实际结果。

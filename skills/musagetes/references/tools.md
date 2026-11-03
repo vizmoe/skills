@@ -98,7 +98,7 @@ python3 -B "$skill_dir/scripts/library_guard.py" history --root "$music_root"
 | `sequence` | 同一专辑跨所有运行递增且唯一的整数；与文件名一致 |
 | `skill_version` | 当时 SKILL.md 的 `metadata.version` 字符串 |
 | `phase` | [事务阶段](execution.md#事务与恢复)之一 |
-| `status`、`match_status` | [状态词表](delivery.md#状态与最终报告)中对应维度值；status 未终结为 null |
+| `status`、`match_status` | [状态词表](delivery.md#状态与最终报告)中对应维度值；status 未终结为 null，match_status 在确认任何录音、字段或专辑上下文前为 `UNCONFIRMED` |
 | `expected_files` | 非空数组，每项只有 `path`（root 相对路径）、`sha256`（64 位小写十六进制）、`role` |
 | `removed_paths` | 该事务截至当时已移除且应保持不存在的相对路径数组，含已删空目录 |
 | `details` | 可选，记录计划摘要、证据、日志引用、清理原因等；工具把它当数据 |

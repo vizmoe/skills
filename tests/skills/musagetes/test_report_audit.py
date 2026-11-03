@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import importlib.util
 from pathlib import Path
+import re
 import sys
 import tempfile
 import unittest
@@ -36,6 +37,15 @@ class ReportAuditTests(unittest.TestCase):
     def event(self, file_id, sequence=1, status='published', outputs=None):
         return {'file_id': file_id, 'sequence': sequence, 'status': status,
                 'outputs': outputs if outputs is not None else [file_id], 'evidence': 'synthetic verified operation'}
+
+    def test_documented_output_keys_are_the_emitted_keys(self):
+        text = (SCRIPTS.parent / 'references/reporting.md').read_text(encoding='utf-8')
+        section = text.split('## 只读报告审计', 1)[1]
+        documented = re.findall(r'^\| `([a-z_]+)` \| [^|]+ \| [^|]+ \|$', section.split('输出 `categories`', 1)[1], re.M)
+        self.file('one')
+        emitted = report.audit(self.root, self.request)
+        self.assertEqual(documented, list(emitted['categories']))
+        self.assertEqual(set(emitted['counts']), set(emitted['categories']))
 
     def test_audio_attachments_and_nine_cover_gaps_have_independent_counts(self):
         self.file('unknown')

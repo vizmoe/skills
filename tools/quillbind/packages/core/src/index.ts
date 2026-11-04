@@ -26,6 +26,13 @@ export { repairDirectory } from "./repair-directory.js";
 export type { DirectoryRepairEntry } from "./repair-directory.js";
 export { convertEpub } from "./convert-epub.js";
 export {
+  convertKindleToEpub,
+  unpackKindle,
+  isKindlePath,
+  isKindleBytes,
+} from "./kindle.js";
+export type { KindleFormat } from "./kindle.js";
+export {
   conversionTarget,
   conversionTargets,
   zhconvertNotice,
@@ -48,6 +55,7 @@ export { VERSION } from "./runtime.js";
 export const formats = {
   inputs: ["markdown-book", "epub", "novel-url", "manga-scans"],
   outputs: ["epub", "cbz"],
+  kindleInputFormats: ["mobi", "azw3"],
   mangaInputFormats: ["image-directory", "zip", "cbz"],
   epubInputModes: [
     "audit",

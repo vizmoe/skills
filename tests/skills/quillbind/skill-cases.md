@@ -52,6 +52,9 @@ The runtime's [scenario evaluation](../../../tools/quillbind/docs/skill-evaluati
 | Bibliography supplementation is requested but publication enrichment rejects scripting | Uses verified bibliography evidence with the scoped OPF-only workflow; does not claim an enrichment/publication release |
 | A batch requests metadata cleanup and splitting; a scripted book cannot be split | Reports splitting as blocked for that file and completes independent authorized metadata work and other files; does not mark the whole request complete |
 | A scripted source is also signed, encrypted or ambiguous across renditions | Retains the applicable protection/ambiguity guard for the affected write; allowing inert script preservation does not waive those checks |
+| A scripted EPUB uses Duokan footnote classes (`class="duokan-footnote"` / `duokan-footnote-item`) or wrapper `<sup epub:type="noteref"><a href="#...">` | Static `check-notes` resolves the references without false `NOTE_TARGET` errors, classifies eligible books as `scripted-note-candidate`, and allows `epub repair-copy --purpose reading` while preserving all content/script bytes |
+| A passive anthology uses Duokan footnotes (`duokan-footnote` / `duokan-footnote-content > li.duokan-footnote-item`) with return links | `epub split` recognizes the references and note items, carrying each volume's referenced notes and valid return links |
+| A book's popups rely on reader-native interception (Duokan, KOReader, Readest, Apple Books) or a proprietary reader JS bridge rather than a self-contained DOM toggle script | Uses static `check-notes` and preserves resources through OPF-only maintenance or `repair-copy`; does not use `--execute-scripts` failure in Chromium to claim the reader-native notes are broken |
 
 ## Controlled vocabulary and tags
 

@@ -432,6 +432,38 @@ it("copies a shared note only where referenced and retains each volume's valid r
     );
   }
 });
+
+it("splits anthologies using Duokan footnote and wrapper noteref conventions", async () => {
+  let bytes = edit(await anthology(), "OEBPS/text/shared.xhtml", (text) =>
+    text
+      .replace(
+        '<a epub:type="noteref" id="r1" href="notes.xhtml#n1">1</a>',
+        '<a class="duokan-footnote" id="r1" href="notes.xhtml#n1">1</a>',
+      )
+      .replace(
+        '<a epub:type="noteref" id="r2" href="notes.xhtml#n2">2</a>',
+        '<sup class="duokan-footnote" id="r2"><a href="notes.xhtml#n2">2</a></sup>',
+      ),
+  );
+  bytes = edit(
+    bytes,
+    "OEBPS/text/notes.xhtml",
+    () =>
+      '<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="zh-Hant"><head><title>Notes</title></head><body><ol class="duokan-footnote-content"><li class="duokan-footnote-item" id="n1"><p>甲卷注释。<a href="shared.xhtml#r1">返回一</a></p></li><li class="duokan-footnote-item" id="n2"><p>乙卷注释。<a href="shared.xhtml#r2">返回二</a></p></li></ol></body></html>',
+  );
+  const result = await applySplit(bytes, await reviewed(bytes));
+  expect(result.volumes).toHaveLength(2);
+  expect(
+    inspectBytes(result.volumes[0].bytes).documents.get(
+      "OEBPS/text/notes.xhtml",
+    )!.documentElement!.textContent,
+  ).toContain("甲卷注释。");
+  expect(
+    inspectBytes(result.volumes[1].bytes).documents.get(
+      "OEBPS/text/notes.xhtml",
+    )!.documentElement!.textContent,
+  ).toContain("乙卷注释。");
+});
 it("keeps imported styles and font bytes through resource closure without claiming font rendering coverage", async () => {
   const info = inspectBytes(await anthology()),
     entries = new Map(

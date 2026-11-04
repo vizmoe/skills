@@ -51,6 +51,42 @@ it("recognizes EPUB namespace aliases and retains text wrapped by a return link"
   });
 });
 
+it("recognizes Duokan footnote classes and wrapper noteref elements for inspection and reading repair", () => {
+  for (const chapter of [
+    '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Chapter</title><script src="notes.js"></script></head><body><h1>Chapter</h1><p>Text <a class="duokan-footnote" id="ref" href="#note">1</a>.</p><ol class="duokan-footnote-content"><li class="duokan-footnote-item" id="note"><p>Duokan note.</p></li></ol></body></html>',
+    '<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>Chapter</title><script src="notes.js"></script></head><body><h1>Chapter</h1><p>Text <sup epub:type="noteref" id="ref"><a href="#note">1</a></sup>.</p><aside id="note" epub:type="footnote"><p>Wrapped note. <a id="back" href="#ref">Back</a></p></aside></body></html>',
+  ]) {
+    const source = noteFixture((entries) => {
+      entries.set("OEBPS/chapter.xhtml", Buffer.from(chapter));
+      entries.set(
+        "OEBPS/package.opf",
+        Buffer.from(
+          entries
+            .get("OEBPS/package.opf")!
+            .toString()
+            .replace('unique-identifier="id"', 'unique-identifier="missing"'),
+        ),
+      );
+    });
+    const notes = inspectNotes(inspectBytes(source));
+    expect(notes.kind).toBe("scripted-note-candidate");
+    expect(notes.issues.filter((i) => i.severity === "error")).toEqual([]);
+    expect(notes.references[0]).toMatchObject({
+      id: "ref",
+      resolution: "resolved",
+      target: { path: "OEBPS/chapter.xhtml", fragment: "note" },
+    });
+    const plan = planFromBytes(source, "reading");
+    expect(
+      plan.actions.filter((a) => a.classification === "unsupported"),
+    ).toEqual([]);
+    const repaired = applyRepair(source, plan);
+    expect(repaired.integrity).toMatchObject({
+      scriptedContent: { status: "preserved", interactions: "not-run" },
+    });
+  }
+});
+
 it("preserves every content dependency during scripted-note reading repair", () => {
   const source = noteFixture((entries) =>
     entries.set(

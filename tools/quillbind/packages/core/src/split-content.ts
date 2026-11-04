@@ -6,6 +6,8 @@ import {
   selectedDocument,
   resolveElement,
   semantic,
+  noteRefId,
+  noteRefIds,
   noteKey,
   type SplitSource,
   type SplitUnit,
@@ -74,14 +76,18 @@ export function splitContent(
           fail("SPLIT_NOTE", "Unresolved note reference");
         continue;
       }
-      if (!attr(link, "id"))
+      const linkId = noteRefId(link);
+      if (!linkId)
         fail("SPLIT_NOTE", "A note reference requires a stable return-link ID");
-      const refKey = noteKey(item.path, attr(link, "id"));
+      const refKey = noteKey(item.path, linkId);
       references.set(refKey, key);
+      const refIds = noteRefIds(link);
       const returns = elements(note.node, "a").some((back) => {
         try {
           const to = localTarget(note.path, attr(back, "href"));
-          return to.path === item.path && to.fragment === attr(link, "id");
+          return (
+            to.path === item.path && !!to.fragment && refIds.has(to.fragment)
+          );
         } catch {
           return false;
         }

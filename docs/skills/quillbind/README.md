@@ -44,7 +44,7 @@ $quillbind 将 /absolute/path/to/volume-01 的漫画扫图制作为 CBZ，使用
 
 书籍含有动态脚本时，按[保留脚本的整理边界](../../../skills/quillbind/references/embedded-metadata.md#scripted-epubs-preserve-content-during-organization)继续检查、资料补全、命名和仅改 OPF 的元数据维护；评分清理与系列规范化支持该路径。整理过程保留正文、样式和脚本资源，不执行脚本，仍须完成实际格式校验。正文改写、换封面、拆卷和出版等操作按各自的支持范围判断；某一步受阻时继续处理独立字段和其他书籍。
 
-单独请求的脚本弹窗检查见[注释验证](../../../skills/quillbind/references/notes.md)：默认只检查结构；请求交互验证时，在受限 Chromium 环境中按指定的点击、键盘、悬停或触摸用例验证。结构问题与交互结果分别报告，不能据此宣称 Apple Books/Kindle 原生弹窗兼容。
+单独请求的脚本弹窗检查见[注释验证](../../../skills/quillbind/references/notes.md)：默认只做静态结构盘点，自动识别标准 `epub:type="noteref"` / `role="doc-noteref"`、外层包裹式 `noteref` 及多看 `duokan-footnote` / `duokan-footnote-item` 约定（静态盘点、`repair-copy` 与套书拆分共用该识别规则）。请求交互验证时，在受限 Chromium 环境中按指定的点击、键盘、悬停或触摸用例验证自包含 DOM 脚本；依赖阅读器宿主原生拦截（如多看、KOReader、Readest、Apple Books 无脚本弹窗）或私有 JS Bridge 的书籍保持静态检查与字节保留。结构问题与交互结果分别报告，不能据此宣称 Apple Books/Kindle 原生弹窗兼容。
 
 ## 开发
 

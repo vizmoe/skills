@@ -7,9 +7,23 @@ import { localTarget } from "./paths.js";
 import { sha256 } from "./hash.js";
 import { fail } from "./errors.js";
 
+import {
+  isNoteRefLink,
+  isNoteTarget,
+  noteRefId,
+  noteRefIds,
+} from "./epub-notes.js";
+
+export { isNoteRefLink, isNoteTarget, noteRefId, noteRefIds };
 export const semantic = (node: Element, value: string) =>
-  (node.getAttributeNS(NS.epub, "type") ?? "").split(/\s+/).includes(value) ||
-  attr(node, "role").split(/\s+/).includes(`doc-${value}`);
+  value === "noteref"
+    ? isNoteRefLink(node)
+    : value === "footnote" || value === "endnote"
+      ? isNoteTarget(node)
+      : (node.getAttributeNS(NS.epub, "type") ?? "")
+          .split(/\s+/)
+          .includes(value) ||
+        attr(node, "role").split(/\s+/).includes(`doc-${value}`);
 export const noteKey = (name: string, id: string) => `${name}#${id}`;
 export interface SplitUnit {
   key: string;

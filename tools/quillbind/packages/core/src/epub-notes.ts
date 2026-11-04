@@ -5,9 +5,39 @@ import { localTarget } from "./paths.js";
 import { sha256 } from "./hash.js";
 
 const tokens = (value: string) => value.split(/\s+/).filter(Boolean);
-const semantic = (el: Element, type: string) =>
+const hasType = (el: Element, type: string) =>
   tokens(el.getAttributeNS(NS.epub, "type") ?? "").includes(type) ||
   tokens(attr(el, "role")).includes(`doc-${type}`);
+const hasClass = (el: Element, name: string) =>
+  tokens(attr(el, "class")).includes(name);
+export const isNoteRefMarker = (el: Element) =>
+  hasType(el, "noteref") || hasClass(el, "duokan-footnote");
+export const isNoteTarget = (el: Element) =>
+  hasType(el, "footnote") ||
+  hasType(el, "endnote") ||
+  hasType(el, "rearnote") ||
+  hasClass(el, "duokan-footnote-item") ||
+  (el.localName === "li" &&
+    !!attr(el, "id") &&
+    el.parentNode?.nodeType === 1 &&
+    hasClass(el.parentNode as Element, "duokan-footnote-content"));
+export function noteRefWrapper(el: Element): Element | undefined {
+  const parent =
+    el.parentNode?.nodeType === 1 ? (el.parentNode as Element) : undefined;
+  if (!parent || !isNoteRefMarker(parent)) return undefined;
+  const links = elements(parent, "a").filter((a) => a.hasAttribute("href"));
+  return links.length === 1 && links[0] === el ? parent : undefined;
+}
+export const isNoteRefLink = (el: Element) =>
+  isNoteRefMarker(el) || !!noteRefWrapper(el);
+export function noteRefIds(el: Element): Set<string> {
+  const wrapper = noteRefWrapper(el);
+  return new Set(
+    [attr(el, "id"), wrapper ? attr(wrapper, "id") : ""].filter(Boolean),
+  );
+}
+export const noteRefId = (el: Element) =>
+  attr(el, "id") || (noteRefWrapper(el) ? attr(noteRefWrapper(el)!, "id") : "");
 const text = (el: Element) =>
   (el.textContent ?? "").replace(/\s+/g, " ").trim();
 export function elementSelector(el: Element): string {
@@ -150,9 +180,16 @@ export function inspectNotes(info: EpubInspection) {
     }
   const references = [...info.documents].flatMap(([source, doc]) =>
     elements(doc)
-      .filter((el) => semantic(el, "noteref"))
+      .filter((el) => {
+        if (el.localName === "a" && el.hasAttribute("href"))
+          return isNoteRefLink(el);
+        if (!isNoteRefMarker(el)) return false;
+        const links = elements(el, "a").filter((a) => a.hasAttribute("href"));
+        return links.length !== 1;
+      })
       .map((el) => {
-        const id = attr(el, "id"),
+        const id = noteRefId(el),
+          refIds = noteRefIds(el),
           href = attr(el, "href");
         const base = { source, id, href, trigger: elementSelector(el) };
         try {
@@ -168,7 +205,9 @@ export function inspectNotes(info: EpubInspection) {
           const backlinks = elements(note, "a").filter((link) => {
             try {
               const to = localTarget(target.path, attr(link, "href"));
-              return !!id && to.path === source && to.fragment === id;
+              return (
+                to.path === source && !!to.fragment && refIds.has(to.fragment)
+              );
             } catch {
               return false;
             }
@@ -177,7 +216,11 @@ export function inspectNotes(info: EpubInspection) {
           for (const link of elements(copy, "a")) {
             try {
               const to = localTarget(target.path, attr(link, "href"));
-              if (to.path === source && to.fragment === id)
+              if (
+                to.path === source &&
+                !!to.fragment &&
+                refIds.has(to.fragment)
+              )
                 link.parentNode?.removeChild(link);
             } catch {
               /* unrelated text links remain part of the note */

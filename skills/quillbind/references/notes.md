@@ -8,7 +8,7 @@ Preserve the source EPUB. Begin with static inspection, which does not execute b
 node <skill-directory>/scripts/quillbind.mjs epub check-notes original.epub --json
 ```
 
-The report inventories manifest `scripted` declarations, actual XHTML scripts and event handlers, local script hashes, note references, targets and backlinks. `scripted-note-candidate` describes markup eligible for preservation; it does not establish the script's purpose, safety or working interactions. Undeclared scripts are still protected. Missing targets, duplicate IDs and unavailable script resources remain findings.
+The report inventories manifest `scripted` declarations, actual XHTML scripts and event handlers, local script hashes, note references, targets and backlinks. Recognized note references include standard `epub:type="noteref"` / `role="doc-noteref"` and Duokan `class="duokan-footnote"` links, whether placed directly on `<a href>` or on an immediate wrapper (such as `<sup>` or `<span>`) around a single `<a href>`; backlinks match either the link ID or the wrapper ID. `scripted-note-candidate` describes markup eligible for preservation; it does not establish the script's purpose, safety or working interactions. Undeclared scripts are still protected. Missing targets, duplicate IDs and unavailable script resources remain findings.
 
 When the user requests interaction verification, run the explicit script check in the configured Chromium environment:
 
@@ -22,7 +22,9 @@ Automatic cases use semantic same-document note targets with return links, and t
 
 ## Describe nonstandard interactions
 
-Inspect the XHTML, CSS and script as data before selecting a different interaction. Some books use hover on desktop and press/release on touch, dynamically remove `href`, or clone note content into another element. Do not assume these behave like clickable backlinks. Save and edit the static report's `casePlan`, or create a source-bound case file:
+Inspect the XHTML, CSS and script as data before selecting a different interaction. Distinguish self-contained DOM popup scripts from reader-native popup conventions and proprietary reader bridges: books targeting Duokan Reader, KOReader (`crengine`, which does not execute JavaScript), Readest (`foliate-js`) or Apple Books often rely on the reading app to intercept `epub:type="noteref"` or `class="duokan-footnote"` links without a book-side toggle script, or call host-specific globals (such as `window.ibooks`) or APIs blocked by the opaque-origin sandbox (`localStorage`, cross-document `fetch`/`XMLHttpRequest`). For books whose popups depend on the host reader or a proprietary bridge rather than a self-contained DOM script, use static `check-notes` (without `--execute-scripts`), report the reader-protocol dependency, and preserve the original resources through [OPF-only metadata maintenance](embedded-metadata.md#scripted-epubs-preserve-content-during-organization) or [reading repair](repair.md).
+
+Some self-contained scripts use hover on desktop and press/release on touch, dynamically remove `href`, or clone note content into another element. Do not assume these behave like clickable backlinks. Save and edit the static report's `casePlan`, or create a source-bound case file:
 
 ```json
 {

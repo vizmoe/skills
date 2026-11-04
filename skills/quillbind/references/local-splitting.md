@@ -36,7 +36,7 @@ Use BOOK☆WALKER for light novels and manga and matched publisher/book sources 
 
 ## Preserve dependencies and resolve links
 
-The writer retains referenced images, CSS imports/URLs, fonts and supported passive SVG resources, with unchanged resource bytes. It removes unrelated resources from each new archive. Semantic footnotes/endnotes and resolved note references carry their necessary note blocks and valid returns. A shared note may be copied to each referencing volume; foreign return anchors become plain text while the valid return remains. The report distinguishes duplicated auxiliary notes from duplicated body chapters.
+The writer retains referenced images, CSS imports/URLs, fonts and supported passive SVG resources, with unchanged resource bytes. It removes unrelated resources from each new archive. Semantic footnotes/endnotes (including recognized [Duokan `duokan-footnote` / `duokan-footnote-item` and wrapper `noteref` markup](notes.md)) and resolved note references carry their necessary note blocks and valid returns. A shared note may be copied to each referencing volume; foreign return anchors become plain text while the valid return remains. The report distinguishes duplicated auxiliary notes from duplicated body chapters.
 
 Ordinary links into an excluded or different volume need an exact `crossLinks` decision `{source, id, href, action: "unlink", evidence}`. Unlinking preserves visible wording and the link's ID as a span; it does not silently discard text. Note references cannot be unlinked to bypass missing notes. Untagged/ambiguous notes need semantic or structural preparation with evidence before retrying. Cross-volume links cannot be guessed from titles. No remote assets are downloaded during splitting.
 

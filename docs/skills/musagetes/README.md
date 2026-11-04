@@ -34,7 +34,7 @@ $musagetes Fix music tags in /absolute/path/to/music; preview the changes first.
 
 只读辅助脚本需要 Python 3.10+，仅使用标准库，调用时加 `-B`。音频、标签和解压工具按[当前操作所需能力](../../../skills/musagetes/references/audio.md#工具)选用；不会自动安装。发行检索需要网络，外部服务不可用会在记录中说明。
 
-[工具说明](../../../skills/musagetes/references/tools.md)覆盖扫描、标签字段检查、封面尺寸、路径生成和历史检查；[上游请求调度](../../../skills/musagetes/references/requests.md)根据响应码共享来源冷却，处理服务端等待和有限重试。脚本只做预检或计算调度；网络请求、发行判断、完整音频校验和事务执行仍由调用代理按 skill 完成。
+[工具说明](../../../skills/musagetes/references/tools.md)覆盖扫描、标签字段检查、封面尺寸、路径生成和历史检查；[检索与匹配](../../../skills/musagetes/references/sources.md#名称与艺人检索及置信度门槛)在站内检索前支持先用通用搜索引擎定位候选并做简繁及中日汉字字形转换；[上游请求调度](../../../skills/musagetes/references/requests.md)根据响应码共享来源冷却，处理服务端等待和有限重试。脚本只做预检或计算调度；网络请求、发行判断、完整音频校验和事务执行仍由调用代理按 skill 完成。
 
 默认批大小、进度节奏、失败暂停及跨运行对账见[执行协议](../../../skills/musagetes/references/execution.md)。同一目录再次调用会核对历史快照与当前文件，而不是仅按目录名跳过。源文件、sidecar 和空目录的去向见[交付与清理](../../../skills/musagetes/references/delivery.md)。
 

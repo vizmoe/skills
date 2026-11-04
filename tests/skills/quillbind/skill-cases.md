@@ -79,6 +79,7 @@ The runtime's [scenario evaluation](../../../tools/quillbind/docs/skill-evaluati
 | EPUB 2 gets a new ISBN | One `dc:identifier` with `opf:scheme="ISBN"`; no EPUB 3 refinement is added |
 | The package already has the same ISBN as `urn:isbn:` or a hyphenated ISBN-10 | No second identifier is added; the existing node keeps its form |
 | A mainland Simplified Chinese light novel has no BOOK☆WALKER Taiwan volume | The Japanese volume is fetched with `language: ja`; date, series position and a translated synopsis are adopted; the Chinese title, names and language stay; publisher and ISBN come only from a Chinese-edition source or are reported as gaps; `epub enrich` is not used |
+| Local file has a Simplified Chinese (`zh-Hans`) or mainland translated title and Chinese-script creator names, so raw in-site search on BookWalker Taiwan (`zh-Hant`) or BookWalker Japan (`ja`) misses | Uses a general search engine first to locate the candidate product URLs or identify the Taiwan title (`zh-Hant`) and Japanese original title/kanji, runs any needed in-site search in the target site's native script, and adopts metadata only from the verified BookWalker or publisher pages (never from search snippets or third-party bibliography sites) |
 
 ## Descriptions
 

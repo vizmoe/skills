@@ -45,7 +45,7 @@ const plain = (value: unknown) => {
 };
 const volume = (title: string): string | null => {
   const match =
-    /(?:^|[^\d.])(\d+(?:\.\d+)?)\s*(?:巻|冊|册|集|\))?(?:\s*【[^】]*】)?$/.exec(
+    /(?:^|[^\d.])(\d+(?:\.\d+)?)\s*(?:巻|卷|冊|册|集|\))?(?:\s*【[^】]*】)*$/.exec(
       title.normalize("NFKC"),
     );
   return match ? String(Number(match[1])) : null;

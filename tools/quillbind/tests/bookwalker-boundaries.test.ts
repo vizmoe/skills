@@ -122,6 +122,15 @@ it("fails closed on incomplete layouts, mismatched canonical IDs and unknown rol
       .number,
   ).toBe("8.5");
   expect(
+    parseBookWalker(
+      japaneseHtml({ title: "架空物語 第1卷【電子特別版】【特典SS付】" }),
+      jpUrl,
+    ).number,
+  ).toBe("1");
+  expect(
+    parseBookWalker(japaneseHtml({ title: "虛構物語 第2卷" }), jpUrl).number,
+  ).toBe("2");
+  expect(
     parseBookWalker(japaneseHtml({ title: "架空物語" }), jpUrl).number,
   ).toBeNull();
 });

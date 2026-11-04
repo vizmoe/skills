@@ -14,6 +14,8 @@ The runtime's [scenario evaluation](../../../tools/quillbind/docs/skill-evaluati
 | "Package these manga scans as CBZ" | Uses the manga branch with its own codec checks, not the EPUB release gates |
 | "Recommend some light novels" / "Download this volume" | Does not trigger the skill |
 | "Convert this PDF to EPUB" | Triggers, then reports the actual format boundary as `UNSUPPORTED_FORMAT` and preserves the file |
+| "Convert this MOBI/AZW3 book to EPUB" | Uses `epub convert <source.mobi\|source.azw3> --output <new.epub>`, validates with EPUBCheck and browser reading checks, and preserves the original |
+| "Split this EPUB/MOBI/AZW3 omnibus into separate single-volume EPUBs" | Uses `epub split-plan` and `epub split` to verify volume boundaries, per-volume metadata, resource/note closure and EPUBCheck/reading checks while preserving the original |
 | "Improve the quillbind skill description" | Maintains the skill; performs no book operation |
 
 ## Routing between branches
@@ -126,7 +128,8 @@ The runtime's [scenario evaluation](../../../tools/quillbind/docs/skill-evaluati
 | Browser QA passed on a book with scripted popups | Does not claim the popups work, because regular QA disables those scripts |
 | Automated accessibility checks passed | Reported as `automatedAccessibilityChecks: pass`, never as WCAG certification or device testing |
 | A reading copy or preview was produced | `publicationReady: false` with release gates `not-run`; no release artifact is claimed |
-| An anthology was split into volumes | Per-volume metadata, chapter coverage, resources and footnotes are verified and the original anthology is preserved |
+| A MOBI or AZW3 file was converted to EPUB without `--to` | Delivers a verified EPUB 3.3 reading copy with `import.json`, EPUBCheck, sampled reading QA and repeated-unpack byte equality; DRM-protected files fail with `MOBI_ENCRYPTED` and the original is untouched |
+| An EPUB, MOBI or AZW3 anthology was split into volumes | Per-volume metadata, chapter coverage, resources and footnotes are verified and the original anthology is preserved |
 | Delivery is reported | Names the artifact path and SHA-256, the checks actually executed, and the unresolved items |
 
 ## Automated checks

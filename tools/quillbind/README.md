@@ -40,6 +40,9 @@ pnpm quillbind epub repair ./original.epub --plan ./plan.json --output ./repaire
 ```sh
 pnpm quillbind build ./my-book --to traditional --online --json
 pnpm quillbind epub convert ./original.epub --to simplified --output ./simplified.epub --online --json
+pnpm quillbind epub convert ./original.azw3 --output ./converted.epub --json
+pnpm quillbind epub split-plan ./anthology.epub --output ./split-plan.json --json
+pnpm quillbind epub split ./anthology.epub --plan ./split-plan.json --output ./volumes --json
 ```
 
 本程式使用了繁化姬的 API 服務；繁化姬商用必須付費。配置、转换范围与复现规则见[中文繁简转换](docs/chinese-conversion.md)。

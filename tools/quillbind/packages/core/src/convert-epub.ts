@@ -9,6 +9,7 @@ import { checkAbort, fail } from "./errors.js";
 import { json } from "./json.js";
 import { readSourceFile } from "./files.js";
 import { sha256 } from "./hash.js";
+import { isKindleBytes, unpackKindle } from "./kindle.js";
 
 export async function convertEpub(
   file: string,
@@ -31,7 +32,10 @@ export async function convertEpub(
       "OUTPUT_EXISTS",
       "Conversion output must be a new path; original EPUB is protected",
     );
-  const bytes = await readSourceFile(file);
+  const rawBytes = await readSourceFile(file);
+  const bytes = isKindleBytes(rawBytes)
+    ? unpackKindle(rawBytes).bytes
+    : rawBytes;
   await fs.mkdir(path.dirname(output), { recursive: true });
   const lockfile = output + ".conversion.lock";
   const lock = await fs

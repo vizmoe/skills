@@ -10,6 +10,7 @@ import { stable, json } from "./json.js";
 import { checkAbort, fail } from "./errors.js";
 import { readSourceFile } from "./files.js";
 import { inspectBytes } from "./epub.js";
+import { isKindleBytes, isKindlePath, unpackKindle } from "./kindle.js";
 import { checkEpubConformance } from "./validate.js";
 import { readingQa } from "./reading-qa.js";
 import { coverQa } from "./cover-qa.js";
@@ -23,7 +24,8 @@ export async function auditSplit(
   bytes: Buffer,
   options: { modified?: string } = {},
 ): Promise<SplitPlan> {
-  const source = splitSource(bytes),
+  const epubBytes = isKindleBytes(bytes) ? unpackKindle(bytes).bytes : bytes;
+  const source = splitSource(epubBytes),
     vocabulary = await taxonomy();
   return {
     schemaVersion: 1,
@@ -46,7 +48,8 @@ export async function applySplit(bytes: Buffer, value: unknown) {
   const plan = parsed.data;
   if (plan.sourceSha256 !== sha256(bytes))
     fail("SPLIT_STALE", "Source hash differs from the split plan");
-  const source = splitSource(bytes),
+  const epubBytes = isKindleBytes(bytes) ? unpackKindle(bytes).bytes : bytes;
+  const source = splitSource(epubBytes),
     vocabulary = await taxonomy();
   if (plan.vocabularyVersion !== vocabulary.version)
     fail(
@@ -232,8 +235,8 @@ export async function auditFileSplit(
   file: string,
   options: { output?: string } = {},
 ) {
-  if (path.extname(file).toLowerCase() !== ".epub")
-    fail("SPLIT_FORMAT", "Choose an existing EPUB");
+  if (path.extname(file).toLowerCase() !== ".epub" && !isKindlePath(file))
+    fail("SPLIT_FORMAT", "Choose an existing EPUB, MOBI or AZW3");
   const plan = await auditSplit(await readSourceFile(file));
   if (options.output)
     await fs.writeFile(options.output, stable(plan), { flag: "wx" });
@@ -244,8 +247,8 @@ export async function splitEpub(
   options: { plan: unknown; output: string; signal?: AbortSignal },
 ) {
   checkAbort(options.signal);
-  if (path.extname(file).toLowerCase() !== ".epub")
-    fail("SPLIT_FORMAT", "Choose an existing EPUB");
+  if (path.extname(file).toLowerCase() !== ".epub" && !isKindlePath(file))
+    fail("SPLIT_FORMAT", "Choose an existing EPUB, MOBI or AZW3");
   const bytes = await readSourceFile(file),
     result = await applySplit(bytes, options.plan),
     output = path.resolve(options.output);

@@ -24,6 +24,8 @@ import {
   repairReadingCopy,
   repairDirectory,
   convertEpub,
+  convertKindleToEpub,
+  isKindlePath,
   enrichEpub,
   packageManga,
   checkNotes,
@@ -67,13 +69,13 @@ const HELP = [
   "quillbind inspect <file.epub> [--summary]",
   "quillbind validate|qa <file.epub>",
   "quillbind epub inspect|audit|repair-plan <file.epub> [--output plan.json]",
-  "quillbind epub split-plan <file.epub> --output plan.json",
-  "quillbind epub split <file.epub> --plan plan.json --output new-directory",
+  "quillbind epub split-plan <file.epub|file.mobi|file.azw3> --output plan.json",
+  "quillbind epub split <file.epub|file.mobi|file.azw3> --plan plan.json --output new-directory",
   "quillbind epub check-notes <file.epub> [--execute-scripts] [--cases CASES.json] [--reports DIRECTORY]",
   "quillbind epub repair <file.epub> --plan plan.json --output repaired.epub",
   "quillbind manga package <scan-directory|file.zip|file.cbz> --bookwalker LOCK.json --output volume.cbz [--page-order ORDER.json] [--reading-direction rtl|ltr]",
   "quillbind epub enrich <file.epub> --bookwalker LOCK.json --output enriched.epub",
-  "quillbind epub convert <file.epub> --to simplified|traditional|china|taiwan|hongkong --output converted.epub [--online]",
+  "quillbind epub convert <file.epub|file.mobi|file.azw3> [--to simplified|traditional|china|taiwan|hongkong] --output converted.epub [--online]",
   "quillbind epub repair-plan <file.epub> --purpose reading --output plan.json",
   "quillbind epub repair-copy <file.epub> --plan plan.json --output copy.epub [--reports directory]",
   "quillbind epub repair-directory <directory> --output <directory> [--jobs 2]",
@@ -502,12 +504,19 @@ try {
             signal: abort.signal,
           });
         else if (subcommand === "convert")
-          output = await convertEpub(file, {
-            target: conversionTarget(required(values.to, "--to")),
-            output: required(values.output, "--output"),
-            signal: abort.signal,
-            online: values.online,
-          });
+          output =
+            isKindlePath(file) && !values.to
+              ? await convertKindleToEpub(file, {
+                  output: required(values.output, "--output"),
+                  reports: values.reports,
+                  signal: abort.signal,
+                })
+              : await convertEpub(file, {
+                  target: conversionTarget(required(values.to, "--to")),
+                  output: required(values.output, "--output"),
+                  signal: abort.signal,
+                  online: values.online,
+                });
         else if (subcommand === "enrich")
           output = await enrichEpub(file, {
             output: required(values.output, "--output"),

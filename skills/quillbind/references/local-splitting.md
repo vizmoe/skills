@@ -1,15 +1,15 @@
-# Split an existing local EPUB anthology
+# Split an existing local anthology
 
-Use this workflow for an existing EPUB that contains several books or volumes. [Website collection](novels.md) and generic repair do not establish local volume boundaries. Read the actual contents, title/copyright pages, NAV/NCX, spine and chapter transitions. A bundle title, filename, publisher collection, common author or chapter count alone is insufficient evidence for a split or a story Series.
+Use this workflow for an existing `.epub`, `.mobi` or `.azw3` omnibus/anthology (合订本) that contains several books or volumes. [Website collection](novels.md) and generic repair do not establish local volume boundaries. Read the actual contents, title/copyright pages, NAV/NCX, spine and chapter transitions. A bundle title, filename, publisher collection, common author or chapter count alone is insufficient evidence for a split or a story Series.
 
 ## Inventory and review boundaries
 
 ```sh
-node <skill-directory>/scripts/quillbind.mjs epub split-plan anthology.epub --output split-plan.json --json
-node <skill-directory>/scripts/quillbind.mjs epub split anthology.epub --plan split-plan.json --output new-volumes --json
+node <skill-directory>/scripts/quillbind.mjs epub split-plan <anthology.epub|anthology.mobi|anthology.azw3> --output split-plan.json --json
+node <skill-directory>/scripts/quillbind.mjs epub split <anthology.epub|anthology.mobi|anthology.azw3> --plan split-plan.json --output new-volumes --json
 ```
 
-Set `QUILLBIND_VOCABULARY` to the current library's controlled vocabulary as described in [tags](tags.md). Planning is read-only. The plan records the source hash, vocabulary version/hash, source metadata, reading order, navigation, resource hashes, notes, and ordered content units. Preserve those inventory fields. Re-audit changed sources or vocabulary instead of editing hashes. A new plan has no guessed volumes.
+Set `QUILLBIND_VOCABULARY` to the current library's controlled vocabulary as described in [tags](tags.md). Planning is read-only. For `.mobi` and `.azw3` inputs, the planner unpacks the unencrypted Kindle container into its deterministic EPUB 3.3 representation in memory while binding `sourceSha256` in the plan to the original `.mobi` or `.azw3` file (or you may convert to `.epub` first with [MOBI/AZW3 conversion](conversion.md#mobi-and-azw3-to-epub)). The plan records the source hash, vocabulary version/hash, source metadata, reading order, navigation, resource hashes, notes, and ordered content units. Preserve those inventory fields. Re-audit changed sources or vocabulary instead of editing hashes. A new plan has no guessed volumes.
 
 Fill `volumes` in source order. Each entry has a unique lowercase filename `key`, inclusive `from`/`through` unit keys, `boundaryEvidence`, an ordered `navigation` array of `{unit, label}`, and independently selected `metadata`. Inspect the unit's actual source content; its short text preview is only an index. Include each selected chapter once in its original order. Every retained reading document needs a navigation entry, and each volume needs a useful complete contents list. The writer generates independent NAV/NCX instead of copying bundle navigation.
 

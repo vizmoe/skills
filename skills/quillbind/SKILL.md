@@ -1,10 +1,10 @@
 ---
 name: quillbind
-description: Maintain metadata directly in EPUB files and CBZ ComicInfo.xml, using the library's controlled English tags, BookWalker for light novels and manga, and publisher sources for other books, including self-made editions. Plan consistent light-novel series names, audit tag cleanup, build EPUB 3.3 from Markdown or supported novel websites, inspect and repair EPUBs, split existing EPUB anthologies, check scripted popup notes, convert Chinese scripts, and package manga scans as lossless JPEG XL CBZ. Arbitrary HTML, PDF and LaTeX import are unsupported.
+description: Maintain metadata directly in EPUB files and CBZ ComicInfo.xml, using the library's controlled English tags, BookWalker for light novels and manga, and publisher sources for other books, including self-made editions. Plan consistent light-novel series names, audit tag cleanup, build EPUB 3.3 from Markdown or supported novel websites, inspect and repair EPUBs, split existing EPUB, MOBI or AZW3 anthologies into independent volumes, check scripted popup notes, convert MOBI/AZW3 to EPUB and Chinese scripts, and package manga scans as lossless JPEG XL CBZ. Arbitrary HTML, PDF and LaTeX import are unsupported.
 license: MIT
 compatibility: Tag audits and naming plans need Node.js; file metadata edits use ZIP/XML tools and validators. Publishing needs tools/quillbind from vizmoe/skills with dependencies installed, exposed through QUILLBIND_ROOT or quillbind on PATH. EPUB release checks need Java, EPUBCheck and Chromium; CBZ packaging needs libjxl cjxl and djxl. Setup and online collection/refreshes need network; saved books and locks support offline builds. Calibre database access is not required.
 metadata:
-  version: "0.1.21"
+  version: "0.1.22"
 ---
 
 # Quillbind
@@ -33,9 +33,9 @@ Choose the branches needed for the request, including their supporting source, i
 
 - Inventory or diagnosis → [inspection](references/inspection.md).
 - Popup footnotes, script behavior or hover/touch notes → [note checks](references/notes.md).
-- Split a local EPUB anthology into independent volumes → [local splitting](references/local-splitting.md).
+- Split a local EPUB, MOBI or AZW3 anthology into independent volumes → [local splitting](references/local-splitting.md).
 - Reading copy, publication upgrade or directory repair → [repair](references/repair.md).
-- Chinese script or regional vocabulary → [conversion](references/conversion.md).
+- Convert MOBI/AZW3 to EPUB, or convert Chinese script and regional vocabulary → [conversion](references/conversion.md).
 
 **New publications.** These create a book from sources instead of editing an existing file; preparation and preview have their own results below.
 

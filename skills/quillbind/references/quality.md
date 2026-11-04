@@ -11,7 +11,8 @@
 | Preparation    | `metadata/preparation.json`: copied-source hashes and readiness; release is `not-run`.                                                                                                                                                |
 | Preview        | CLI `status: preview`, `candidate`, `publicationReady: false`, release gates `not-run`. Link the candidate for author review. Existing release files and reports belong to their earlier run.                                         |
 | Reading repair | Its own `summary.json` and `remaining-findings.json`, or directory `repair-summary.json`. Report the `copy` hash, integrity, idempotence, remaining findings and sampled browser coverage. Full publication QA and Ace are `not-run`. |
-| Publication    | `build`, publication `repair`, `epub convert` and `epub enrich` require every release gate below.                                                                                                                                     |
+| Format conversion | `<output>.reports/import.json` for `epub convert <source.mobi\|source.azw3> --output <new.epub>` without `--to`: source/output hashes, detected Kindle format (`mobi6`, `kf8`, `combo-kf8`), internal validation, EPUBCheck, sampled browser reading checks and repeated-unpack byte equality; `publicationReady: false`, release gates `not-run`. |
+| Publication    | `build`, publication `repair`, `epub convert --to <target>` and `epub enrich` require every release gate below.                                                                                                                       |
 
 Manga CBZ uses its own [image/archive evidence](manga.md#comicinfo-and-handoff): report the artifact hash, per-page lossless checks, source provenance and JPEG XL reader requirement. It does not claim EPUB conformance or platform publication. The release evidence below applies to EPUB.
 

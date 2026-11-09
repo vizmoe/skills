@@ -25,7 +25,7 @@ export async function downloadMangaPackage(
       failure = new Error(
         `Package download failed: ${entry.name} (${response.status})`,
       );
-      if (![502, 503, 504].includes(response.status)) throw failure;
+      if (![500, 502, 503, 504].includes(response.status)) throw failure;
     } catch (error) {
       if (
         !(error instanceof TypeError) &&

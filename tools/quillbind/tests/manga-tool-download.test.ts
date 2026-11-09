@@ -25,6 +25,19 @@ it("recovers from transient HTTP responses with bounded waits and verified bytes
   expect(wait.mock.calls.map(([delay]) => delay)).toEqual([2000, 5000, 10000]);
 });
 
+it("recovers from an HTTP 500 response and verifies the recovered bytes", async () => {
+  const fetcher = vi
+    .fn<typeof fetch>()
+    .mockResolvedValueOnce(
+      new Response("internal server error", { status: 500 }),
+    )
+    .mockResolvedValueOnce(success());
+  const wait = vi.fn(async (_milliseconds: number) => {});
+  expect(await downloadMangaPackage(entry, { fetcher, wait })).toEqual(bytes);
+  expect(fetcher).toHaveBeenCalledTimes(2);
+  expect(wait).toHaveBeenCalledOnce();
+});
+
 it.each([
   new TypeError("connection reset"),
   new DOMException("timed out", "TimeoutError"),
@@ -54,19 +67,20 @@ it("retries a failed response body read", async () => {
   expect(fetcher).toHaveBeenCalledTimes(2);
 });
 
-it("stops after the retry budget is exhausted", async () => {
-  const fetcher = vi
-    .fn<typeof fetch>()
-    .mockImplementation(
-      async () => new Response("unavailable", { status: 503 }),
-    );
-  const wait = vi.fn(async (_milliseconds: number) => {});
-  await expect(downloadMangaPackage(entry, { fetcher, wait })).rejects.toThrow(
-    "test-package (503)",
-  );
-  expect(fetcher).toHaveBeenCalledTimes(4);
-  expect(wait).toHaveBeenCalledTimes(3);
-});
+it.each([500, 503])(
+  "stops after the HTTP %i retry budget is exhausted",
+  async (status) => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockImplementation(async () => new Response("unavailable", { status }));
+    const wait = vi.fn(async (_milliseconds: number) => {});
+    await expect(
+      downloadMangaPackage(entry, { fetcher, wait }),
+    ).rejects.toThrow(`test-package (${status})`);
+    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(wait).toHaveBeenCalledTimes(3);
+  },
+);
 
 it.each(["http", "checksum", "unexpected"])(
   "fails immediately for %s errors",
@@ -91,7 +105,7 @@ it("loads with native Node and retries actual HTTP fetches from an isolated serv
   let requests = 0;
   const server = createServer((_request, response) => {
     requests++;
-    response.writeHead(requests === 1 ? 503 : 200);
+    response.writeHead(requests === 1 ? 500 : 200);
     response.end(requests === 1 ? "temporary" : bytes);
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));

@@ -4,7 +4,7 @@ description: Maintain metadata directly in EPUB files and CBZ ComicInfo.xml, usi
 license: MIT
 compatibility: Tag audits and naming plans need Node.js; file metadata edits use ZIP/XML tools and validators. Publishing needs tools/quillbind from vizmoe/skills with dependencies installed, exposed through QUILLBIND_ROOT or quillbind on PATH. EPUB release checks need Java, EPUBCheck and Chromium; CBZ packaging needs libjxl cjxl and djxl. Setup and online collection/refreshes need network; saved books and locks support offline builds. Calibre database access is not required.
 metadata:
-  version: "0.1.22"
+  version: "0.1.23"
 ---
 
 # Quillbind
@@ -18,7 +18,7 @@ Choose the branches needed for the request, including their supporting source, i
 **Existing-file metadata, naming and covers.** Follow each branch's staging, preservation and verification contract.
 
 - Controlled subjects or label cleanup → [tag management](references/tags.md). The current library vocabulary supplies the labels.
-- Missing or incorrect bibliography → [bibliography by book type](references/bibliography.md): BookWalker for light novels/manga and the publisher workflow for other books.
+- Missing or incorrect bibliography → [bibliography by book type](references/bibliography.md): BookWalker for light novels/manga and the publisher workflow, with [edition page extraction](references/bibliography.md#extract-an-ordinary-books-edition-page), for other books.
 - Self-made or non-retail edition (录入本, personal compilation, doujin, scan-derived) → [identify the work by title, credited people and volume](references/bibliography.md#self-made-and-non-retail-editions), then use its type's source.
 - Description or synopsis → [describe the work, not the file](references/bibliography.md#describe-the-work-not-the-file), including when to translate a Japanese synopsis.
 - Light-novel or manga source records → [BookWalker](references/bookwalker.md).

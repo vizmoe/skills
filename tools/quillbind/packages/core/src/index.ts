@@ -70,6 +70,18 @@ export const formats = {
 } as const;
 
 export {
+  collectEdition,
+  deriveEdition,
+  extractEdition,
+  readEditionLock,
+  resolveEdition,
+} from "./edition.js";
+export type {
+  EditionLock,
+  EditionMetadata,
+  EditionSelection,
+} from "./edition.js";
+export {
   collectBookWalker,
   resolveBookWalker,
   readBookWalkerLock,

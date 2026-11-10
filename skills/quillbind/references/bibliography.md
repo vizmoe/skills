@@ -5,10 +5,34 @@ Use this workflow to supplement or correct existing books, then apply the select
 ## Choose sources by book type
 
 - **Confirmed prose light novels and manga:** use the [BookWalker workflow](bookwalker.md) with the correct work type; an adaptation and its prose original are separate records. For Chinese metadata select the corresponding Taiwan volume, or apply [no Taiwan volume](#no-taiwan-volume) when none matches; use the Japanese original's date, with the existing print-date-first, electronic-date-fallback rule. Use the chosen source field directly; publisher cross-verification is not required. Preserve its available precision rather than shortening a complete date or inventing a missing day.
-- **Other books, including ordinary fiction, nonfiction and art books:** prefer the publisher's or imprint's official page for that book, edition and volume. Use the book's title/copyright pages and contents when the official page is unavailable or lacks a field. Apply this route without requiring a BookWalker record, Japanese counterpart or the light-novel/manga date policy. Use the selected edition's publication date from the available source; repeated cross-verification is not required.
+- **Other books, including ordinary fiction, nonfiction and art books:** prefer the publisher's or imprint's official page for that book, edition and volume, and [extract it with `metadata edition`](#extract-an-ordinary-books-edition-page). Use the book's title/copyright pages and contents when the official page is unavailable or lacks a field. Apply this route without requiring a BookWalker record, Japanese counterpart or the light-novel/manga date policy. Use the selected edition's publication date from the available source; repeated cross-verification is not required.
 - **Self-made and non-retail editions** (录入本, personal compilations, doujin or self-published books, scan-derived EPUBs): use the route for the work's type above, after identifying the work as in [self-made and non-retail editions](#self-made-and-non-retail-editions).
 
 Check title, credited people and volume/edition sufficiently to avoid a wrong work or adaptation. One appropriate source can support a field; do not turn every lookup into a mandatory two-source investigation. Record the source URL or book location and adopted values in an external report. If evidence conflicts or is missing, preserve that field and finish other supported changes. The source rule for light novels does not classify every book from the same author or series as a light novel.
+
+### Extract an ordinary book's edition page
+
+After locating the publisher, imprint or other selected edition page, extract its fields with the runtime instead of copying them by hand. Write a selection file naming the actual product URL, the expected ISBN when the file or a lead already supplies one, and your identity evidence:
+
+```json
+{
+  "url": "https://publisher.example/books/<edition>",
+  "isbn": "<expected ISBN, optional>",
+  "matchEvidence": ["Record the verified title, people and edition correspondence here."]
+}
+```
+
+```sh
+node <skill-directory>/scripts/quillbind.mjs metadata edition selection.json --output edition.lock.json --online --json
+node <skill-directory>/scripts/quillbind.mjs metadata edition selection.json --output edition.lock.json --page saved.html --json
+node <skill-directory>/scripts/quillbind.mjs metadata edition selection.json --output edition.lock.json --json
+```
+
+`--online` fetches only that public HTTPS page; when it is refused or rendered by scripts, save the page yourself and pass it with `--page`. The last form replays an existing lock offline. Locks are immutable and record retrieval mode, hash, decoded charset, every field candidate with its source kind, the cleaned metadata and diagnostics.
+
+The extractor reads structured data first (JSON-LD and microdata), then synopsis sections, labelled detail rows, citation/Dublin Core meta and Open Graph. It drops navigation, headers, footers, asides and recommendation, review and comment blocks. Cleaning splits credits into people and roles and removes nationality or era prefixes and placeholders. It strips storefront suffixes and marketing or format brackets from titles. ISBN checksums are validated and ISBN-10 is normalized to ISBN-13, with electronic numbers kept apart. Dates keep their stated precision. Synopses become plain text without reader-interface residue, and series positions become Arabic digits.
+
+Treat the result as evidence for the field plan, not as a write. An `EDITION_MATCH` failure means the page lacks the expected ISBN; select the right edition page. `EDITION_ISBN_AMBIGUOUS` leaves the ISBN unset when the page lists several and none was expected. `EDITION_CONFLICT` and `EDITION_CLEANED` diagnostics show disagreements and removed text to review. A truncated meta description is never adopted as the synopsis. The page still has to be the matched edition under the rules above, and adopted values still follow the ISBN, description and file-write rules below.
 
 ### Search and cross-script discovery
 
@@ -66,4 +90,4 @@ For general supplementation or selected corrections, patch the actual EPUB OPF o
 
 The current runtime's `epub enrich` can supplement supported light-novel or manga EPUBs from a BookWalker lock, but preserves nonempty fields and deliberately updates the original date. It preserves all identifiers and does not fill a missing ISBN, even when the source lock contains one; complete that field through the direct OPF workflow and read it back. Use enrichment only when its changes fit the requested scope. Its output is a new EPUB; follow the file-installation procedure if the user requested replacement of the original. It is not the writer for a generic publisher record, a selected correction to a nonempty field, or a tags-only task.
 
-`metadata resolve` configures new Markdown publications; its online LoC discovery and electronic-edition approval contract are separate from this maintenance workflow. Do not convert an existing book to Markdown or invoke those gates to supplement its metadata. A task-scoped ZIP/XML edit or suitable format-aware writer is valid; the skill does not claim a universal metadata-writing CLI or a publisher-specific scraper.
+`metadata resolve` configures new Markdown publications; its online LoC discovery and electronic-edition approval contract are separate from this maintenance workflow. Do not convert an existing book to Markdown or invoke those gates to supplement its metadata. A task-scoped ZIP/XML edit or suitable format-aware writer is valid; the skill does not claim a universal metadata-writing CLI. `metadata edition` is a generic page extractor, not a site-specific scraper or a source of authority by itself.

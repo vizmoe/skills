@@ -39,7 +39,7 @@ $quillbind 将 /absolute/path/to/volume-01 的漫画扫图制作为 CBZ，使用
 
 录入本、个人汇编、同人志和扫图转制本按书名、署名人员和卷次[识别作品](../../../skills/quillbind/references/bibliography.md#self-made-and-non-retail-editions)，再按作品类型补全字段。简介只写作品内容，[规则](../../../skills/quillbind/references/bibliography.md#describe-the-work-not-the-file)包括中文轻小说和漫画采用日文来源时的翻译；版本来源和字段缺口写进运行报告。
 
-[内嵌元数据维护](../../../skills/quillbind/references/embedded-metadata.md)直接修改 EPUB 实际 OPF 或 CBZ 根目录的 `ComicInfo.xml`。ComicInfo 2.0 用 `Genre` 承载受控标签，EPUB 用 `dc:subject`。先备份目标文件、暂存并验证，再写回指定文件并独立读回。Calibre 数据库、旁置 `metadata.opf` 和 `cover.jpg` 保持不变，不要求三处同步。现有运行时没有通用全字段写入命令，代理使用文件级工具执行该流程；漫画元数据修订不经过扫图重编码，标签专用编辑也不借用会更新日期的 enrichment。
+[内嵌元数据维护](../../../skills/quillbind/references/embedded-metadata.md)直接修改 EPUB 实际 OPF 或 CBZ 根目录的 `ComicInfo.xml`。ComicInfo 2.0 用 `Genre` 承载受控标签，EPUB 用 `dc:subject`。先备份目标文件、暂存并验证，再写回指定文件并独立读回。Calibre 数据库、旁置 `metadata.opf` 和 `cover.jpg` 保持不变，不要求三处同步。普通书 EPUB 的书名、人员、出版社、日期、简介、语言和 ISBN 用 [`metadata bibliography-audit` / `bibliography-clean`](../../../skills/quillbind/references/embedded-metadata.md#epub-clean-bibliography-with-a-reviewed-plan) 按逐条审核的计划清洗或写入来源值；其他字段仍由代理使用文件级工具执行该流程；漫画元数据修订不经过扫图重编码，标签专用编辑也不借用会更新日期的 enrichment。
 
 漫画打包还需要 libjxl 的 `cjxl` 与 `djxl`，输出需要支持 JPEG XL 的 CBZ 阅读器。输入范围、页序和校验说明见[漫画流程](../../../skills/quillbind/references/manga.md)，版本匹配与日版纸书优先日期规则见 [BookWalker 流程](../../../skills/quillbind/references/bookwalker.md)。
 

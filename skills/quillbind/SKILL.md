@@ -4,7 +4,7 @@ description: Maintain metadata directly in EPUB files and CBZ ComicInfo.xml, usi
 license: MIT
 compatibility: Tag audits and naming plans need Node.js; file metadata edits use ZIP/XML tools and validators. Publishing needs tools/quillbind from vizmoe/skills with dependencies installed, exposed through QUILLBIND_ROOT or quillbind on PATH. EPUB release checks need Java, EPUBCheck and Chromium; CBZ packaging needs libjxl cjxl and djxl. Setup and online collection/refreshes need network; saved books and locks support offline builds. Calibre database access is not required.
 metadata:
-  version: "0.1.23"
+  version: "0.1.24"
 ---
 
 # Quillbind
@@ -22,7 +22,7 @@ Choose the branches needed for the request, including their supporting source, i
 - Self-made or non-retail edition (录入本, personal compilation, doujin, scan-derived) → [identify the work by title, credited people and volume](references/bibliography.md#self-made-and-non-retail-editions), then use its type's source.
 - Description or synopsis → [describe the work, not the file](references/bibliography.md#describe-the-work-not-the-file), including when to translate a Japanese synopsis.
 - Light-novel or manga source records → [BookWalker](references/bookwalker.md).
-- Performing the write, staging and readback → [embedded metadata maintenance](references/embedded-metadata.md).
+- Performing the write, staging and readback → [embedded metadata maintenance](references/embedded-metadata.md); dirty or source-backed EPUB bibliography uses its [reviewed cleanup plan](references/embedded-metadata.md#epub-clean-bibliography-with-a-reviewed-plan).
 - Organizing books that contain scripts → [preserve scripted content during organization](references/embedded-metadata.md#scripted-epubs-preserve-content-during-organization); select restrictions by the requested operation.
 - Scores, including custom or zero-value ratings → [rating cleanup](references/embedded-metadata.md#remove-score-metadata-completely), with a reviewed file-bound plan and format validation.
 - Series, marketing collections or volume order → [story series normalization](references/series.md).

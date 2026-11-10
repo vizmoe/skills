@@ -5,6 +5,8 @@ import {
   resolveMetadata,
   resolveBookWalker,
   resolveEdition,
+  auditFileBibliography,
+  cleanBibliography,
   auditFileRatings,
   cleanRatings,
   auditFileSeries,
@@ -59,6 +61,8 @@ const HELP = [
   "quillbind metadata bookwalker SOURCES.json --output LOCK.json [--online]",
   "quillbind metadata edition SELECTION.json --output LOCK.json [--online|--page saved.html]",
   "quillbind metadata resolve <book-directory> [--online]",
+  "quillbind metadata bibliography-audit <file.epub> [--output plan.json]",
+  "quillbind metadata bibliography-clean <file.epub> --plan plan.json --output clean.epub",
   "quillbind metadata ratings-audit <file.epub|file.cbz> [--output plan.json]",
   "quillbind metadata ratings-clean <file.epub|file.cbz> --plan plan.json --output clean.epub|clean.cbz",
   "quillbind metadata series-audit <file.epub|file.cbz> [--output plan.json]",
@@ -324,6 +328,8 @@ try {
       case "metadata":
         if (
           [
+            "bibliography-audit",
+            "bibliography-clean",
             "ratings-audit",
             "ratings-clean",
             "series-audit",
@@ -335,9 +341,12 @@ try {
           const allowed = new Set([
             "json",
             "output",
-            ...(["ratings-clean", "series-normalize", "cover-adopt"].includes(
-              subcommand!,
-            )
+            ...([
+              "bibliography-clean",
+              "ratings-clean",
+              "series-normalize",
+              "cover-adopt",
+            ].includes(subcommand!)
               ? ["plan"]
               : []),
             ...(["cover-audit", "cover-adopt"].includes(subcommand!)
@@ -385,7 +394,17 @@ try {
               signal: abort.signal,
             },
           );
-        } else if (subcommand === "ratings-audit")
+        } else if (subcommand === "bibliography-audit")
+          output = await auditFileBibliography(required(third, "EPUB file"), {
+            output: values.output,
+          });
+        else if (subcommand === "bibliography-clean")
+          output = await cleanBibliography(required(third, "EPUB file"), {
+            plan: await readJson(required(values.plan, "--plan")),
+            output: required(values.output, "--output"),
+            signal: abort.signal,
+          });
+        else if (subcommand === "ratings-audit")
           output = await auditFileRatings(required(third, "ebook file"), {
             output: values.output,
           });
@@ -425,7 +444,7 @@ try {
         else
           fail(
             "COMMAND_UNKNOWN",
-            "Use metadata resolve, bookwalker, edition, ratings-audit, ratings-clean, series-audit, series-normalize, cover-audit or cover-adopt",
+            "Use metadata resolve, bookwalker, edition, bibliography-audit, bibliography-clean, ratings-audit, ratings-clean, series-audit, series-normalize, cover-audit or cover-adopt",
           );
         break;
       case "preflight":

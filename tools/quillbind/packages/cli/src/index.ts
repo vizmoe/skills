@@ -4,6 +4,7 @@ import { parseArgs } from "node:util";
 import {
   resolveMetadata,
   resolveBookWalker,
+  resolveEdition,
   auditFileRatings,
   cleanRatings,
   auditFileSeries,
@@ -56,6 +57,7 @@ const HELP = [
   "quillbind novel inspect <book-url>",
   "quillbind novel fetch <book-url> [--output new-directory] [--volumes 1-3,5] [--split-volumes] [--prepare-only]",
   "quillbind metadata bookwalker SOURCES.json --output LOCK.json [--online]",
+  "quillbind metadata edition SELECTION.json --output LOCK.json [--online|--page saved.html]",
   "quillbind metadata resolve <book-directory> [--online]",
   "quillbind metadata ratings-audit <file.epub|file.cbz> [--output plan.json]",
   "quillbind metadata ratings-clean <file.epub|file.cbz> --plan plan.json --output clean.epub|clean.cbz",
@@ -109,6 +111,7 @@ try {
       plan: { type: "string" },
       image: { type: "string" },
       bookwalker: { type: "string" },
+      page: { type: "string" },
       "execute-scripts": { type: "boolean" },
       cases: { type: "string" },
       "page-order": { type: "string" },
@@ -143,6 +146,8 @@ try {
       "ARGUMENT_CONFLICT",
       "--image is supported by metadata cover-audit/cover-adopt only",
     );
+  if (values.page && !(command === "metadata" && subcommand === "edition"))
+    fail("ARGUMENT_CONFLICT", "--page is supported by metadata edition only");
   if (
     command !== "novel" &&
     [
@@ -359,7 +364,28 @@ try {
               signal: abort.signal,
             },
           );
-        else if (subcommand === "ratings-audit")
+        else if (subcommand === "edition") {
+          const allowed = new Set(["json", "output", "online", "page"]);
+          if (
+            positionals.length !== 3 ||
+            Object.entries(values).some(
+              ([key, value]) => value !== undefined && !allowed.has(key),
+            )
+          )
+            fail(
+              "ARGUMENT_CONFLICT",
+              "metadata edition accepts one selection file, --output and either --online or --page",
+            );
+          output = await resolveEdition(
+            required(third, "selection JSON file"),
+            {
+              output: required(values.output, "--output lock.json"),
+              online: values.online,
+              page: values.page,
+              signal: abort.signal,
+            },
+          );
+        } else if (subcommand === "ratings-audit")
           output = await auditFileRatings(required(third, "ebook file"), {
             output: values.output,
           });
@@ -399,7 +425,7 @@ try {
         else
           fail(
             "COMMAND_UNKNOWN",
-            "Use metadata resolve, bookwalker, ratings-audit, ratings-clean, series-audit, series-normalize, cover-audit or cover-adopt",
+            "Use metadata resolve, bookwalker, edition, ratings-audit, ratings-clean, series-audit, series-normalize, cover-audit or cover-adopt",
           );
         break;
       case "preflight":

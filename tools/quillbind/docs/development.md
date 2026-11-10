@@ -30,6 +30,7 @@ For existing-file official covers, use the [cover workflow](../../../skills/quil
 | `init NEW_DIRECTORY --from SOURCE_DIRECTORY --config PLAN.yaml` | Prepare a project from declared chapters and referenced local assets      |
 | `doctor`                                                        | Required runtime and validator availability                               |
 | `metadata resolve DIRECTORY [--online]`                         | Metadata status, candidates and provenance locks                          |
+| `metadata edition SELECTION.json --output LOCK.json`            | Cleaned ordinary-book edition candidates in a replayable lock             |
 | `preflight DIRECTORY`                                           | Standalone chapter validation                                             |
 | `build DIRECTORY`                                               | All release gates and one canonical EPUB                                  |
 | `validate FILE.epub`                                            | Internal validation and EPUBCheck                                         |
@@ -43,7 +44,7 @@ For existing-file official covers, use the [cover workflow](../../../skills/quil
 
 Every command accepts `--json`. JSON occupies stdout without progress logs; human output uses stderr. Failed commands exit nonzero with stable error codes. Ctrl-C cancels long-running subprocesses. Inspection and audit do not modify source artifacts. `build` and `preview` acquire a shared per-book `dist/.build.lock`; inspect the running process before removing a lock left by a killed process.
 
-`metadata bookwalker SOURCES.json --output LOCK.json [--online]` resolves selected light-novel or manga editions. See the [BookWalker workflow](../../../skills/quillbind/references/bookwalker.md) for product matching, source locks, original-date policy and project configuration.
+`metadata bookwalker SOURCES.json --output LOCK.json [--online]` resolves selected light-novel or manga editions. See the [BookWalker workflow](../../../skills/quillbind/references/bookwalker.md) for product matching, source locks, original-date policy and project configuration. `metadata edition SELECTION.json --output LOCK.json [--online|--page saved.html]` extracts and cleans one ordinary-book edition page; see [edition page extraction](../../../skills/quillbind/references/bibliography.md#extract-an-ordinary-books-edition-page).
 
 `metadata ratings-audit FILE --output PLAN.json` inventories embedded EPUB/ComicInfo scores. `metadata ratings-clean FILE --plan PLAN.json --output NEW_FILE` applies reviewed score decisions with format validation and original-file preservation. See [rating cleanup](../../../skills/quillbind/references/embedded-metadata.md#remove-score-metadata-completely) for custom-field classification, readback and the boundary between file maintenance and publication release.
 

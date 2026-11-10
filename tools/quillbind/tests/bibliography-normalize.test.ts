@@ -72,6 +72,9 @@ describe("contributors", () => {
     expect(parseContributors("王画").contributors).toEqual([
       { name: "王画", role: "aut" },
     ]);
+    expect(parseContributors("Quillbind 示例作者").contributors).toEqual([
+      { name: "Quillbind 示例作者", role: "aut" },
+    ]);
   });
   it("uses the field role for unmarked names and reports removed text", () => {
     const parsed = parseContributors("[英] 某某", "trl");
@@ -132,8 +135,14 @@ describe("descriptions", () => {
     ).toBe("One\n\nTwo");
   });
   it("keeps ordinary synopsis vocabulary", () => {
-    const text = "本书整理了作者关于微信时代阅读的思考。";
-    expect(cleanDescription(text).value).toBe(text);
+    for (const text of [
+      "本书整理了作者关于微信时代阅读的思考。",
+      "A practical guide to EPUB and MOBI production.",
+    ])
+      expect(cleanDescription(text).value).toBe(text);
+    expect(cleanDescription("第一段。\nTXT全集下载请关注").value).toBe(
+      "第一段。",
+    );
   });
 });
 

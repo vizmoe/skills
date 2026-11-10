@@ -121,8 +121,13 @@ export const isPlaceholder = (value: string) =>
 
 const prefix =
   /^[[［【〔(（]\s*([\p{Script=Han}]{1,4})\s*[\]］】〕)）]\s*(?=\S)/u;
+/** Agent nouns such as 作者 are labels, and can end pen names; they are not credit suffixes. */
+const labelOnly = new Set(["作者", "著者"]);
 const strongSuffix = new RegExp(
-  `^(.+?)\\s*(?:等\\s*)?(${strongMarkers.map(([marker]) => escape(marker)).join("|")})$`,
+  `^(.+?)\\s*(?:等\\s*)?(${strongMarkers
+    .filter(([marker]) => !labelOnly.has(marker))
+    .map(([marker]) => escape(marker))
+    .join("|")})$`,
   "u",
 );
 const weakSuffix = new RegExp(
@@ -323,7 +328,7 @@ const uiResidue =
 const sectionHeading =
   /^(内容简介|內容簡介|内容介绍|內容介紹|内容提要|內容提要|简介|簡介|图书简介|圖書簡介|作品简介|作品簡介|本书简介|本書簡介|作品紹介|内容紹介|内容説明|あらすじ|商品説明|description|book description|about this book|about the book|summary|synopsis|overview)[\s:：·•.]*$/iu;
 const watermark =
-  /(https?:\/\/|www\.|\b[\w-]+\.(?:com|net|org|cn|cc|me|top|xyz)\b|(?:本书|本書|电子书|電子書)由.{0,20}(?:整理|制作|製作|提供)|整理制作|整理製作|校对制作|校對製作|下载|下載|公众号|公眾號|微信号|微信號|关注微信|關注微信|qq群|ｑｑ群|更多好书|更多好書|更多电子书|更多電子書|电子书搜索|電子書搜索|\btxt\b|\bepub\b|\bmobi\b|\bazw3\b|z-?library|anna'?s archive|仅供学习|僅供學習|学习交流|學習交流|版权归|版權歸|支持正版|購買正版|购买正版)/i;
+  /(https?:\/\/|www\.|\b[\w-]+\.(?:com|net|org|cn|cc|me|top|xyz)\b|(?:本书|本書|电子书|電子書)由.{0,20}(?:整理|制作|製作|提供)|整理制作|整理製作|校对制作|校對製作|下载|下載|公众号|公眾號|微信号|微信號|关注微信|關注微信|qq群|ｑｑ群|更多好书|更多好書|更多电子书|更多電子書|电子书搜索|電子書搜索|z-?library|anna'?s archive|仅供学习|僅供學習|学习交流|學習交流|版权归|版權歸|支持正版|購買正版|购买正版)/i;
 export interface CleanedDescription {
   value: string;
   removed: string[];

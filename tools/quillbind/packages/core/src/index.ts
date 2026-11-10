@@ -70,6 +70,12 @@ export const formats = {
 } as const;
 
 export {
+  auditBibliography,
+  applyBibliography,
+  auditFileBibliography,
+  cleanBibliography,
+} from "./bibliography-file.js";
+export {
   collectEdition,
   deriveEdition,
   extractEdition,

@@ -333,6 +333,9 @@ export interface CleanedDescription {
   value: string;
   removed: string[];
 }
+/** A short line that advertises a file source, download site or redistribution channel. */
+export const isWatermark = (value: string) =>
+  [...value].length <= 120 && watermark.test(value);
 export const isHeading = (value: string) =>
   sectionHeading.test(space(value).replace(/[·•]\s*/g, ""));
 
@@ -365,12 +368,7 @@ export function cleanDescription(
       removed.push(line);
       continue;
     }
-    if (
-      options.watermarks !== false &&
-      line &&
-      [...line].length <= 120 &&
-      watermark.test(line)
-    ) {
+    if (options.watermarks !== false && line && isWatermark(line)) {
       removed.push(line);
       continue;
     }
@@ -566,6 +564,20 @@ const languageNames: [RegExp, string][] = [
   [/^(英文|英语|英語|english)$/iu, "en"],
   [/^(韩文|韓文|韩语|韓語|韓国語|korean)$/iu, "ko"],
 ];
+/** BCP 47 uses the ISO 639-1 code when one exists. */
+const shortLanguage: Record<string, string> = {
+  zho: "zh",
+  chi: "zh",
+  jpn: "ja",
+  eng: "en",
+  kor: "ko",
+  fra: "fr",
+  fre: "fr",
+  deu: "de",
+  ger: "de",
+  spa: "es",
+  rus: "ru",
+};
 /** A BCP 47 tag from a tag or a common language name; unknown names stay unresolved. */
 export function normalizeLanguage(value: string): string | undefined {
   const text = space(value);
@@ -575,7 +587,7 @@ export function normalizeLanguage(value: string): string | undefined {
   const [primary, ...rest] = text.replace(/_/g, "-").split("-");
   if (["und", "mul", "zxx"].includes(primary.toLowerCase())) return undefined;
   return [
-    primary.toLowerCase(),
+    shortLanguage[primary.toLowerCase()] ?? primary.toLowerCase(),
     ...rest.map((part) =>
       part.length === 4
         ? part[0].toUpperCase() + part.slice(1).toLowerCase()

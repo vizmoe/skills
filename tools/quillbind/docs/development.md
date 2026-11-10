@@ -31,6 +31,8 @@ For existing-file official covers, use the [cover workflow](../../../skills/quil
 | `doctor`                                                        | Required runtime and validator availability                               |
 | `metadata resolve DIRECTORY [--online]`                         | Metadata status, candidates and provenance locks                          |
 | `metadata edition SELECTION.json --output LOCK.json`            | Cleaned ordinary-book edition candidates in a replayable lock             |
+| `metadata bibliography-audit FILE.epub [--output PLAN.json]`    | Bibliography inventory and cleanup findings for review                    |
+| `metadata bibliography-clean FILE.epub --plan P --output N`     | Reviewed EPUB bibliography cleanup through verified maintenance delivery  |
 | `preflight DIRECTORY`                                           | Standalone chapter validation                                             |
 | `build DIRECTORY`                                               | All release gates and one canonical EPUB                                  |
 | `validate FILE.epub`                                            | Internal validation and EPUBCheck                                         |

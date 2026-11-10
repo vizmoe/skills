@@ -90,6 +90,16 @@ The runtime's [scenario evaluation](../../../tools/quillbind/docs/skill-evaluati
 | A page credits `[日] 东野圭吾 著；李盈春 译`, titles the book `【预售】书名 - 某书店`, or offers only a truncated meta description | Contributors become 东野圭吾 (author) and 李盈春 (translator); the title loses the marketing bracket and storefront suffix; the truncated description is not adopted as the synopsis |
 | Local file has a Simplified Chinese (`zh-Hans`) or mainland translated title and Chinese-script creator names, so raw in-site search on BookWalker Taiwan (`zh-Hant`) or BookWalker Japan (`ja`) misses | Uses a general search engine first to locate the candidate product URLs or identify the Taiwan title (`zh-Hant`) and Japanese original title/kanji, runs any needed in-site search in the target site's native script, and adopts metadata only from the verified BookWalker or publisher pages (never from search snippets or third-party bibliography sites) |
 
+## Ordinary-book bibliography cleanup
+
+| Raw material or situation | Checkable result |
+| --- | --- |
+| An EPUB credits `[日]东野圭吾著；李盈春译` in one `dc:creator`, with a `file-as` refinement | `bibliography-audit` proposes separate author and translator records; after an `apply` decision the combined `file-as` is gone and roles use EPUB 3 refinements or EPUB 2 `opf:role` |
+| Publisher is a download site, date is `0101-01-01T00:00:00+00:00`, description ends with a "更多电子书请访问" line | Each is a finding with a removal or cleaned proposal; nothing changes until the finding is decided |
+| Date is `2014-04-30T16:00:00+00:00`, language is `und` or a declared ISBN fails its checksum | Reported without an automatic correction; fixed only by an evidenced assignment such as an edition lock value |
+| An edition lock supplies publisher, date, credits and ISBN | Values enter as assignments with the lock as source; the package unique-identifier is never edited, and a field changed by a finding cannot also be assigned |
+| Every finding is retained | The output bytes equal the original and the report lists each retained finding with its evidence |
+
 ## Descriptions
 
 | Raw material or situation | Checkable result |

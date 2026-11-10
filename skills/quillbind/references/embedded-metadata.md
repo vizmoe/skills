@@ -1,6 +1,6 @@
 # Maintain embedded book metadata
 
-Use this workflow to write metadata directly into existing EPUB packages and CBZ `ComicInfo.xml`. Choose sources with [bibliography by book type](bibliography.md): BookWalker for light novels/manga, publisher information and book contents for other types. Use the dedicated rating commands below for score cleanup, [Series normalization](series.md) for evidenced story membership/order, and scoped ZIP/XML edits for other fields. `tags.mjs audit` only proposes labels, `epub enrich` has its own supplementation contract, and `manga package` makes a new image archive.
+Use this workflow to write metadata directly into existing EPUB packages and CBZ `ComicInfo.xml`. Choose sources with [bibliography by book type](bibliography.md): BookWalker for light novels/manga, publisher information and book contents for other types. Use the dedicated rating commands below for score cleanup, [Series normalization](series.md) for evidenced story membership/order, [bibliography cleanup](#epub-clean-bibliography-with-a-reviewed-plan) for EPUB title, credits, publisher, date, description, language and ISBN, and scoped ZIP/XML edits for other fields. `tags.mjs audit` only proposes labels, `epub enrich` has its own supplementation contract, and `manga package` makes a new image archive.
 
 ## Bind the plan to the book and selected fields
 
@@ -61,6 +61,37 @@ The writer removes all recognized and selected scores plus their attached OPF re
 The output must be new; the original remains the recoverable source. The tool rejects stale hashes, collisions, malformed/ambiguous metadata, signed or unsupported EPUBs and unsafe ZIPs. It preserves non-target archive members as compressed records, including their order, compression method and attributes; only the metadata member is reserialized/recompressed. EPUB 2 retains its version; EPUB 3 records the planned modification time. The staged output is independently reopened and checked with EPUBCheck or the pinned ComicInfo 2.0 XSD through `xmllint --nonet`. A missing validator or failed check blocks output. Report directories are exclusive and retain failure evidence; use a fresh destination for a retry after addressing a failure.
 
 `<output>.reports/metadata.json` records removed fields, attached refinements, reviewed non-score fields, resource preservation hashes, source/output hashes and actual validator results. This is file maintenance, not a new publication release or proof of native-reader rendering. Follow the backup and verified replacement procedure above only if installation over the original is requested. No Calibre import or database update is part of cleanup.
+
+## EPUB: clean bibliography with a reviewed plan
+
+Use this for ordinary-book EPUB title, credit, publisher, date, description, language and ISBN maintenance, including values adopted from an [edition lock](bibliography.md#extract-an-ordinary-books-edition-page):
+
+```sh
+node <skill-directory>/scripts/quillbind.mjs metadata bibliography-audit original.epub --output bibliography.json --json
+node <skill-directory>/scripts/quillbind.mjs metadata bibliography-clean original.epub --plan bibliography.json --output clean.epub --json
+```
+
+The audit binds the source and OPF hashes, inventories each `dc:title`, `dc:creator`/`dc:contributor` with its role, `dc:publisher`, `dc:date`, `dc:description`, `dc:language` and identifier, and lists findings with normalized proposals. Findings cover several kinds of dirt:
+
+- credits that combine people, carry role markers or nationality prefixes, are placeholders or repeat;
+- storefront, marketing, format or file-name residue in titles;
+- placeholder or download-site publishers;
+- Calibre's `0101-01-01` undefined date, or non-standard date forms;
+- markup, reader interface text and watermark lines in descriptions;
+- non-canonical language tags;
+- hyphenated or ISBN-10 identifiers and duplicate ISBNs.
+
+Some problems need a source rather than a rewrite: time-zone shifted dates, unrecognized dates, `und` languages, checksum-invalid ISBNs and a non-normalized primary-identifier ISBN. These are reported without a proposal and can only be retained or superseded by an assignment.
+
+Leave the inventory and findings unchanged. Give every finding `decision: "apply"` or `"retain"` with `evidence`, then set `reviewed: true`. Applying a finding is a reviewed decision, not an automatic rule. A proposed split, for example, still has to match the credited people. Add `assignments` only for selected fields backed by a source; record the source, such as the edition lock path and digest:
+
+```json
+{ "field": "publisher", "value": "<publisher>", "evidence": "Matched edition page", "source": "edition.lock.json <digest>" }
+```
+
+Assignments take `title`, `publisher`, `date` (`YYYY`, `YYYY-MM` or `YYYY-MM-DD`), `description`, `language` (canonical BCP 47), `isbn` or `contributors` (people with MARC roles `aut`, `trl`, `ill`, `edt`, `ant`, `art`, `pht`). An assignment replaces that whole field; it fails when the field is ambiguous, already changed by an applied finding or assigned twice. ISBN assignments follow the [ISBN identifier form](#isbn-identifiers) and update an existing non-primary ISBN in place. They never edit or remove the package unique-identifier.
+
+The writer keeps the EPUB version and uses `role` refinements for EPUB 3 or `opf:role` for EPUB 2. It drops refinements attached only to removed or split records, such as a combined name's `file-as`, and refuses records referenced elsewhere. Every other metadata record, the package structure outside metadata and every non-OPF member are verified unchanged. EPUB 3 records the plan's `dcterms:modified`. An all-retained plan returns the original bytes. Delivery is the shared verified path: new output only, stale-hash checks, EPUBCheck and independent readback, with `<output>.reports/metadata.json` listing changes, retained findings and assignments. Install over the original only through the backup and replacement procedure above. The command does not edit subjects, series, ratings or covers.
 
 ## CBZ: edit ComicInfo without processing pages
 

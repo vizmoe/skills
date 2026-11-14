@@ -163,7 +163,11 @@ function token(raw: string, removed: string[]): Token {
     changed = false;
     const match = prefix.exec(value);
     if (match) {
-      removed.push(match[0].trim());
+      const marked = markerRole(match[1]);
+      if (marked) {
+        role = role ?? marked;
+        leading = true;
+      } else removed.push(match[0].trim());
       value = value.slice(match[0].length);
       changed = true;
     }
@@ -471,6 +475,9 @@ function datePart(
 /** A publication date as YYYY, YYYY-MM or YYYY-MM-DD, keeping the precision the source states. */
 export function normalizeDate(value: string): string | undefined {
   const text = space(value.normalize("NFKC"))
+    .replace(/^\[(.+)\]$/, "$1")
+    .trim()
+    .replace(/^(?:©\s*|c(?=\d{4}\b))/iu, "")
     .replace(
       /\s*(?:出版|発売|發行|发行|発行|初版|刊行|上市|published|released)\s*$/iu,
       "",
@@ -485,7 +492,11 @@ export function normalizeDate(value: string): string | undefined {
     text,
   );
   if (match) return datePart(match[1], match[2], match[3]);
+  match = /^(\d{4})(\d{2})(\d{2})$/.exec(text);
+  if (match) return datePart(match[1], match[2], match[3]);
   match = /^(\d{4})\s*[-/.年]\s*(\d{1,2})\s*月?$/.exec(text);
+  if (match) return datePart(match[1], match[2]);
+  match = /^(\d{4})(\d{2})$/.exec(text);
   if (match) return datePart(match[1], match[2]);
   match = /^(\d{4})\s*年?$/.exec(text);
   if (match) return datePart(match[1]);

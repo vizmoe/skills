@@ -62,6 +62,14 @@ describe("contributors", () => {
       ],
     ],
     ["東野 圭吾（著）", [{ name: "東野 圭吾", role: "aut" }]],
+    [
+      "[著者] 馬伯庸 ; 池田智恵訳",
+      [
+        { name: "馬伯庸", role: "aut" },
+        { name: "池田智恵", role: "trl" },
+      ],
+    ],
+    ["（譯者）李盈春", [{ name: "李盈春", role: "trl" }]],
   ])("parses %s", (value, expected) => {
     expect(parseContributors(value).contributors).toEqual(expected);
   });
@@ -170,6 +178,11 @@ describe("identifiers, dates and positions", () => {
     ["1 September 2015", "2015-09-01"],
     ["March 2003", "2003-03"],
     ["2020年5月出版", "2020-05"],
+    ["202205", "2022-05"],
+    ["20220518", "2022-05-18"],
+    ["[2017]", "2017"],
+    ["c2019", "2019"],
+    ["©2021", "2021"],
   ])("normalizes date %s", (value, expected) => {
     expect(normalizeDate(value)).toBe(expected);
   });

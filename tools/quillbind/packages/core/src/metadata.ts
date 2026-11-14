@@ -5,6 +5,9 @@ import { lookup } from "node:dns/promises";
 import { isPublicAddress } from "./http-address.js";
 export { isPublicAddress } from "./http-address.js";
 import { readBookWalkerLock, type BookWalkerLock } from "./bookwalker.js";
+import { catalogProviderNames, collectCatalog } from "./catalog.js";
+import { catalogHosts } from "./catalog-model.js";
+import type { NovelFetcher } from "./novel-http.js";
 import { request } from "node:https";
 import {
   openBook,
@@ -54,6 +57,11 @@ export interface MetadataLock {
   sources: Candidate[];
   bookwalkerHash?: string;
 }
+const bibliographyHosts = new Set<string>([
+  "www.loc.gov",
+  ...Object.values(catalogHosts).flat(),
+]);
+
 export async function fetchBibliography(
   url: string,
   signal?: AbortSignal,
@@ -64,7 +72,7 @@ export async function fetchBibliography(
     parsed.username ||
     parsed.password ||
     parsed.port ||
-    parsed.hostname !== "www.loc.gov"
+    !bibliographyHosts.has(parsed.hostname)
   )
     fail("SSRF_BLOCKED", "Metadata URL is outside the provider allowlist");
   const addresses = await lookup(parsed.hostname, { all: true });
@@ -131,6 +139,7 @@ export async function resolveMetadata(
     online?: boolean;
     signal?: AbortSignal;
     fetcher?: typeof fetchBibliography;
+    catalogFetcher?: NovelFetcher;
   } = {},
 ) {
   return (await resolveMetadataWithLock(input, options)).resolution;
@@ -141,12 +150,18 @@ export async function resolveMetadataWithLock(
     online?: boolean;
     signal?: AbortSignal;
     fetcher?: typeof fetchBibliography;
+    catalogFetcher?: NovelFetcher;
   } = {},
 ) {
   const project = typeof input === "string" ? await openBook(input) : input;
   const { root, config } = project;
   checkAbort(options.signal);
-  if (options.online && process.env.CI && !options.fetcher)
+  if (
+    options.online &&
+    process.env.CI &&
+    !options.fetcher &&
+    !options.catalogFetcher
+  )
     fail("CI_NETWORK_DISABLED", "CI metadata resolution is offline");
   const directory = await bookOutput(root, "metadata");
   const decisionsFile = path.join(directory, "decisions.json");
@@ -285,52 +300,111 @@ export async function resolveMetadataWithLock(
     validIsbn(book.publication.isbn)
   ) {
     const query = book.publication.isbn;
+    const beforeOnline = candidates.length;
     try {
-      const response = (await (options.fetcher ?? fetchBibliography)(
-        `https://www.loc.gov/books/?fo=json&c=20&q=${encodeURIComponent(query)}`,
-        options.signal,
-      )) as {
-        results?: {
-          id?: string;
-          title?: string;
-          contributor?: string[];
-          language?: string[];
-          description?: string[];
-        }[];
-      };
-      for (const record of response.results ?? []) {
-        for (const [field, value] of Object.entries({
-          title: record.title,
-          authors: record.contributor,
-          description: record.description?.join(" "),
-        })) {
-          if (!value) continue;
-          const current = book[field as "title" | "authors" | "description"];
-          const exact =
-            stable(current).trim().toLowerCase() ===
-            stable(value).trim().toLowerCase();
-          candidates.push({
-            field,
-            candidateValue: value,
-            sourceName: "Library of Congress digital collections",
-            sourceUrl: record.id ?? "https://www.loc.gov/books/",
-            recordId: record.id ?? sha256(stable(record)),
-            retrievedAt: new Date().toISOString(),
-            matchEvidence: [
-              `Query: ${query}`,
-              "Discovery record; electronic edition identity is not established",
-            ],
-            confidence: exact ? 0.95 : 0.5,
-            conflicts: exact ? [] : [`book.${field} differs`],
-            approved: exact,
-          });
+      if (options.fetcher) {
+        const response = (await options.fetcher(
+          `https://www.loc.gov/books/?fo=json&c=20&q=${encodeURIComponent(query)}`,
+          options.signal,
+        )) as {
+          results?: {
+            id?: string;
+            title?: string;
+            contributor?: string[];
+            language?: string[];
+            description?: string[];
+          }[];
+        };
+        for (const record of response.results ?? []) {
+          for (const [field, value] of Object.entries({
+            title: record.title,
+            authors: record.contributor,
+            description: record.description?.join(" "),
+          })) {
+            if (!value) continue;
+            const current = book[field as "title" | "authors" | "description"];
+            const exact =
+              stable(current).trim().toLowerCase() ===
+              stable(value).trim().toLowerCase();
+            candidates.push({
+              field,
+              candidateValue: value,
+              sourceName: "Library of Congress digital collections",
+              sourceUrl: record.id ?? "https://www.loc.gov/books/",
+              recordId: record.id ?? sha256(stable(record)),
+              retrievedAt: new Date().toISOString(),
+              matchEvidence: [
+                `Query: ${query}`,
+                "Discovery record; electronic edition identity is not established",
+              ],
+              confidence: exact ? 0.95 : 0.5,
+              conflicts: exact ? [] : [`book.${field} differs`],
+              approved: exact,
+            });
+          }
+        }
+      } else {
+        const catalogLock = await collectCatalog(
+          {
+            isbn: query,
+            ...(book.language && validLanguage(book.language)
+              ? { language: book.language }
+              : {}),
+            matchEvidence: [`ISBN lookup: ${query}`],
+          },
+          {
+            online: true,
+            signal: options.signal,
+            fetcher: options.catalogFetcher,
+          },
+        );
+        const retrievedByProvider = new Map(
+          catalogLock.requests.map((req) => [req.provider, req.retrievedAt]),
+        );
+        for (const entry of catalogLock.records) {
+          const authorList = entry.contributors
+            .filter((item) => item.role === "aut")
+            .map((item) => item.name);
+          const allContributors = entry.contributors.map((item) => item.name);
+          for (const [field, value] of Object.entries({
+            title: entry.title,
+            authors: authorList.length
+              ? authorList
+              : allContributors.length
+                ? allContributors
+                : undefined,
+            description: entry.description,
+          })) {
+            if (!value) continue;
+            const current = book[field as "title" | "authors" | "description"];
+            const exact =
+              stable(current).trim().toLowerCase() ===
+              stable(value).trim().toLowerCase();
+            candidates.push({
+              field,
+              candidateValue: value,
+              sourceName: catalogProviderNames[entry.provider],
+              sourceUrl: entry.recordUrl,
+              recordId: entry.recordId,
+              retrievedAt:
+                retrievedByProvider.get(entry.provider) ??
+                new Date().toISOString(),
+              matchEvidence: [
+                `Query: ${query}`,
+                "Discovery record; electronic edition identity is not established",
+              ],
+              confidence: exact ? 0.95 : 0.5,
+              conflicts: exact ? [] : [`book.${field} differs`],
+              approved: exact,
+            });
+          }
         }
       }
-      if (!candidates.length)
+      if (candidates.length === beforeOnline)
         diagnostics.push(
           diagnostic(
             "METADATA_NO_MATCH",
-            "No matching LoC digital collection record; this API is not a complete ISBN catalog",
+            "No matching catalog record found across the selected online providers",
             undefined,
             undefined,
             "warning",

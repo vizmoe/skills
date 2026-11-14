@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { object, readInput, requireValue, strings } from "./tag-vocabulary.mjs";
+import { readNamingRules } from "./skill-rules.mjs";
 
 const check = (condition, message) =>
   requireValue(condition, "NAMING_INPUT", message);
@@ -88,7 +89,8 @@ function numericCompare(a, b) {
   );
 }
 
-function plan(data) {
+function plan(data, namingRules) {
+  const [unifiedBasis, subseriesBasis, localBasis] = namingRules.bases;
   shape(
     data,
     ["schemaVersion", "series", "coverage", "chronology", "books"],
@@ -144,9 +146,7 @@ function plan(data) {
       `Mixed or missing target edition for ${book.id}`,
     );
     check(
-      ["main", "side-story", "short-story-collection", "extra"].includes(
-        book.kind,
-      ),
+      namingRules.kinds.includes(book.kind),
       `Unknown work kind: ${book.id}`,
     );
     text(book.originalTitle, "original title");
@@ -208,10 +208,10 @@ function plan(data) {
       book,
       date: dateInterval(book.firstPublished),
       basis: unified
-        ? "official-unified"
+        ? unifiedBasis
         : subseries
-          ? "official-subseries"
-          : "local-insertion",
+          ? subseriesBasis
+          : localBasis,
       prefix:
         data.series.name + (!unified && subseries ? ` ${subseries.name}` : ""),
       position: selected ? number(selected.number) : null,
@@ -413,7 +413,10 @@ try {
       positionals.length === 1 && positionals[0] === "plan" && values.input,
       "Use plan --input INVENTORY.json; see --help",
     );
-    const input = await readInput(values.input);
+    const [input, namingRules] = await Promise.all([
+      readInput(values.input),
+      readNamingRules(),
+    ]);
     const report = {
       schemaVersion: 1,
       operation: "light-novel-naming-plan",
@@ -421,7 +424,7 @@ try {
       libraryWritten: false,
       sourceVerification: "declared-only",
       inputs: { inventory: input.source },
-      ...plan(input.value),
+      ...plan(input.value, namingRules),
     };
     const output = JSON.stringify(report, null, 2) + "\n";
     if (values.output)

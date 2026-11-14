@@ -8,7 +8,7 @@
 npx skills add vizmoe/skills --skill quillbind
 ```
 
-标签审计和命名计划工具只依赖 Node.js，可直接从安装目录运行。元数据维护使用文件级 ZIP/XML 工具及相应验证器，无需 Calibre 数据库访问。出版、修复和漫画打包命令依赖本仓库的独立 [Quillbind 运行时](../../../tools/quillbind/README.md)。按[环境配置](../../../skills/quillbind/references/environment.md)准备工具链，并将 `QUILLBIND_ROOT` 指向本地 `tools/quillbind` 的绝对路径。更新时使运行时与技能保持同一 Git 修订，并保留仓库中的 `skills/quillbind` 共享词表及加载器。技能安装本身不会安装出版工具。
+标签审计、命名计划、规则表解析与交付核验工具（`scripts/tags.mjs`、`scripts/naming.mjs`、`scripts/skill-rules.mjs`、`scripts/delivery-audit.mjs`）只依赖 Node.js，可直接从安装目录运行，并直接从技能参考文档表格解析规范而非重复硬编码常量。文件级元数据写回与出版、修复、漫画打包命令依赖本仓库的独立 [Quillbind 运行时](../../../tools/quillbind/README.md)。按[环境配置](../../../skills/quillbind/references/environment.md)准备工具链，并将 `QUILLBIND_ROOT` 指向本地 `tools/quillbind` 的绝对路径。更新时使运行时与技能保持同一 Git 修订，并保留仓库中的 `skills/quillbind` 共享词表、规则解析器及加载器。技能安装本身不会安装出版工具。
 
 ## 调用
 
@@ -39,7 +39,7 @@ $quillbind 将 /absolute/path/to/volume-01 的漫画扫图制作为 CBZ，使用
 
 录入本、个人汇编、同人志和扫图转制本按书名、署名人员和卷次[识别作品](../../../skills/quillbind/references/bibliography.md#self-made-and-non-retail-editions)，再按作品类型补全字段。简介只写作品内容，[规则](../../../skills/quillbind/references/bibliography.md#describe-the-work-not-the-file)包括中文轻小说和漫画采用日文来源时的翻译；版本来源和字段缺口写进运行报告。
 
-[内嵌元数据维护](../../../skills/quillbind/references/embedded-metadata.md)直接修改 EPUB 实际 OPF 或 CBZ 根目录的 `ComicInfo.xml`。ComicInfo 2.0 用 `Genre` 承载受控标签，EPUB 用 `dc:subject`。先备份目标文件、暂存并验证，再写回指定文件并独立读回。Calibre 数据库、旁置 `metadata.opf` 和 `cover.jpg` 保持不变，不要求三处同步。普通书 EPUB 的书名、人员、出版社、日期、简介、语言和 ISBN 用 [`metadata bibliography-audit` / `bibliography-clean`](../../../skills/quillbind/references/embedded-metadata.md#epub-clean-bibliography-with-a-reviewed-plan) 按逐条审核的计划清洗或写入来源值；其他字段仍由代理使用文件级工具执行该流程；漫画元数据修订不经过扫图重编码，标签专用编辑也不借用会更新日期的 enrichment。
+[内嵌元数据维护](../../../skills/quillbind/references/embedded-metadata.md)直接修改 EPUB 实际 OPF 或 CBZ 根目录的 `ComicInfo.xml`。ComicInfo 2.0 用 `Genre` 承载受控标签，EPUB 用 `dc:subject`：可用 [`metadata tags-audit` / `tags-apply`](../../../skills/quillbind/references/tags.md) 直接对单个 EPUB/CBZ 执行词表哈希绑定、`refines`/外部引用保护、XSD 顺序写回与验证器独立读回；EPUB 与 CBZ 的书名、人员、出版社/书系、日期、简介、语言和（EPUB）ISBN 统一用 [`metadata bibliography-audit` / `bibliography-clean`](../../../skills/quillbind/references/embedded-metadata.md#epub-clean-bibliography-with-a-reviewed-plan) 按逐条审核的计划清洗或写入来源值（CBZ 自动遵循 ComicInfo 2.0 无 ISBN 与不把译者压入 `Writer` 的边界）；评分清理用 `metadata ratings-audit` / `ratings-clean`，系列规范化用 `metadata series-audit` / `series-normalize`。整系列命名方案落盘前可用 `scripts/delivery-audit.mjs verify-naming` 校验真实磁盘文件哈希与目标文件名冲突；维护前后用 `scripts/delivery-audit.mjs snapshot` 与 `audit` 核验 Calibre `metadata.db`（仅 `stat` 不打开数据库）、旁置 `metadata.opf` 和 `cover.jpg` 未被改动，以及备份链、ISBN 处置、`attemptedSources`、自制本识别依据与简介纯净度。漫画元数据修订不经过扫图重编码，标签专用编辑也不借用会更新日期的 enrichment。
 
 漫画打包还需要 libjxl 的 `cjxl` 与 `djxl`，输出需要支持 JPEG XL 的 CBZ 阅读器。输入范围、页序和校验说明见[漫画流程](../../../skills/quillbind/references/manga.md)，版本匹配与日版纸书优先日期规则见 [BookWalker 流程](../../../skills/quillbind/references/bookwalker.md)。
 

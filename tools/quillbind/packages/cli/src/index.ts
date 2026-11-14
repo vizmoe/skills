@@ -4,6 +4,7 @@ import { parseArgs } from "node:util";
 import {
   resolveMetadata,
   resolveBookWalker,
+  resolveCatalog,
   resolveEdition,
   auditFileBibliography,
   cleanBibliography,
@@ -59,6 +60,7 @@ const HELP = [
   "quillbind novel inspect <book-url>",
   "quillbind novel fetch <book-url> [--output new-directory] [--volumes 1-3,5] [--split-volumes] [--prepare-only]",
   "quillbind metadata bookwalker SOURCES.json --output LOCK.json [--online]",
+  "quillbind metadata catalog QUERY.json --output LOCK.json [--online]",
   "quillbind metadata edition SELECTION.json --output LOCK.json [--online|--page saved.html]",
   "quillbind metadata resolve <book-directory> [--online]",
   "quillbind metadata bibliography-audit <file.epub> [--output plan.json]",
@@ -373,7 +375,24 @@ try {
               signal: abort.signal,
             },
           );
-        else if (subcommand === "edition") {
+        else if (subcommand === "catalog") {
+          const allowed = new Set(["json", "output", "online"]);
+          if (
+            positionals.length !== 3 ||
+            Object.entries(values).some(
+              ([key, value]) => value !== undefined && !allowed.has(key),
+            )
+          )
+            fail(
+              "ARGUMENT_CONFLICT",
+              "metadata catalog accepts one query file, --output and optional --online",
+            );
+          output = await resolveCatalog(required(third, "query JSON file"), {
+            output: required(values.output, "--output lock.json"),
+            online: values.online,
+            signal: abort.signal,
+          });
+        } else if (subcommand === "edition") {
           const allowed = new Set(["json", "output", "online", "page"]);
           if (
             positionals.length !== 3 ||
@@ -444,7 +463,7 @@ try {
         else
           fail(
             "COMMAND_UNKNOWN",
-            "Use metadata resolve, bookwalker, edition, bibliography-audit, bibliography-clean, ratings-audit, ratings-clean, series-audit, series-normalize, cover-audit or cover-adopt",
+            "Use metadata resolve, bookwalker, catalog, edition, bibliography-audit, bibliography-clean, ratings-audit, ratings-clean, series-audit, series-normalize, cover-audit or cover-adopt",
           );
         break;
       case "preflight":

@@ -76,6 +76,22 @@ export {
   cleanBibliography,
 } from "./bibliography-file.js";
 export {
+  collectCatalog,
+  deriveCatalog,
+  readCatalogLock,
+  resolveCatalog,
+  selectCatalogProviders,
+  catalogProviders,
+  catalogProviderNames,
+} from "./catalog.js";
+export type {
+  CatalogEntry,
+  CatalogLock,
+  CatalogMetadata,
+  CatalogProvider,
+  CatalogQuery,
+} from "./catalog.js";
+export {
   collectEdition,
   deriveEdition,
   extractEdition,

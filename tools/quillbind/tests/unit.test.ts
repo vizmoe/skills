@@ -252,6 +252,65 @@ describe("metadata", () => {
       resolution.candidates.some((c) => c.conflicts.length > 0 && !c.approved),
     ).toBe(true);
   });
+  it("resolves online ISBN candidates across multi-provider book catalogs", async () => {
+    const root = await book();
+    const file = path.join(root, "book.yaml");
+    await fs.writeFile(
+      file,
+      (await fs.readFile(file, "utf8")).replace(
+        "isbn: null",
+        'isbn: "978-7-00-000001-8"',
+      ),
+    );
+    await json(path.join(root, "metadata/decisions.json"), {
+      isbn: { value: "9787000000018", edition: "epub", approved: true },
+    });
+    const catalogFetcher = vi.fn(async ({ url }: { url: string }) => {
+      if (url.startsWith("https://ci.nii.ac.jp/"))
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          bytes: Buffer.from(
+            JSON.stringify({
+              "@graph": [
+                {
+                  "opensearch:totalResults": 1,
+                  items: [
+                    {
+                      "@id": "https://ci.nii.ac.jp/ncid/BD00000001",
+                      title: "示例书名 = Example Title",
+                      "dc:creator": "Quillbind 示例作者著",
+                      "dc:publisher": ["示例出版社"],
+                      "dc:date": "2024",
+                      "dcterms:hasPart": [{ "@id": "urn:isbn:9787000000018" }],
+                    },
+                  ],
+                },
+              ],
+            }),
+          ),
+        };
+      return {
+        status: 200,
+        headers: { "content-type": "application/json" },
+        bytes: Buffer.from(
+          url.includes("ndlsearch") || url.includes("lx2.loc.gov")
+            ? "<rss version='2.0'><channel></channel></rss>"
+            : "{}",
+        ),
+      };
+    });
+    const resolution = await resolveMetadata(root, {
+      online: true,
+      catalogFetcher,
+    });
+    expect(resolution.status).toBe("pass");
+    expect(
+      resolution.candidates.some(
+        (c) => c.sourceName === "CiNii Books" && c.field === "authors",
+      ),
+    ).toBe(true);
+  });
 });
 describe("chapters and rendering", () => {
   it("parses all documented technical structures independently", async () => {

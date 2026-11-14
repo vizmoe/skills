@@ -68,6 +68,11 @@ export function formatHuman(command: string, value: unknown): string {
       `Source lock: ${item.lock}`,
       `Original release date: ${record(item.metadata).releaseDate} (${record(item.metadata).dateBasis})`,
     );
+  else if (
+    item.operation === "catalog-metadata" ||
+    item.operation === "edition-metadata"
+  )
+    lines.push(`Source lock: ${item.lock}`);
   if (typeof item.metadata === "string") lines.push(item.metadata);
   else if (typeof record(item.metadata).title === "string")
     lines.push(`Title: ${record(item.metadata).title}`);

@@ -9,22 +9,12 @@ import {
   requireValue,
   strings,
 } from "./tag-vocabulary.mjs";
+import { readWorkTypeTagRules } from "./skill-rules.mjs";
 
 const check = (condition, message) =>
   requireValue(condition, "INPUT_INVALID", message);
-const kinds = {
-  "light-novel": {
-    required: "Literature.Light Novel",
-    forbidden: ["Literature.Manga"],
-  },
-  manga: {
-    required: "Literature.Manga",
-    forbidden: ["Literature.Light Novel"],
-  },
-  "art-book": { forbidden: ["Literature.Light Novel", "Literature.Manga"] },
-};
 
-function audit(books, decisions, vocabulary) {
+function audit(books, decisions, vocabulary, kinds) {
   check(Array.isArray(books), "Inventory must be a JSON array of book records");
   const ids = new Set();
   for (const book of books) {
@@ -144,9 +134,10 @@ function audit(books, decisions, vocabulary) {
     )
       unresolved.push({ code: "WORK_TYPE_CONFLICT" });
     if (
-      decision?.kind === "art-book" &&
+      rule?.requiresPrefix &&
       !proposed.some(
-        (tag) => vocabulary.canonical.has(tag) && tag.startsWith("Arts."),
+        (tag) =>
+          vocabulary.canonical.has(tag) && tag.startsWith(rule.requiresPrefix),
       )
     )
       unresolved.push({ code: "ART_SUBJECT_REQUIRED" });
@@ -185,12 +176,20 @@ try {
       positionals.length === 1 && positionals[0] === "audit" && values.input,
       "Use audit --input INVENTORY.json; see --help",
     );
-    const vocabulary = await loadVocabulary(values.vocabulary);
+    const [vocabulary, kinds] = await Promise.all([
+      loadVocabulary(values.vocabulary),
+      readWorkTypeTagRules(),
+    ]);
     const inventory = await readInput(values.input);
     const decisions = values.decisions
       ? await readInput(values.decisions)
       : undefined;
-    const books = audit(inventory.value, decisions?.value ?? [], vocabulary);
+    const books = audit(
+      inventory.value,
+      decisions?.value ?? [],
+      vocabulary,
+      kinds,
+    );
     const report = {
       schemaVersion: 1,
       operation: "tag-audit",

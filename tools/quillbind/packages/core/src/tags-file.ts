@@ -76,46 +76,46 @@ interface LoadedVocabulary {
   >;
 }
 
-const defaultWorkKinds: LoadedVocabulary["workKinds"] = {
-  "light-novel": {
-    required: "Literature.Light Novel",
-    forbidden: ["Literature.Manga"],
-  },
-  manga: {
-    required: "Literature.Manga",
-    forbidden: ["Literature.Light Novel"],
-  },
-  "art-book": {
-    forbidden: ["Literature.Light Novel", "Literature.Manga"],
-    requiresPrefix: "Arts.",
-  },
-};
-
 export async function loadTagVocabulary(
   vocabularyFile?: string,
 ): Promise<LoadedVocabulary> {
-  const loader = (await import(
-    pathToFileURL(
-      path.resolve(
-        repoRoot,
-        "../../skills/quillbind/scripts/tag-vocabulary.mjs",
-      ),
-    ).href
-  )) as {
-    key: (value: string) => string;
-    loadVocabulary: (file?: string) => Promise<{
-      schemaVersion: number;
-      version: string;
-      canonical: Set<string>;
-      aliases: Map<string, string>;
-      source: { path: string; sha256: string };
-    }>;
-  };
-  const loaded = await loader.loadVocabulary(vocabularyFile);
+  const [loader, rulesLoader] = await Promise.all([
+    import(
+      pathToFileURL(
+        path.resolve(
+          repoRoot,
+          "../../skills/quillbind/scripts/tag-vocabulary.mjs",
+        ),
+      ).href
+    ) as Promise<{
+      key: (value: string) => string;
+      loadVocabulary: (file?: string) => Promise<{
+        schemaVersion: number;
+        version: string;
+        canonical: Set<string>;
+        aliases: Map<string, string>;
+        source: { path: string; sha256: string };
+      }>;
+    }>,
+    import(
+      pathToFileURL(
+        path.resolve(
+          repoRoot,
+          "../../skills/quillbind/scripts/skill-rules.mjs",
+        ),
+      ).href
+    ) as Promise<{
+      readWorkTypeTagRules: () => Promise<LoadedVocabulary["workKinds"]>;
+    }>,
+  ]);
+  const [loaded, workKinds] = await Promise.all([
+    loader.loadVocabulary(vocabularyFile),
+    rulesLoader.readWorkTypeTagRules(),
+  ]);
   return {
     ...loaded,
     key: loader.key,
-    workKinds: defaultWorkKinds,
+    workKinds,
   };
 }
 

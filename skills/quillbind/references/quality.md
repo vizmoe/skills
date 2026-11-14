@@ -2,52 +2,55 @@
 
 ## Match evidence to the operation
 
-[Tag audits](tags.md) return input/vocabulary hashes, per-book proposals and unresolved findings; they do not write ebooks. Completed metadata maintenance requires independent readback of the actual output files and non-target preservation evidence. Calibre's database, sidecars and displayed records are outside this file-only workflow. Publication release gates remain separate.
+| Operation | Required verification & handoff evidence | Publication status |
+| --- | --- | --- |
+| Tag inventory audit (`scripts/tags.mjs`) | Input/vocabulary/decision SHA-256 digests, per-book `proposed` and `unresolved` arrays; writes no ebooks. | `libraryWritten: false`, `publicationReady: false` |
+| Embedded metadata maintenance (`metadata *-clean`, `tags-apply`, `series-normalize`, `cover-adopt`) | Source/backup/staged/final SHA-256 chain, `<output>.reports/metadata.json`, independent field readback, actual EPUBCheck or `xmllint --nonet` ComicInfo 2.0 XSD pass, ISBN disposition (`attemptedSources` when `unresolved`), [self-made identification](bibliography.md#self-made-and-non-retail-editions), [synopsis translation source](bibliography.md#describe-the-work-not-the-file), and unchanged Calibre sidecars via `scripts/delivery-audit.mjs`. | File maintenance (`publicationReady: false` unless `epub enrich` release gates ran) |
+| Preparation (`init`) | `metadata/preparation.json` with copied-source hashes and readiness. | Release gates `not-run` |
+| Preview (`preview`) | CLI `status: preview`, `candidate` link for author review. | `publicationReady: false`, release gates `not-run` |
+| Reading repair (`epub repair-copy`, `epub repair-dir`) | `summary.json`, `remaining-findings.json` (or `repair-summary.json`), `copy` SHA-256, content integrity, idempotence and sampled reading QA. | Ace and platform release gates `not-run` |
+| Format conversion (`epub convert` without `--to`) | `<output>.reports/import.json`, source/output SHA-256, detected Kindle format (`mobi6`, `kf8`, `combo-kf8`), internal validation, EPUBCheck, sampled reading QA and repeated-unpack byte equality. | `publicationReady: false`, release gates `not-run` |
+| Manga scan packaging (`manga package`) | [Image/archive evidence](manga.md#comicinfo-and-handoff): CBZ SHA-256, per-page lossless JXL verification, BookWalker lock provenance and JXL reader note. | Separate CBZ contract (not EPUB conformance) |
+| Popup-note verification (`epub check-notes`) | Separate static structure inventory and optional Chromium interaction results (`notes.md`); regular browser QA disables source scripts and never proves popups work. | Diagnostic check only |
+| EPUB publication (`build`, publication `repair`, `epub convert --to`, `epub enrich`) | Every release gate in [release evidence](#release-evidence) passing with matched `runId`. | `publicationReady: true` |
 
-[Embedded metadata maintenance](embedded-metadata.md) requires source/staged/final file hashes, per-field sources and independent readback. CBZ checks cover `ComicInfo.xml` schema, non-target XML semantics, ZIP CRCs and unchanged page/member bytes and order; EPUB checks cover OPF semantics, non-OPF member bytes and actual EPUBCheck results. Report staged-only or partial file completion explicitly. General supplementation must report ISBNs retained, added or corrected, and unresolved cases with attempted sources or format limitations; an unattempted lookup is not completed ISBN work. A [self-made edition](bibliography.md#self-made-and-non-retail-editions) also reports its edition class and identification evidence, and a [translated synopsis](bibliography.md#describe-the-work-not-the-file) reports its source. Date cross-verification is not required. These checks do not imply that images were re-encoded, native readers were tested or an EPUB publication was released.
+### Maintenance delivery statuses
 
-| Operation      | Evidence and handoff                                                                                                                                                                                                                  |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Preparation    | `metadata/preparation.json`: copied-source hashes and readiness; release is `not-run`.                                                                                                                                                |
-| Preview        | CLI `status: preview`, `candidate`, `publicationReady: false`, release gates `not-run`. Link the candidate for author review. Existing release files and reports belong to their earlier run.                                         |
-| Reading repair | Its own `summary.json` and `remaining-findings.json`, or directory `repair-summary.json`. Report the `copy` hash, integrity, idempotence, remaining findings and sampled browser coverage. Full publication QA and Ace are `not-run`. |
-| Format conversion | `<output>.reports/import.json` for `epub convert <source.mobi\|source.azw3> --output <new.epub>` without `--to`: source/output hashes, detected Kindle format (`mobi6`, `kf8`, `combo-kf8`), internal validation, EPUBCheck, sampled browser reading checks and repeated-unpack byte equality; `publicationReady: false`, release gates `not-run`. |
-| Publication    | `build`, publication `repair`, `epub convert --to <target>` and `epub enrich` require every release gate below.                                                                                                                       |
+Parsed directly by [scripts/skill-rules.mjs](../scripts/skill-rules.mjs) and enforced by [scripts/delivery-audit.mjs](../scripts/delivery-audit.mjs):
 
-Manga CBZ uses its own [image/archive evidence](manga.md#comicinfo-and-handoff): report the artifact hash, per-page lossless checks, source provenance and JPEG XL reader requirement. It does not claim EPUB conformance or platform publication. The release evidence below applies to EPUB.
+| Status | Files written | Meaning |
+| --- | --- | --- |
+| `plan-only` | `no` | Read-only audit or naming/tag/bibliography plan produced; no target or output ebook written. |
+| `staged-only` | `no` | Staged candidate built/validated in staging area, but final destination was not written or installed. |
+| `partial` | `no` | Batch completed authorized writes on a subset of items while reporting blocked/unresolved items explicitly (`items[].final` present only on completed items). |
+| `completed` | `yes` | Every scoped file write passed validation, independent readback and SHA-256 verification (with `backup` retained for any in-place replacement). |
+| `blocked` | `no` | Missing validator, encrypted/signed book, ambiguous metadata or collision prevented writing; originals untouched. |
 
-[Popup-note checks](notes.md) have separate static and interaction results, source-bound cases, activation modes and screenshots. Static inspection and reading repair do not execute source scripts. Regular browser QA disables those scripts, so its success cannot establish a scripted popup works. Explicit note checks do not replace any release gate or native-reader verification.
+### Protected Calibre sidecars
 
-A reading copy can satisfy personal use while retaining source conformance or accessibility findings. A preview supplies layout feedback after one render. Neither has a release artifact or `build.json`.
+Parsed directly by [scripts/skill-rules.mjs](../scripts/skill-rules.mjs) and checked before/after file maintenance by [scripts/delivery-audit.mjs](../scripts/delivery-audit.mjs):
+
+| File | Inspection | Rule |
+| --- | --- | --- |
+| `metadata.db` | `stat-only` | Never open, query or modify a Calibre SQLite database; verify existence, file size and `mtimeMs` are unchanged without touching SQLite locks. |
+| `metadata.opf` | `sha256` | Never export or edit Calibre's directory sidecar OPF; verify byte hash is unchanged. |
+| `cover.jpg` | `sha256` | Never overwrite or sync Calibre's directory cover file; verify byte hash is unchanged. |
+
+```sh
+node <skill-directory>/scripts/delivery-audit.mjs snapshot --path /absolute/books/target.epub --output before-sidecars.json
+node <skill-directory>/scripts/delivery-audit.mjs audit --input delivery-report.json --before before-sidecars.json --output delivery-audit.json
+```
 
 ## Release evidence
 
-The canonical target is [EPUB 3.3](https://www.w3.org/TR/epub-33/) with package `version="3.0"`. Metadata resolution, standalone preflight, internal validation, EPUBCheck, Ace, browser QA, both platform lints and repeated-byte verification gate new-book release. Publication repair additionally verifies protected content and idempotence. Existing EPUB conversion validates the converted publication through the same release gates.
+Canonical publication output is [EPUB 3.3](https://www.w3.org/TR/epub-33/) (`version="3.0"`). Run `doctor --json` first (`QUILLBIND_TIMEOUT_SECONDS` extends the 1,800s default for large books); missing validators return `ENVIRONMENT_ERROR`, and any EPUBCheck warning or error blocks release. Match `runId` across `summary.md`, `summary.json` and `build.json` (`dist/reports/` for builds; `<output>.reports/` for `epub convert --to` and `epub enrich`).
 
-Run `doctor --json` first. Missing tooling is an environment error. EPUBCheck warnings and errors block release; all required gates must pass. Large books can use `QUILLBIND_TIMEOUT_SECONDS` to extend the launcher's default 1,800-second limit while retaining gate checks.
-
-Start with the current `summary.md` and `summary.json`. Match their `runId` with `build.json`. Each run starts its checks as `not-run`, then records `running`, `pass` or `fail`. A failed summary has no released artifact; older detailed files and an older EPUB may remain on disk. Failures before a run opens return a structured CLI error.
-
-Name the released artifact and SHA-256, link the summary, state checks actually executed, and list actionable warnings or blockers. Report platform `distribution` separately from technical severity. Build reports live in `dist/reports/`; existing EPUB conversion uses `<output>.reports/`.
-
-| Detailed evidence                                    | Meaning                                                                                                   |
-| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `build.json`, `preflight.json`, `metadata.json`      | Source and release outcome                                                                                |
-| `epubcheck.json`, `epubcheck.txt`                    | EPUB conformance                                                                                          |
-| `ace/report.json`, `ace/report.html`, execution logs | Automated accessibility checks                                                                            |
-| `qa/report.json`, `coverage.json`, screenshots       | Browser QA and environment coverage                                                                       |
-| `apple-books-lint.json`, `kindle-lint.json`          | Guideline checks and distribution status                                                                  |
-| `compression.json`, `reproducibility.json`           | ZIP policy, runtime, entry methods and repeated-build byte equality                                       |
-| `repair/content-integrity.json`                      | Existing-publication preservation                                                                         |
-| `images.json`                                        | Image hashes, sizes and lossless verification                                                             |
-| `conversion.json`                                    | Target, dictionary revision, lock path/input hash, response snapshot and online refresh or saved-lock use |
-
-## Report the actual scope
-
-Browser QA exercises widths, enlarged text, reader font/line/color overrides, grayscale, resources, pagination and note round trips. Its coverage report gives the tested scope. Reviewed visual references belong to the pinned container; a failing comparison requires inspection and a documented baseline review.
-
-Before a large release, use `qaProjection` from preflight or preview to report planned cases and estimated screenshot storage; the byte range is a heuristic. Full reader-mode coverage is the default. An explicit `--qa-coverage stratified` or `qa.coverage: stratified` keeps default-mode, link, axe and pagination checks on every document and samples extra reader modes. At handoff, state the recorded strategy, full-matrix document count and any unexecuted cases from `coverage.json`. Passing runs normally retain at most 12 representative screenshots; failures retain additional evidence. Screenshot count is not the count of checks run.
-
-Use `automatedAccessibilityChecks: pass|fail`. Never claim device testing, WCAG certification, complete accessibility or store publication from automated checks. Semantic matters such as translation quality and meaningful image descriptions require appropriate human evidence.
-
-Both platform lints inspect the same EPUB. KDP publication-language eligibility and additional HTML cover-page review are excluded from lint; relay the returned diagnostics. Source-size warnings are delivery decisions, not permission to resize or truncate content. Include `COVER_RESOLUTION_LOW` with its path and dimensions and continue the authorized build using the original cover. Technical compatibility does not establish vendor acceptance.
+| Detailed evidence | Verified gate |
+| --- | --- |
+| `build.json`, `preflight.json`, `metadata.json` | Source lock hashes, metadata readiness and release outcome (`pass` / `fail`) |
+| `epubcheck.json`, `epubcheck.txt` | Zero-error, zero-warning EPUBCheck conformance |
+| `ace/report.json`, `ace/report.html` | Automated accessibility (`automatedAccessibilityChecks: pass\|fail` — never claim WCAG certification or device testing) |
+| `qa/report.json`, `coverage.json`, screenshots | Browser QA across widths, zoom, font/line/color overrides, grayscale, pagination and link/note round trips (`full` by default, or explicit `stratified` with strategy, document count and unexecuted cases reported; `qaProjection` estimates screenshot storage beforehand) |
+| `apple-books-lint.json`, `kindle-lint.json` | Platform guidelines and `distribution` status (relay `COVER_RESOLUTION_LOW` with path and dimensions without resizing original covers; technical lint does not guarantee store acceptance) |
+| `compression.json`, `reproducibility.json` | ZIP entry methods and repeated-build byte equality |
+| `repair/content-integrity.json`, `images.json`, `conversion.json` | Protected-content preservation, lossless image hashes and `zhconvert` dictionary/lock provenance |

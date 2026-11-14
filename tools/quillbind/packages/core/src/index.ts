@@ -114,6 +114,31 @@ export type {
   BookWalkerMetadata,
   BookWalkerSelection,
 } from "./bookwalker.js";
+export {
+  bookWalkerSearchQuerySchema,
+  collectBookWalkerSearch,
+  parseBookWalkerSearch,
+  readBookWalkerSearchLock,
+  resolveBookWalkerSearch,
+} from "./bookwalker-search.js";
+export type {
+  BookWalkerSearchCandidate,
+  BookWalkerSearchDiagnostic,
+  BookWalkerSearchLock,
+  BookWalkerSearchQuery,
+  BookWalkerSearchSite,
+} from "./bookwalker-search.js";
+export {
+  coverAddress,
+  coverFetchSelectionSchema,
+  readCoverLock,
+  resolveCoverFetch,
+} from "./cover-fetch.js";
+export type {
+  CoverFetchOptions,
+  CoverFetchSelection,
+  CoverLock,
+} from "./cover-fetch.js";
 
 export { enrichEpub, applyBookWalkerMetadata } from "./enrich-epub.js";
 

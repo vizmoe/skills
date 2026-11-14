@@ -361,6 +361,26 @@ export function deriveEdition(
       values: [...new Set(removedDescription)],
     });
 
+  const coverCandidate = of("coverUrl")
+    .map((item) => {
+      try {
+        const resolved = new URL(item.value, record.finalUrl);
+        if (
+          resolved.protocol !== "https:" ||
+          resolved.username ||
+          resolved.password ||
+          resolved.port
+        )
+          return undefined;
+        resolved.hash = "";
+        return { item, value: resolved.href };
+      } catch {
+        return undefined;
+      }
+    })
+    .find(Boolean);
+  if (coverCandidate) provenance.coverUrl = coverCandidate.item.source;
+
   const line = (pattern?: RegExp) => (value: string) =>
     cleanText(value, pattern) || undefined;
   const metadata: EditionMetadata = {
@@ -384,6 +404,7 @@ export function deriveEdition(
     position: pick("position", seriesPosition),
     language: pick("language", normalizeLanguage),
     description: description?.value,
+    coverUrl: coverCandidate?.value,
   };
   for (const [key, value] of Object.entries(optional))
     if (value !== undefined) Object.assign(metadata, { [key]: value });

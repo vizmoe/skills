@@ -16,6 +16,7 @@ export const editionFields = [
   "position",
   "language",
   "description",
+  "coverUrl",
 ] as const;
 export const editionSources = [
   "json-ld",
@@ -86,6 +87,7 @@ export interface EditionMetadata {
   position?: string;
   language?: string;
   description?: string;
+  coverUrl?: string;
   /** Source kind of each adopted field, for the run report. */
   provenance: Record<string, string>;
 }

@@ -68,6 +68,13 @@ export function formatHuman(command: string, value: unknown): string {
       `Source lock: ${item.lock}`,
       `Original release date: ${record(item.metadata).releaseDate} (${record(item.metadata).dateBasis})`,
     );
+  else if (item.operation === "bookwalker-search")
+    lines.push(
+      `Search lock: ${item.lock}`,
+      `Candidates: ${Array.isArray(item.candidates) ? item.candidates.length : 0}`,
+    );
+  else if (item.operation === "cover-fetch")
+    lines.push(`Cover: ${item.output}`, `Source lock: ${item.lock}`);
   else if (
     item.operation === "catalog-metadata" ||
     item.operation === "edition-metadata"

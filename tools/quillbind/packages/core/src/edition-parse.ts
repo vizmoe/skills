@@ -316,6 +316,13 @@ export function extractEdition(html: string) {
     for (const value of list(book.inLanguage))
       add({ field: "language" }, "json-ld", name(value) || scalar(value));
     add({ field: "description" }, "json-ld", book.description);
+    for (const img of list(book.image)) {
+      const imgUrl =
+        typeof img === "object"
+          ? scalar(object(img).contentUrl) || scalar(object(img).url)
+          : scalar(img);
+      add({ field: "coverUrl" }, "json-ld", imgUrl);
+    }
     for (const part of list(book.isPartOf)) {
       add({ field: "series" }, "json-ld", name(part));
       add({ field: "position" }, "json-ld", object(part).position);
@@ -338,7 +345,11 @@ export function extractEdition(html: string) {
           ? element.find("[itemprop=name]").first().text() || element.text()
           : (element.attr("content") ??
             element.attr("datetime") ??
-            (element.is("meta, link") ? element.attr("href") : element.text()));
+            (element.is("img")
+              ? element.attr("src")
+              : element.is("meta, link, a")
+                ? element.attr("href")
+                : element.text()));
         const prop = scalar(element.attr("itemprop"));
         const targets: Record<string, Target> = {
           name: { field: "title" as const },
@@ -352,6 +363,7 @@ export function extractEdition(html: string) {
           gtin13: { field: "isbn" as const },
           inLanguage: { field: "language" as const },
           description: { field: "description" as const },
+          image: { field: "coverUrl" as const },
         };
         const target = Object.hasOwn(targets, prop) ? targets[prop] : undefined;
         if (target)
@@ -372,6 +384,8 @@ export function extractEdition(html: string) {
     const targets: Record<string, [Target, Source]> = {
       "og:title": [{ field: "title" }, "open-graph"],
       "og:description": [{ field: "description" }, "open-graph"],
+      "og:image": [{ field: "coverUrl" }, "open-graph"],
+      "og:image:secure_url": [{ field: "coverUrl" }, "open-graph"],
       "book:isbn": [{ field: "isbn" }, "open-graph"],
       "book:release_date": [{ field: "date" }, "open-graph"],
       "book:author": [{ field: "contributor", role: "aut" }, "open-graph"],

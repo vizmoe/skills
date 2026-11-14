@@ -17,6 +17,19 @@ const string = (value: unknown) =>
     ? String(value).trim().normalize("NFC")
     : "";
 const plain = plainText;
+const httpsCover = (raw: unknown, base: string): string | undefined => {
+  const value = string(raw);
+  if (!value) return undefined;
+  try {
+    const url = new URL(value, base);
+    if (url.protocol !== "https:" || url.username || url.password || url.port)
+      return undefined;
+    url.hash = "";
+    return url.href;
+  } catch {
+    return undefined;
+  }
+};
 const volume = (title: string): string | null => {
   const match =
     /(?:^|[^\d.])(\d+(?:\.\d+)?)\s*(?:巻|卷|冊|册|集|\))?(?:\s*【[^】]*】)*$/.exec(
@@ -132,6 +145,10 @@ export function parseBookWalker(
       printIsbn: string(detail.publisher_isbn) || undefined,
       electronicIsbn: string(detail.publisher_eisbn) || undefined,
       electronicDate: bookWalkerDate(string(detail.sell_date_start)),
+      coverUrl:
+        httpsCover(product.product_cover, address.url) ??
+        httpsCover(product.image, address.url) ??
+        httpsCover($("meta[property='og:image']").attr("content"), address.url),
     };
   } else {
     const canonical = $("link[rel=canonical]").attr("href");
@@ -189,6 +206,10 @@ export function parseBookWalker(
       imprint: imprint || undefined,
       printDate: bookWalkerDate(field("底本発行日")),
       electronicDate: bookWalkerDate(field("配信開始日")),
+      coverUrl: httpsCover(
+        $("meta[property='og:image']").attr("content"),
+        address.url,
+      ),
     };
   }
   const parsed = editionSchema.safeParse(value);

@@ -34,6 +34,7 @@ export const editionSchema = z.strictObject({
   electronicIsbn: text.optional(),
   printDate: text.optional(),
   electronicDate: text.optional(),
+  coverUrl: text.optional(),
 });
 export type BookWalkerEdition = z.infer<typeof editionSchema>;
 export interface BookWalkerMetadata extends BookWalkerEdition {

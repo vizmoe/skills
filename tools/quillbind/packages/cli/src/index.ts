@@ -4,7 +4,9 @@ import { parseArgs } from "node:util";
 import {
   resolveMetadata,
   resolveBookWalker,
+  resolveBookWalkerSearch,
   resolveCatalog,
+  resolveCoverFetch,
   resolveEdition,
   auditFileBibliography,
   cleanBibliography,
@@ -60,8 +62,10 @@ const HELP = [
   "quillbind novel inspect <book-url>",
   "quillbind novel fetch <book-url> [--output new-directory] [--volumes 1-3,5] [--split-volumes] [--prepare-only]",
   "quillbind metadata bookwalker SOURCES.json --output LOCK.json [--online]",
+  "quillbind metadata bookwalker-search QUERY.json --output LOCK.json [--online]",
   "quillbind metadata catalog QUERY.json --output LOCK.json [--online]",
   "quillbind metadata edition SELECTION.json --output LOCK.json [--online|--page saved.html]",
+  "quillbind metadata cover-fetch SELECTION.json --output cover.jpg|cover.png [--lock cover.lock.json] [--online]",
   "quillbind metadata resolve <book-directory> [--online]",
   "quillbind metadata bibliography-audit <file.epub> [--output plan.json]",
   "quillbind metadata bibliography-clean <file.epub> --plan plan.json --output clean.epub",
@@ -116,6 +120,7 @@ try {
       output: { type: "string" },
       plan: { type: "string" },
       image: { type: "string" },
+      lock: { type: "string" },
       bookwalker: { type: "string" },
       page: { type: "string" },
       "execute-scripts": { type: "boolean" },
@@ -154,6 +159,11 @@ try {
     );
   if (values.page && !(command === "metadata" && subcommand === "edition"))
     fail("ARGUMENT_CONFLICT", "--page is supported by metadata edition only");
+  if (values.lock && !(command === "metadata" && subcommand === "cover-fetch"))
+    fail(
+      "ARGUMENT_CONFLICT",
+      "--lock is supported by metadata cover-fetch only",
+    );
   if (
     command !== "novel" &&
     [
@@ -375,7 +385,27 @@ try {
               signal: abort.signal,
             },
           );
-        else if (subcommand === "catalog") {
+        else if (subcommand === "bookwalker-search") {
+          const allowed = new Set(["json", "output", "online"]);
+          if (
+            positionals.length !== 3 ||
+            Object.entries(values).some(
+              ([key, value]) => value !== undefined && !allowed.has(key),
+            )
+          )
+            fail(
+              "ARGUMENT_CONFLICT",
+              "metadata bookwalker-search accepts one query file, --output and optional --online",
+            );
+          output = await resolveBookWalkerSearch(
+            required(third, "query JSON file"),
+            {
+              output: required(values.output, "--output lock.json"),
+              online: values.online,
+              signal: abort.signal,
+            },
+          );
+        } else if (subcommand === "catalog") {
           const allowed = new Set(["json", "output", "online"]);
           if (
             positionals.length !== 3 ||
@@ -410,6 +440,27 @@ try {
               output: required(values.output, "--output lock.json"),
               online: values.online,
               page: values.page,
+              signal: abort.signal,
+            },
+          );
+        } else if (subcommand === "cover-fetch") {
+          const allowed = new Set(["json", "output", "lock", "online"]);
+          if (
+            positionals.length !== 3 ||
+            Object.entries(values).some(
+              ([key, value]) => value !== undefined && !allowed.has(key),
+            )
+          )
+            fail(
+              "ARGUMENT_CONFLICT",
+              "metadata cover-fetch accepts one selection file, --output, optional --lock and optional --online",
+            );
+          output = await resolveCoverFetch(
+            required(third, "selection JSON file"),
+            {
+              output: required(values.output, "--output cover.jpg|cover.png"),
+              lock: values.lock,
+              online: values.online,
               signal: abort.signal,
             },
           );
@@ -463,7 +514,7 @@ try {
         else
           fail(
             "COMMAND_UNKNOWN",
-            "Use metadata resolve, bookwalker, catalog, edition, bibliography-audit, bibliography-clean, ratings-audit, ratings-clean, series-audit, series-normalize, cover-audit or cover-adopt",
+            "Use metadata resolve, bookwalker, bookwalker-search, catalog, edition, cover-fetch, bibliography-audit, bibliography-clean, ratings-audit, ratings-clean, series-audit, series-normalize, cover-audit or cover-adopt",
           );
         break;
       case "preflight":

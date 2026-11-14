@@ -35,6 +35,31 @@ const str = (value: unknown): string =>
     : "";
 const cjk = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
 
+const httpsCoverUrl = (
+  raw: unknown,
+  allowHttpUpgrade = false,
+): string | undefined => {
+  const value = str(raw);
+  if (!value) return undefined;
+  const candidate = allowHttpUpgrade
+    ? value.replace(/^http:\/\//i, "https://")
+    : value;
+  try {
+    const parsed = new URL(candidate);
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.username ||
+      parsed.password ||
+      parsed.port
+    )
+      return undefined;
+    parsed.hash = "";
+    return parsed.href;
+  } catch {
+    return undefined;
+  }
+};
+
 /** Normalize a single MARC/ONIX personal-name string, stripping life dates and un-inverting `Last, First`. */
 export function cleanCatalogPerson(value: string, inverted = false): string {
   const cleaned = value
@@ -241,6 +266,22 @@ export function parseOpenBd(payload: unknown): CatalogEntry[] {
       ? cleanDescription(str(rawSynopsis)).value || undefined
       : undefined;
 
+    let onixCoverUrl: string | undefined;
+    for (const resource of list(collateral.SupportingResource)) {
+      const r = obj(resource);
+      if (str(r.ResourceContentType) && str(r.ResourceContentType) !== "01")
+        continue;
+      for (const version of list(r.ResourceVersion)) {
+        const candidate = httpsCoverUrl(obj(version).ResourceLink);
+        if (candidate) {
+          onixCoverUrl = candidate;
+          break;
+        }
+      }
+      if (onixCoverUrl) break;
+    }
+    const coverUrl = onixCoverUrl ?? httpsCoverUrl(summary.cover);
+
     const recordKey = isbns[0] ?? title;
     entries.push({
       provider: "openbd",
@@ -260,6 +301,7 @@ export function parseOpenBd(payload: unknown): CatalogEntry[] {
       ...(position ? { position } : {}),
       ...(language ? { language } : {}),
       ...(description ? { description } : {}),
+      ...(coverUrl ? { coverUrl } : {}),
     });
   }
   return entries;
@@ -746,6 +788,17 @@ export function parseOpenLibraryBooks(
     ? cleanDescription(rawSynopsis).value || undefined
     : undefined;
 
+  const coverObj = obj(data.cover);
+  const editionCoverId = list(edition.covers).find(
+    (id) => Number.isInteger(id) && Number(id) > 0,
+  );
+  const coverUrl =
+    httpsCoverUrl(coverObj.large) ??
+    httpsCoverUrl(coverObj.medium) ??
+    (editionCoverId !== undefined
+      ? `https://covers.openlibrary.org/b/id/${editionCoverId}-L.jpg`
+      : undefined);
+
   const key = str(data.key) || str(edition.key) || `/isbn/${isbn}`;
   const rawUrl = str(data.url).replace(/^http:\/\//i, "https://");
   const recordUrl = rawUrl || `https://openlibrary.org${key}`;
@@ -766,6 +819,7 @@ export function parseOpenLibraryBooks(
       ...(position ? { position } : {}),
       ...(language ? { language } : {}),
       ...(description ? { description } : {}),
+      ...(coverUrl ? { coverUrl } : {}),
     },
   ];
 }
@@ -804,6 +858,14 @@ export function parseOpenLibrarySearch(payload: unknown): CatalogEntry[] {
     const language = list(doc.language)
       .map((l) => normalizeLanguage(str(l)))
       .find(Boolean);
+    const coverId =
+      Number.isInteger(doc.cover_i) && Number(doc.cover_i) > 0
+        ? Number(doc.cover_i)
+        : undefined;
+    const coverUrl =
+      coverId !== undefined
+        ? `https://covers.openlibrary.org/b/id/${coverId}-L.jpg`
+        : undefined;
     const key =
       str(doc.key) || `/search/${encodeURIComponent(parsedTitle.title)}`;
 
@@ -819,6 +881,7 @@ export function parseOpenLibrarySearch(payload: unknown): CatalogEntry[] {
       printIsbns,
       electronicIsbns: [],
       ...(language ? { language } : {}),
+      ...(coverUrl ? { coverUrl } : {}),
     });
   }
   return entries;
@@ -853,6 +916,20 @@ export function parseGoogleBooks(payload: unknown): CatalogEntry[] {
       ? cleanDescription(str(info.description)).value || undefined
       : undefined;
 
+    const imageLinks = obj(info.imageLinks);
+    const rawCover =
+      str(imageLinks.extraLarge) ||
+      str(imageLinks.large) ||
+      str(imageLinks.medium) ||
+      str(imageLinks.small) ||
+      str(imageLinks.thumbnail);
+    const coverUrl = httpsCoverUrl(
+      rawCover,
+      /^http:\/\/(?:books\.google\.com|books\.googleusercontent\.com)\//i.test(
+        rawCover,
+      ),
+    );
+
     const isbns: string[] = [];
     for (const id of list(info.industryIdentifiers)) {
       const entry = obj(id);
@@ -880,6 +957,7 @@ export function parseGoogleBooks(payload: unknown): CatalogEntry[] {
       electronicIsbns: electronic ? isbns : [],
       ...(language ? { language } : {}),
       ...(description ? { description } : {}),
+      ...(coverUrl ? { coverUrl } : {}),
     });
   }
   return entries;

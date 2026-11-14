@@ -530,6 +530,9 @@ export function deriveCatalog(
       r.electronicIsbns.includes(electronicIsbn),
     )!.provider;
 
+  const coverRecord = ordered.find((r) => Boolean(r.coverUrl));
+  if (coverRecord?.coverUrl) provenance.coverUrl = coverRecord.provider;
+
   const sources = ordered.map((record) => ({
     provider: record.provider,
     recordId: record.recordId,
@@ -554,6 +557,7 @@ export function deriveCatalog(
     position: pick("position"),
     language: pick("language"),
     description: pick("description"),
+    coverUrl: coverRecord?.coverUrl,
   };
   for (const [key, value] of Object.entries(optional))
     if (value !== undefined) Object.assign(metadata, { [key]: value });

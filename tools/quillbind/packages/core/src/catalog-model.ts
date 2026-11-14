@@ -78,6 +78,7 @@ export const catalogEntrySchema = z.strictObject({
   position: text.optional(),
   language: text.optional(),
   description: text.optional(),
+  coverUrl: text.optional(),
 });
 export type CatalogEntry = z.infer<typeof catalogEntrySchema>;
 
@@ -113,6 +114,7 @@ export interface CatalogMetadata {
   position?: string;
   language?: string;
   description?: string;
+  coverUrl?: string;
   sources: {
     provider: CatalogProvider;
     recordId: string;

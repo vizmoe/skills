@@ -75,6 +75,17 @@ export {
   auditFileBibliography,
   cleanBibliography,
 } from "./bibliography-file.js";
+export type { BibliographyPlan } from "./bibliography-file.js";
+export {
+  auditTags,
+  applyTags,
+  auditFileTags,
+  applyFileTags,
+  comicSequence,
+  insertComicElement,
+  loadTagVocabulary,
+} from "./tags-file.js";
+export type { TagsDecision, TagsPlan } from "./tags-file.js";
 export {
   collectCatalog,
   deriveCatalog,

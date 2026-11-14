@@ -10,6 +10,8 @@ import {
   resolveEdition,
   auditFileBibliography,
   cleanBibliography,
+  auditFileTags,
+  applyFileTags,
   auditFileRatings,
   cleanRatings,
   auditFileSeries,
@@ -51,7 +53,7 @@ import {
 } from "@quillbind/core";
 import { readJson, stable } from "@quillbind/core/json";
 import { fail } from "@quillbind/core/errors";
-import type { RepairPlan } from "@quillbind/core";
+import type { RepairPlan, TagsDecision } from "@quillbind/core";
 
 const HELP = [
   `Quillbind ${VERSION} — EPUB 3.3 and manga CBZ`,
@@ -67,8 +69,10 @@ const HELP = [
   "quillbind metadata edition SELECTION.json --output LOCK.json [--online|--page saved.html]",
   "quillbind metadata cover-fetch SELECTION.json --output cover.jpg|cover.png [--lock cover.lock.json] [--online]",
   "quillbind metadata resolve <book-directory> [--online]",
-  "quillbind metadata bibliography-audit <file.epub> [--output plan.json]",
-  "quillbind metadata bibliography-clean <file.epub> --plan plan.json --output clean.epub",
+  "quillbind metadata bibliography-audit <file.epub|file.cbz> [--output plan.json]",
+  "quillbind metadata bibliography-clean <file.epub|file.cbz> --plan plan.json --output clean.epub|clean.cbz",
+  "quillbind metadata tags-audit <file.epub|file.cbz> [--vocabulary FILE] [--decisions FILE] [--output plan.json]",
+  "quillbind metadata tags-apply <file.epub|file.cbz> --plan plan.json [--vocabulary FILE] --output clean.epub|clean.cbz",
   "quillbind metadata ratings-audit <file.epub|file.cbz> [--output plan.json]",
   "quillbind metadata ratings-clean <file.epub|file.cbz> --plan plan.json --output clean.epub|clean.cbz",
   "quillbind metadata series-audit <file.epub|file.cbz> [--output plan.json]",
@@ -121,6 +125,8 @@ try {
       plan: { type: "string" },
       image: { type: "string" },
       lock: { type: "string" },
+      vocabulary: { type: "string" },
+      decisions: { type: "string" },
       bookwalker: { type: "string" },
       page: { type: "string" },
       "execute-scripts": { type: "boolean" },
@@ -163,6 +169,25 @@ try {
     fail(
       "ARGUMENT_CONFLICT",
       "--lock is supported by metadata cover-fetch only",
+    );
+  if (
+    values.vocabulary &&
+    !(
+      command === "metadata" &&
+      ["tags-audit", "tags-apply"].includes(subcommand ?? "")
+    )
+  )
+    fail(
+      "ARGUMENT_CONFLICT",
+      "--vocabulary is supported by metadata tags-audit/tags-apply only",
+    );
+  if (
+    values.decisions &&
+    !(command === "metadata" && subcommand === "tags-audit")
+  )
+    fail(
+      "ARGUMENT_CONFLICT",
+      "--decisions is supported by metadata tags-audit only",
     );
   if (
     command !== "novel" &&
@@ -342,6 +367,8 @@ try {
           [
             "bibliography-audit",
             "bibliography-clean",
+            "tags-audit",
+            "tags-apply",
             "ratings-audit",
             "ratings-clean",
             "series-audit",
@@ -355,12 +382,17 @@ try {
             "output",
             ...([
               "bibliography-clean",
+              "tags-apply",
               "ratings-clean",
               "series-normalize",
               "cover-adopt",
             ].includes(subcommand!)
               ? ["plan"]
               : []),
+            ...(["tags-audit", "tags-apply"].includes(subcommand!)
+              ? ["vocabulary"]
+              : []),
+            ...(subcommand === "tags-audit" ? ["decisions"] : []),
             ...(["cover-audit", "cover-adopt"].includes(subcommand!)
               ? ["image"]
               : []),
@@ -373,7 +405,7 @@ try {
           )
             fail(
               "ARGUMENT_CONFLICT",
-              "File metadata operations accept one ebook, --output, --plan for writes and --image for covers only",
+              "File metadata operations accept one ebook, --output, --plan for writes, --vocabulary/--decisions for tags and --image for covers only",
             );
         }
         if (subcommand === "bookwalker")
@@ -465,13 +497,28 @@ try {
             },
           );
         } else if (subcommand === "bibliography-audit")
-          output = await auditFileBibliography(required(third, "EPUB file"), {
+          output = await auditFileBibliography(required(third, "ebook file"), {
             output: values.output,
           });
         else if (subcommand === "bibliography-clean")
-          output = await cleanBibliography(required(third, "EPUB file"), {
+          output = await cleanBibliography(required(third, "ebook file"), {
             plan: await readJson(required(values.plan, "--plan")),
             output: required(values.output, "--output"),
+            signal: abort.signal,
+          });
+        else if (subcommand === "tags-audit")
+          output = await auditFileTags(required(third, "ebook file"), {
+            output: values.output,
+            vocabulary: values.vocabulary,
+            decision: values.decisions
+              ? await readJson<Partial<TagsDecision>>(values.decisions)
+              : undefined,
+          });
+        else if (subcommand === "tags-apply")
+          output = await applyFileTags(required(third, "ebook file"), {
+            plan: await readJson(required(values.plan, "--plan")),
+            output: required(values.output, "--output"),
+            vocabulary: values.vocabulary,
             signal: abort.signal,
           });
         else if (subcommand === "ratings-audit")
@@ -514,7 +561,7 @@ try {
         else
           fail(
             "COMMAND_UNKNOWN",
-            "Use metadata resolve, bookwalker, bookwalker-search, catalog, edition, cover-fetch, bibliography-audit, bibliography-clean, ratings-audit, ratings-clean, series-audit, series-normalize, cover-audit or cover-adopt",
+            "Use metadata resolve, bookwalker, bookwalker-search, catalog, edition, cover-fetch, bibliography-audit, bibliography-clean, tags-audit, tags-apply, ratings-audit, ratings-clean, series-audit, series-normalize, cover-audit or cover-adopt",
           );
         break;
       case "preflight":

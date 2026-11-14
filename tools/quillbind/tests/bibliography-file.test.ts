@@ -9,8 +9,14 @@ import {
 } from "../packages/core/src/bibliography-file.js";
 import { candidate, copyBook } from "./helpers.js";
 import { inspectBytes } from "../packages/core/src/epub.js";
-import { pack } from "../packages/core/src/zip.js";
-import { attr, elements, NS, serialize } from "../packages/core/src/xml.js";
+import { pack, packArchive, unpack } from "../packages/core/src/zip.js";
+import {
+  attr,
+  elements,
+  NS,
+  serialize,
+  xml,
+} from "../packages/core/src/xml.js";
 import { run } from "../packages/core/src/process.js";
 import { repoRoot } from "../packages/core/src/runtime.js";
 
@@ -375,7 +381,7 @@ it("refuses to edit or remove the package identity", async () => {
   );
 });
 
-it("delivers a validated new EPUB through the CLI and refuses CBZ input", async () => {
+it("delivers validated new EPUB and CBZ files through the CLI and refuses unsupported formats", async () => {
   const { root, bytes } = await book(dirty);
   const source = path.join(root, "dirty.epub");
   const planFile = path.join(root, "plan.json");
@@ -417,9 +423,176 @@ it("delivers a validated new EPUB through the CLI and refuses CBZ input", async 
   await expect(
     cleanBibliography(source, { plan, output }),
   ).rejects.toMatchObject({ code: "OUTPUT_EXISTS" });
-  const comic = path.join(root, "book.cbz");
-  await fs.writeFile(comic, "x");
-  const rejected = await cli("bibliography-audit", comic);
+
+  // CBZ ComicInfo 2.0 bibliography audit, cleanup, XSD validation, and format boundaries
+  const cbzBytes = packArchive(
+    new Map([
+      ["page-001.jpg", Buffer.from("preserved manga page bytes")],
+      [
+        "ComicInfo.xml",
+        Buffer.from(
+          `<?xml version="1.0" encoding="utf-8"?>
+<ComicInfo>
+  <Title>【预售】海辺の物語 1 - 博客來.cbz</Title>
+  <Series>海辺シリーズ</Series>
+  <Number>1</Number>
+  <Summary>&lt;p&gt;港町の物語。&lt;/p&gt;&lt;p&gt;更多电子书请访问 www.example-books.com&lt;/p&gt;</Summary>
+  <Notes>Preserved provenance note.</Notes>
+  <Year>2022</Year>
+  <Month>-1</Month>
+  <Day>-1</Day>
+  <Writer>[日] 山田太郎 原作；佐藤花子 作画；高橋次郎 イラスト</Writer>
+  <CoverArtist>Unknown</CoverArtist>
+  <Publisher>www.epubw.com</Publisher>
+  <Imprint>レーベル：海辺コミックス</Imprint>
+  <Genre>Literature.Manga</Genre>
+  <PageCount>1</PageCount>
+  <LanguageISO>jpn</LanguageISO>
+  <Manga>YesAndRightToLeft</Manga>
+  <AgeRating>Teen</AgeRating>
+  <Pages><Page Image="0" ImageSize="26" ImageWidth="800" ImageHeight="1200"/></Pages>
+</ComicInfo>`,
+        ),
+      ],
+    ]),
+    946684800,
+  );
+  const cbzSource = path.join(root, "dirty.cbz");
+  const cbzPlanFile = path.join(root, "cbz-plan.json");
+  const cbzOutput = path.join(root, "clean.cbz");
+  await fs.writeFile(cbzSource, cbzBytes);
+
+  const cbzAudited = await cli(
+    "bibliography-audit",
+    cbzSource,
+    "--output",
+    cbzPlanFile,
+  );
+  expect(cbzAudited.exitCode).toBe(0);
+  const cbzPlan = decide(JSON.parse(await fs.readFile(cbzPlanFile, "utf8")));
+  expect(cbzPlan.format).toBe("cbz");
+  expect(cbzPlan.version).toBeUndefined();
+
+  // ComicInfo 2.0 rejects ISBN and translator assignments rather than inventing fields or flattening roles
+  expect(() =>
+    applyBibliography(cbzBytes, {
+      ...cbzPlan,
+      assignments: [
+        { field: "isbn", value: "9780306406157", evidence: "Print edition" },
+      ],
+    }),
+  ).toThrow(expect.objectContaining({ code: "COMICINFO_ISBN_UNSUPPORTED" }));
+
+  expect(() =>
+    applyBibliography(cbzBytes, {
+      ...decide(
+        auditBibliography(cbzBytes, { modified, format: "cbz" }),
+        "retain",
+      ),
+      assignments: [
+        {
+          field: "contributors",
+          contributors: [
+            { name: "山田太郎", role: "aut" },
+            { name: "李盈春", role: "trl" },
+          ],
+          evidence: "Translated credits",
+        },
+      ],
+    }),
+  ).toThrow(expect.objectContaining({ code: "COMICINFO_ROLE_UNSUPPORTED" }));
+
+  // Valid CBZ bibliography cleanup + publisher assignment passes xmllint ComicInfo-2.0.xsd
+  const retainedPublisher = cbzPlan.findings.find(
+    (f) => f.target === "publisher/0",
+  )!;
+  retainedPublisher.decision = "retain";
+  cbzPlan.assignments = [
+    {
+      field: "publisher",
+      value: "海辺出版",
+      evidence: "Matched BookWalker edition",
+    },
+    {
+      field: "date",
+      value: "2022-05-14",
+      evidence: "Matched BookWalker original release date",
+    },
+  ];
+  // Retain date/0 finding since assignment replaces date
+  cbzPlan.findings.find((f) => f.target === "date/0")!.decision = "retain";
+  await fs.writeFile(cbzPlanFile, JSON.stringify(cbzPlan));
+
+  const cbzCleaned = await cli(
+    "bibliography-clean",
+    cbzSource,
+    "--plan",
+    cbzPlanFile,
+    "--output",
+    cbzOutput,
+  );
+  expect(cbzCleaned.exitCode, cbzCleaned.stdout + cbzCleaned.stderr).toBe(0);
+  expect(JSON.parse(cbzCleaned.stdout)).toMatchObject({
+    status: "pass",
+    purpose: "file-maintenance",
+    validation: { status: "pass" },
+  });
+
+  const outEntries = unpack(await fs.readFile(cbzOutput));
+  expect(outEntries.get("page-001.jpg")!.bytes.toString()).toBe(
+    "preserved manga page bytes",
+  );
+  const outDoc = xml(
+    outEntries.get("ComicInfo.xml")!.bytes.toString("utf8"),
+    "ComicInfo.xml",
+  );
+  const comicVal = (tag: string) =>
+    elements(outDoc, tag)[0]?.textContent ?? null;
+  expect(comicVal("Title")).toBe("海辺の物語 1");
+  expect(comicVal("Summary")).toBe("港町の物語。");
+  expect(comicVal("Writer")).toBe("山田太郎");
+  expect(comicVal("Penciller")).toBe("佐藤花子");
+  expect(comicVal("CoverArtist")).toBe("高橋次郎");
+  expect(comicVal("Publisher")).toBe("海辺出版");
+  expect(comicVal("Imprint")).toBe("海辺コミックス");
+  expect(comicVal("Year")).toBe("2022");
+  expect(comicVal("Month")).toBe("5");
+  expect(comicVal("Day")).toBe("14");
+  expect(comicVal("LanguageISO")).toBe("ja");
+  expect(comicVal("Notes")).toBe("Preserved provenance note.");
+  expect(comicVal("Manga")).toBe("YesAndRightToLeft");
+  expect(comicVal("AgeRating")).toBe("Teen");
+  expect(
+    auditBibliography(await fs.readFile(cbzOutput), {
+      modified,
+      format: "cbz",
+    }).findings,
+  ).toEqual([]);
+
+  // Translator in dirty ComicInfo Writer is flagged without an automatic flatten proposal
+  const trlCbz = packArchive(
+    new Map([
+      ["page.jpg", Buffer.from("img")],
+      [
+        "ComicInfo.xml",
+        Buffer.from(
+          "<ComicInfo><Title>Test</Title><Writer>[日] 山田太郎 著；李盈春 译</Writer></ComicInfo>",
+        ),
+      ],
+    ]),
+    946684800,
+  );
+  const trlPlan = auditBibliography(trlCbz, { modified, format: "cbz" });
+  expect(trlPlan.findings).toEqual([
+    expect.objectContaining({
+      rule: "credit-unsupported-role",
+      proposed: null,
+    }),
+  ]);
+
+  const pdfFile = path.join(root, "book.pdf");
+  await fs.writeFile(pdfFile, "x");
+  const rejected = await cli("bibliography-audit", pdfFile);
   expect(JSON.parse(rejected.stdout)).toMatchObject({
     code: "METADATA_FORMAT",
   });

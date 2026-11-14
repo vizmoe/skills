@@ -9,6 +9,7 @@ import {
   deliverMetadata,
   metadataFormat,
   type MetadataFile,
+  type MetadataFormat,
 } from "./metadata-file.js";
 import {
   cleanDescription,
@@ -21,6 +22,7 @@ import {
   normalizeLanguage,
   parseContributors,
 } from "./bibliography-normalize.js";
+import { insertComicElement } from "./tags-file.js";
 import { attr, elements, NS, serialize } from "./xml.js";
 import { sha256 } from "./hash.js";
 import { fail } from "./errors.js";
@@ -32,6 +34,7 @@ const fields = [
   "creator",
   "contributor",
   "publisher",
+  "imprint",
   "date",
   "description",
   "language",
@@ -39,6 +42,7 @@ const fields = [
 ] as const;
 type Field = (typeof fields)[number];
 const roles = ["aut", "trl", "ill", "edt", "ant", "art", "pht"] as const;
+type Role = (typeof roles)[number];
 const person = z.strictObject({
   name: z.string().trim().min(1),
   role: z.enum(roles),
@@ -75,6 +79,7 @@ const assignmentSchema = z.discriminatedUnion("field", [
     field: z.enum([
       "title",
       "publisher",
+      "imprint",
       "date",
       "description",
       "language",
@@ -91,30 +96,64 @@ const assignmentSchema = z.discriminatedUnion("field", [
     source: z.string().trim().min(1).optional(),
   }),
 ]);
-const planSchema = z.strictObject({
-  schemaVersion: z.literal(1),
-  operation: z.literal("bibliography"),
-  format: z.literal("epub"),
-  version: z.enum(["2.0", "3.0"]),
-  sourceSha256: z.string().regex(/^[a-f0-9]{64}$/),
-  metadataSha256: z.string().regex(/^[a-f0-9]{64}$/),
-  modified: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
-    .refine(
-      (value) =>
-        !Number.isNaN(Date.parse(value)) &&
-        new Date(value).toISOString().replace(".000Z", "Z") === value,
-    ),
-  inventory: z.array(nodeSchema),
-  findings: z.array(findingSchema),
-  assignments: z.array(assignmentSchema),
-  reviewed: z.boolean(),
-});
+const planSchema = z
+  .strictObject({
+    schemaVersion: z.literal(1),
+    operation: z.literal("bibliography"),
+    format: z.enum(["epub", "cbz"]),
+    version: z.enum(["2.0", "3.0"]).optional(),
+    sourceSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    metadataSha256: z.string().regex(/^[a-f0-9]{64}$/),
+    modified: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/)
+      .refine(
+        (value) =>
+          !Number.isNaN(Date.parse(value)) &&
+          new Date(value).toISOString().replace(".000Z", "Z") === value,
+      ),
+    inventory: z.array(nodeSchema),
+    findings: z.array(findingSchema),
+    assignments: z.array(assignmentSchema),
+    reviewed: z.boolean(),
+  })
+  .refine(
+    (data) => (data.format === "epub") === (data.version !== undefined),
+    "EPUB plans require version; CBZ plans omit version",
+  );
 export type BibliographyPlan = z.infer<typeof planSchema>;
 type Finding = z.infer<typeof findingSchema>;
 type Proposal = z.infer<typeof proposalSchema>;
 type Person = z.infer<typeof person>;
+
+const comicCreditElements: Record<
+  string,
+  { field: "creator" | "contributor"; role: Role; acceptedRoles: Role[] }
+> = {
+  Writer: { field: "creator", role: "aut", acceptedRoles: ["aut", "ant"] },
+  Penciller: { field: "contributor", role: "art", acceptedRoles: ["art"] },
+  Inker: { field: "contributor", role: "art", acceptedRoles: ["art"] },
+  Colorist: { field: "contributor", role: "art", acceptedRoles: ["art"] },
+  Letterer: { field: "contributor", role: "art", acceptedRoles: ["art"] },
+  CoverArtist: { field: "contributor", role: "ill", acceptedRoles: ["ill"] },
+  Editor: { field: "contributor", role: "edt", acceptedRoles: ["edt"] },
+};
+
+const comicScalarElements: Record<string, Field> = {
+  Title: "title",
+  Summary: "description",
+  Publisher: "publisher",
+  Imprint: "imprint",
+  LanguageISO: "language",
+};
+
+const comicRoleTarget: Partial<Record<Role, string>> = {
+  aut: "Writer",
+  ant: "Writer",
+  art: "Penciller",
+  ill: "CoverArtist",
+  edt: "Editor",
+};
 
 const refinementsOf = (file: MetadataFile, node: Element) => {
   const id = attr(node, "id");
@@ -153,44 +192,183 @@ function isbnOf(file: MetadataFile, node: Element) {
   if (declared) return normalized ?? "invalid";
   return normalized && (type === "03" || !type) && !scheme ? normalized : null;
 }
+
 interface Located {
   key: string;
   field: Field;
   node: Element;
+  nodes?: Element[];
+  comicName?: string;
 }
+
 function locate(file: MetadataFile): Located[] {
   const counts = new Map<Field, number>();
   const found: Located[] = [];
-  for (const node of children(file.metadata)) {
-    if (node.namespaceURI !== NS.dc) continue;
-    const field = node.localName as Field;
-    if (!fields.includes(field)) continue;
-    const index = counts.get(field) ?? 0;
-    counts.set(field, index + 1);
-    found.push({ key: `${field}/${index}`, field, node });
+  if (file.format === "epub") {
+    for (const node of children(file.metadata)) {
+      if (node.namespaceURI !== NS.dc) continue;
+      const field = node.localName as Field;
+      if (!fields.includes(field) || field === "imprint") continue;
+      const index = counts.get(field) ?? 0;
+      counts.set(field, index + 1);
+      found.push({ key: `${field}/${index}`, field, node });
+    }
+    return found;
+  }
+
+  const metaChildren = children(file.metadata);
+  const dateParts = ["Year", "Month", "Day"]
+    .map((name) =>
+      metaChildren.find((n) => !n.namespaceURI && n.localName === name),
+    )
+    .filter((n): n is Element => Boolean(n));
+  let dateInserted = false;
+
+  for (const node of metaChildren) {
+    if (node.namespaceURI) continue;
+    const local = node.localName ?? "";
+    if (["Year", "Month", "Day"].includes(local)) {
+      if (!dateInserted && dateParts.length) {
+        dateInserted = true;
+        found.push({
+          key: "date/0",
+          field: "date",
+          node: dateParts[0],
+          nodes: dateParts,
+          comicName: "Date",
+        });
+      }
+      continue;
+    }
+    const credit = comicCreditElements[local];
+    if (credit) {
+      const index = counts.get(credit.field) ?? 0;
+      counts.set(credit.field, index + 1);
+      found.push({
+        key: `${credit.field}/${index}`,
+        field: credit.field,
+        node,
+        comicName: local,
+      });
+      continue;
+    }
+    const scalarField = comicScalarElements[local];
+    if (scalarField) {
+      const index = counts.get(scalarField) ?? 0;
+      counts.set(scalarField, index + 1);
+      found.push({
+        key: `${scalarField}/${index}`,
+        field: scalarField,
+        node,
+        comicName: local,
+      });
+    }
   }
   return found;
 }
+
 const primaryId = (file: MetadataFile) =>
-  attr(file.document.documentElement!, "unique-identifier");
+  file.format === "epub"
+    ? attr(file.document.documentElement!, "unique-identifier")
+    : "";
+
+function inspectComicDate(parts: Element[]): {
+  value: string;
+  state: "clean" | "undefined" | "format" | "unrecognized";
+  normalized?: string;
+} {
+  const byName = new Map(
+    parts.map((n) => [n.localName ?? "", n.textContent ?? ""]),
+  );
+  const rawDisplay = ["Year", "Month", "Day"]
+    .filter((k) => byName.has(k))
+    .map((k) => `${k}=${byName.get(k)}`)
+    .join(", ");
+  const parsePart = (raw: string | undefined) => {
+    if (raw === undefined) return undefined;
+    const trimmed = raw.trim();
+    if (!/^-?\d+$/.test(trimmed)) return NaN;
+    return Number(trimmed);
+  };
+  const y = parsePart(byName.get("Year"));
+  const m = parsePart(byName.get("Month"));
+  const d = parsePart(byName.get("Day"));
+
+  if ([y, m, d].some((v) => v !== undefined && Number.isNaN(v)))
+    return { value: rawDisplay, state: "unrecognized" };
+  const presentValues = [y, m, d].filter((v): v is number => v !== undefined);
+  if (
+    presentValues.every((v) => v <= 0) ||
+    (y === 101 && (m === undefined || m === 1) && (d === undefined || d === 1))
+  )
+    return { value: rawDisplay, state: "undefined" };
+  if (y === undefined || y < 1000 || y > 9999)
+    return { value: rawDisplay, state: "unrecognized" };
+  if (d !== undefined && d > 0 && (m === undefined || m <= 0))
+    return { value: rawDisplay, state: "unrecognized" };
+
+  const pad2 = (n: number) => String(n).padStart(2, "0");
+  const candidate =
+    d !== undefined && d > 0
+      ? `${y}-${pad2(m!)}-${pad2(d)}`
+      : m !== undefined && m > 0
+        ? `${y}-${pad2(m)}`
+        : `${y}`;
+  const normalized = normalizeDate(candidate);
+  if (!normalized || normalized !== candidate)
+    return { value: rawDisplay, state: "unrecognized" };
+
+  const canonicalXml =
+    byName.get("Year") === String(y) &&
+    (!byName.has("Month") ||
+      (m !== undefined && m > 0 && byName.get("Month") === String(m))) &&
+    (!byName.has("Day") ||
+      (d !== undefined && d > 0 && byName.get("Day") === String(d)));
+
+  return canonicalXml
+    ? { value: normalized, state: "clean", normalized }
+    : { value: rawDisplay, state: "format", normalized };
+}
 
 function inventory(file: MetadataFile) {
   const primary = primaryId(file);
-  return locate(file).map(({ key, field, node }) => ({
-    key,
-    field,
-    value: node.textContent ?? "",
-    role: ["creator", "contributor"].includes(field)
-      ? roleOf(file, node)
-      : null,
-    isbn: field === "identifier" ? isbnOf(file, node) : null,
-    primary:
-      field === "identifier" && !!primary && attr(node, "id") === primary,
-    record: serialize(node),
-  }));
+  return locate(file).map(({ key, field, node, nodes, comicName }) => {
+    if (file.format === "cbz" && field === "date" && nodes) {
+      const dateInfo = inspectComicDate(nodes);
+      return {
+        key,
+        field,
+        value: dateInfo.value,
+        role: null,
+        isbn: null,
+        primary: false,
+        record: nodes.map(serialize).join(""),
+      };
+    }
+    return {
+      key,
+      field,
+      value: node.textContent ?? "",
+      role: ["creator", "contributor"].includes(field)
+        ? file.format === "cbz"
+          ? (comicCreditElements[comicName ?? ""]?.role ?? null)
+          : roleOf(file, node)
+        : null,
+      isbn:
+        file.format === "epub" && field === "identifier"
+          ? isbnOf(file, node)
+          : null,
+      primary:
+        file.format === "epub" &&
+        field === "identifier" &&
+        !!primary &&
+        attr(node, "id") === primary,
+      record: serialize(node),
+    };
+  });
 }
 
-function detect(nodes: ReturnType<typeof inventory>) {
+function detect(file: MetadataFile, nodes: ReturnType<typeof inventory>) {
   const findings: Omit<Finding, "key" | "decision" | "evidence">[] = [];
   const add = (
     target: (typeof nodes)[number],
@@ -207,14 +385,16 @@ function detect(nodes: ReturnType<typeof inventory>) {
     });
   const seenPeople = new Set<string>();
   const seenIsbn = new Set<string>();
+  const locatedByKey = new Map(locate(file).map((item) => [item.key, item]));
+
   for (const node of nodes) {
     const value = node.value;
     const trimmed = value.trim();
     if (node.field === "title") {
-      let cleaned = cleanTitle(value).value;
-      cleaned = cleaned
-        .replace(/\.(?:epub|txt|mobi|azw3?|pdf|docx?)$/i, "")
+      const withoutExt = value
+        .replace(/\.(?:epub|cbz|zip|txt|mobi|azw3?|pdf|docx?)$/i, "")
         .trim();
+      const cleaned = cleanTitle(withoutExt).value;
       if (cleaned !== value)
         add(
           node,
@@ -225,6 +405,49 @@ function detect(nodes: ReturnType<typeof inventory>) {
     } else if (node.field === "creator" || node.field === "contributor") {
       const known = roles.find((role) => role === node.role);
       const parsed = parseContributors(value, known ?? "aut").contributors;
+      if (file.format === "cbz") {
+        const comicName = locatedByKey.get(node.key)?.comicName ?? "Writer";
+        const creditMeta = comicCreditElements[comicName];
+        if (!parsed.length) {
+          add(
+            node,
+            "credit-placeholder",
+            "Credit is a placeholder, not a person",
+            { action: "remove" },
+          );
+        } else if (parsed.some((c) => !comicRoleTarget[c.role])) {
+          add(
+            node,
+            "credit-unsupported-role",
+            "Credit includes translator or photographer role unsupported by ComicInfo 2.0; decide explicitly without flattening into Writer",
+            null,
+          );
+        } else {
+          const allAcceptedHere = parsed.every((c) =>
+            creditMeta.acceptedRoles.includes(c.role),
+          );
+          const dedupedNames = [...new Set(parsed.map((c) => c.name))];
+          const canonicalHere = dedupedNames.join(", ");
+          if (allAcceptedHere) {
+            if (canonicalHere !== value)
+              add(
+                node,
+                "credit-format",
+                "Credit carries role markers, nationality prefixes, duplicates or non-canonical spacing",
+                { action: "replace", value: canonicalHere },
+              );
+          } else {
+            add(
+              node,
+              "credit-combined",
+              "Credit combines roles belonging to separate ComicInfo 2.0 elements",
+              { action: "split", contributors: parsed },
+            );
+          }
+        }
+        continue;
+      }
+
       const unchanged =
         parsed.length === 1 &&
         parsed[0].name === trimmed &&
@@ -258,21 +481,26 @@ function detect(nodes: ReturnType<typeof inventory>) {
           );
         seenPeople.add(key);
       }
-    } else if (node.field === "publisher") {
+    } else if (node.field === "publisher" || node.field === "imprint") {
       if (isPlaceholder(value) || isWatermark(value))
         add(
           node,
-          "publisher-residue",
-          "Publisher is a placeholder or a download-site watermark",
+          `${node.field}-residue`,
+          `${node.field === "imprint" ? "Imprint" : "Publisher"} is a placeholder or a download-site watermark`,
           { action: "remove" },
         );
       else {
-        const cleaned = cleanText(value, /^(?:出版社|publisher)\s*[:：]\s*/i);
+        const cleaned = cleanText(
+          value,
+          node.field === "imprint"
+            ? /^(?:レーベル|書系|丛书|叢書|imprint)\s*[:：]\s*/i
+            : /^(?:出版社|publisher)\s*[:：]\s*/i,
+        );
         if (cleaned !== value)
           add(
             node,
-            "publisher-format",
-            "Publisher has a label or irregular spacing",
+            `${node.field}-format`,
+            `${node.field === "imprint" ? "Imprint" : "Publisher"} has a label or irregular spacing`,
             {
               action: "replace",
               value: cleaned,
@@ -280,6 +508,32 @@ function detect(nodes: ReturnType<typeof inventory>) {
           );
       }
     } else if (node.field === "date") {
+      if (file.format === "cbz") {
+        const parts = locatedByKey.get(node.key)?.nodes ?? [];
+        const info = inspectComicDate(parts);
+        if (info.state === "undefined")
+          add(
+            node,
+            "date-undefined",
+            "ComicInfo date uses default -1/0 values or Calibre's undefined-date placeholder",
+            { action: "remove" },
+          );
+        else if (info.state === "unrecognized")
+          add(
+            node,
+            "date-unrecognized",
+            "ComicInfo Year/Month/Day is not a valid calendar date; replace it from a source",
+            null,
+          );
+        else if (info.state === "format" && info.normalized)
+          add(
+            node,
+            "date-format",
+            "ComicInfo Year/Month/Day carries default -1/0 components or non-canonical integers",
+            { action: "replace", value: info.normalized },
+          );
+        continue;
+      }
       const date = normalizeDate(value);
       const time = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/.exec(
         trimmed,
@@ -385,21 +639,22 @@ function detect(nodes: ReturnType<typeof inventory>) {
 
 export function auditBibliography(
   bytes: Buffer,
-  options: { modified?: string } = {},
+  options: { modified?: string; format?: MetadataFormat } = {},
 ): BibliographyPlan {
-  const file = openMetadata(bytes, "epub", { preserveContent: true });
+  const format = options.format ?? "epub";
+  const file = openMetadata(bytes, format, { preserveContent: true });
   const nodes = inventory(file);
   return {
     schemaVersion: 1,
     operation: "bibliography",
-    format: "epub",
-    version: file.version as "2.0" | "3.0",
+    format,
+    ...(format === "epub" ? { version: file.version as "2.0" | "3.0" } : {}),
     sourceSha256: sha256(bytes),
     metadataSha256: sha256(file.entries.get(file.location)!.bytes),
     modified:
       options.modified ?? new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
     inventory: nodes,
-    findings: detect(nodes),
+    findings: detect(file, nodes),
     assignments: [],
     reviewed: false,
   };
@@ -416,7 +671,28 @@ const fieldOf = (
 
 function validateAssignment(
   assignment: BibliographyPlan["assignments"][number],
+  format: MetadataFormat,
 ) {
+  if (format === "cbz" && assignment.field === "isbn")
+    fail(
+      "COMICINFO_ISBN_UNSUPPORTED",
+      "ComicInfo 2.0 has no ISBN field; leave CBZ without a fabricated ISBN element",
+    );
+  if (format === "epub" && assignment.field === "imprint")
+    fail(
+      "EPUB_IMPRINT_UNSUPPORTED",
+      "EPUB bibliography plans assign publisher via dc:publisher; Imprint is ComicInfo-specific",
+    );
+  if (format === "cbz" && assignment.field === "contributors") {
+    const unsupported = assignment.contributors.find(
+      (person) => !comicRoleTarget[person.role],
+    );
+    if (unsupported)
+      fail(
+        "COMICINFO_ROLE_UNSUPPORTED",
+        `ComicInfo 2.0 has no element for contributor role ${unsupported.role}; never flatten unsupported roles into Writer`,
+      );
+  }
   if (
     assignment.field === "date" &&
     normalizeDate(assignment.value) !== assignment.value
@@ -437,6 +713,245 @@ function validateAssignment(
     );
 }
 
+function writeComicDate(file: MetadataFile, isoDate: string | null) {
+  for (const node of children(file.metadata))
+    if (
+      !node.namespaceURI &&
+      ["Year", "Month", "Day"].includes(node.localName ?? "")
+    )
+      file.metadata.removeChild(node);
+  if (!isoDate) return;
+  const [year, month, day] = isoDate.split("-");
+  insertComicElement(file, "Year", String(Number(year)));
+  if (month !== undefined)
+    insertComicElement(file, "Month", String(Number(month)));
+  if (day !== undefined) insertComicElement(file, "Day", String(Number(day)));
+}
+
+function writeComicScalar(
+  file: MetadataFile,
+  elementName: string,
+  value: string | null,
+) {
+  const existing = children(file.metadata).find(
+    (node) => !node.namespaceURI && node.localName === elementName,
+  );
+  if (value === null) {
+    if (existing) file.metadata.removeChild(existing);
+    return;
+  }
+  if (existing) existing.textContent = value;
+  else insertComicElement(file, elementName, value);
+}
+
+function applyBibliographyCbz(
+  bytes: Buffer,
+  plan: BibliographyPlan,
+  applied: Finding[],
+) {
+  const file = openMetadata(bytes, "cbz", { preserveContent: true });
+  const original = serialize(file.document);
+  const located = new Map(locate(file).map((item) => [item.key, item]));
+  const changes: {
+    target: string;
+    rule: string;
+    before: string;
+    after: unknown;
+  }[] = [];
+  const touchedNames = new Set<string>();
+
+  const splitFindings: Finding[] = [];
+  for (const finding of applied) {
+    const entry = located.get(finding.target)!;
+    const proposal = finding.proposed!;
+    if (proposal.action === "split") {
+      const unsupported = proposal.contributors.find(
+        (c) => !comicRoleTarget[c.role],
+      );
+      if (unsupported)
+        fail(
+          "COMICINFO_ROLE_UNSUPPORTED",
+          `ComicInfo 2.0 has no element for contributor role ${unsupported.role}`,
+        );
+      splitFindings.push(finding);
+      continue;
+    }
+    if (entry.field === "date") {
+      for (const n of ["Year", "Month", "Day"]) touchedNames.add(n);
+      if (proposal.action === "remove") writeComicDate(file, null);
+      else if (proposal.action === "replace")
+        writeComicDate(file, proposal.value);
+    } else if (proposal.action === "remove") {
+      touchedNames.add(entry.comicName!);
+      if (entry.node.parentNode === file.metadata)
+        file.metadata.removeChild(entry.node);
+    } else if (proposal.action === "replace") {
+      touchedNames.add(entry.comicName!);
+      entry.node.textContent = proposal.value;
+    }
+  }
+
+  if (splitFindings.length) {
+    for (const finding of splitFindings) {
+      const entry = located.get(finding.target)!;
+      touchedNames.add(entry.comicName!);
+      if (entry.node.parentNode === file.metadata)
+        file.metadata.removeChild(entry.node);
+    }
+    const grouped = new Map<string, string[]>();
+    for (const finding of splitFindings) {
+      const proposal = finding.proposed as Extract<
+        Proposal,
+        { action: "split" }
+      >;
+      for (const c of proposal.contributors) {
+        const targetEl = comicRoleTarget[c.role]!;
+        touchedNames.add(targetEl);
+        const list = grouped.get(targetEl) ?? [];
+        if (!list.includes(c.name)) list.push(c.name);
+        grouped.set(targetEl, list);
+      }
+    }
+    for (const [targetEl, names] of grouped) {
+      const existingNode = children(file.metadata).find(
+        (n) => !n.namespaceURI && n.localName === targetEl,
+      );
+      const existingNames = existingNode
+        ? (existingNode.textContent ?? "")
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : [];
+      const merged = [...new Set([...existingNames, ...names])];
+      writeComicScalar(file, targetEl, merged.join(", "));
+    }
+  }
+
+  for (const finding of applied) {
+    const proposal = finding.proposed!;
+    changes.push({
+      target: finding.target,
+      rule: finding.rule,
+      before: finding.before,
+      after: proposal.action === "replace" ? proposal.value : proposal,
+    });
+  }
+
+  const scalarToElement: Record<string, string> = {
+    title: "Title",
+    description: "Summary",
+    publisher: "Publisher",
+    imprint: "Imprint",
+    language: "LanguageISO",
+  };
+
+  for (const assignment of plan.assignments) {
+    if (assignment.field === "contributors") {
+      const creditNames = Object.keys(comicCreditElements);
+      const beforeNodes = children(file.metadata).filter(
+        (n) => !n.namespaceURI && creditNames.includes(n.localName ?? ""),
+      );
+      const beforeSummary = beforeNodes
+        .map((n) => `${n.localName}: ${n.textContent ?? ""}`)
+        .join(" / ");
+      for (const name of creditNames) touchedNames.add(name);
+      for (const n of beforeNodes) file.metadata.removeChild(n);
+
+      const grouped = new Map<string, string[]>();
+      for (const c of assignment.contributors) {
+        const targetEl = comicRoleTarget[c.role]!;
+        const list = grouped.get(targetEl) ?? [];
+        if (!list.includes(c.name)) list.push(c.name);
+        grouped.set(targetEl, list);
+      }
+      for (const [targetEl, names] of grouped) {
+        insertComicElement(file, targetEl, names.join(", "));
+      }
+      changes.push({
+        target: "contributors",
+        rule: "assignment",
+        before: beforeSummary,
+        after: assignment.contributors,
+      });
+      continue;
+    }
+    if (assignment.field === "date") {
+      const beforeParts = children(file.metadata).filter(
+        (n) =>
+          !n.namespaceURI &&
+          ["Year", "Month", "Day"].includes(n.localName ?? ""),
+      );
+      const before = beforeParts.length
+        ? inspectComicDate(beforeParts).value
+        : "";
+      for (const n of ["Year", "Month", "Day"]) touchedNames.add(n);
+      writeComicDate(file, assignment.value);
+      changes.push({
+        target: "date",
+        rule: "assignment",
+        before,
+        after: assignment.value,
+      });
+      continue;
+    }
+    const elementName = scalarToElement[assignment.field];
+    touchedNames.add(elementName);
+    const existing = children(file.metadata).find(
+      (n) => !n.namespaceURI && n.localName === elementName,
+    );
+    const before = existing?.textContent ?? "";
+    writeComicScalar(file, elementName, assignment.value);
+    changes.push({
+      target: assignment.field,
+      rule: "assignment",
+      before,
+      after: assignment.value,
+    });
+  }
+
+  const changed = serialize(file.document) !== original;
+  const output = changed
+    ? writeMetadata(bytes, file)
+    : {
+        bytes,
+        preserved: [...file.entries].map(([name, entry]) => ({
+          name,
+          sha256: sha256(entry.bytes),
+          method: entry.method,
+        })),
+      };
+
+  // Verify every untouched ComicInfo element survived identically
+  const source = openMetadata(bytes, "cbz", { preserveContent: true });
+  const result = openMetadata(output.bytes, "cbz", { preserveContent: true });
+  const protectedCbz = (doc: MetadataFile) =>
+    children(doc.metadata)
+      .filter((n) => !(!n.namespaceURI && touchedNames.has(n.localName ?? "")))
+      .map(serialize);
+  if (stable(protectedCbz(source)) !== stable(protectedCbz(result)))
+    fail("METADATA_INTEGRITY", "Unselected ComicInfo metadata fields changed");
+
+  return {
+    ...output,
+    report: {
+      sourceSha256: plan.sourceSha256,
+      metadataSha256: plan.metadataSha256,
+      changed,
+      changes,
+      retained: plan.findings
+        .filter((item) => item.decision === "retain")
+        .map(({ key, rule, before, evidence }) => ({
+          key,
+          rule,
+          before,
+          evidence,
+        })),
+      assignments: plan.assignments,
+      preserved: output.preserved,
+    },
+  };
+}
+
 export function applyBibliography(bytes: Buffer, value: unknown) {
   const parsed = planSchema.safeParse(value);
   if (!parsed.success)
@@ -444,7 +959,10 @@ export function applyBibliography(bytes: Buffer, value: unknown) {
   const plan = parsed.data;
   if (sha256(bytes) !== plan.sourceSha256)
     fail("METADATA_STALE", "Source hash differs from the bibliography plan");
-  const actual = auditBibliography(bytes, { modified: plan.modified });
+  const actual = auditBibliography(bytes, {
+    modified: plan.modified,
+    format: plan.format,
+  });
   const frozen = (findings: Finding[]) =>
     findings.map((item) => ({
       key: item.key,
@@ -480,7 +998,7 @@ export function applyBibliography(bytes: Buffer, value: unknown) {
   const assigned = new Set<Field>();
   const names = new Set<string>();
   for (const assignment of plan.assignments) {
-    validateAssignment(assignment);
+    validateAssignment(assignment, plan.format);
     if (names.has(assignment.field))
       fail(
         "BIBLIOGRAPHY_CONFLICT",
@@ -500,6 +1018,8 @@ export function applyBibliography(bytes: Buffer, value: unknown) {
         `${finding.key} and an assignment both change ${field}`,
       );
   }
+
+  if (plan.format === "cbz") return applyBibliographyCbz(bytes, plan, applied);
 
   const file = openMetadata(bytes, "epub", { preserveContent: true });
   const original = serialize(file.document);
@@ -785,25 +1305,32 @@ export async function auditFileBibliography(
   file: string,
   options: { output?: string } = {},
 ) {
-  if (metadataFormat(file) !== "epub")
-    fail("METADATA_FORMAT", "Bibliography cleanup supports EPUB files");
-  const plan = auditBibliography(await readSourceFile(file));
+  const format = metadataFormat(file);
+  const plan = auditBibliography(await readSourceFile(file), { format });
   if (options.output)
     await fs.writeFile(options.output, stable(plan), { flag: "wx" });
   return plan;
 }
+
 export async function cleanBibliography(
   file: string,
   options: { plan: unknown; output: string; signal?: AbortSignal },
 ) {
-  if (metadataFormat(file) !== "epub")
-    fail("METADATA_FORMAT", "Bibliography cleanup supports EPUB files");
+  const format = metadataFormat(file);
+  if (
+    options.plan &&
+    typeof options.plan === "object" &&
+    "format" in options.plan &&
+    (options.plan as { format?: unknown }).format !== format
+  )
+    fail("METADATA_FORMAT", "Plan format must match the source file format");
   const bytes = await readSourceFile(file);
   const result = applyBibliography(bytes, options.plan);
   return deliverMetadata(file, {
-    ...options,
+    output: options.output,
+    signal: options.signal,
     ...result,
-    format: "epub",
+    format,
     preserveContent: true,
     sourceSha256: sha256(bytes),
   });

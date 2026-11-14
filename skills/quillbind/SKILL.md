@@ -1,10 +1,10 @@
 ---
 name: quillbind
-description: Maintain metadata directly in EPUB files and CBZ ComicInfo.xml, using the library's controlled English tags, BookWalker for light novels and manga, and publisher sources for other books, including self-made editions. Plan consistent light-novel series names, audit tag cleanup, build EPUB 3.3 from Markdown or supported novel websites, inspect and repair EPUBs, split existing EPUB, MOBI or AZW3 anthologies into independent volumes, check scripted popup notes, convert MOBI/AZW3 to EPUB and Chinese scripts, and package manga scans as lossless JPEG XL CBZ. Arbitrary HTML, PDF and LaTeX import are unsupported.
+description: Maintain metadata directly in EPUB files and CBZ ComicInfo.xml, using the library's controlled English tags, BookWalker for light novels and manga, and tiered publisher, public catalog and verified edition sources for Chinese, Japanese and English books, including self-made editions. Plan consistent light-novel series names, audit tag cleanup, build EPUB 3.3 from Markdown or supported novel websites, inspect and repair EPUBs, split existing EPUB, MOBI or AZW3 anthologies into independent volumes, check scripted popup notes, convert MOBI/AZW3 to EPUB and Chinese scripts, and package manga scans as lossless JPEG XL CBZ. Arbitrary HTML, PDF and LaTeX import are unsupported.
 license: MIT
 compatibility: Tag audits and naming plans need Node.js; file metadata edits use ZIP/XML tools and validators. Publishing needs tools/quillbind from vizmoe/skills with dependencies installed, exposed through QUILLBIND_ROOT or quillbind on PATH. EPUB release checks need Java, EPUBCheck and Chromium; CBZ packaging needs libjxl cjxl and djxl. Setup and online collection/refreshes need network; saved books and locks support offline builds. Calibre database access is not required.
 metadata:
-  version: "0.1.24"
+  version: "0.1.25"
 ---
 
 # Quillbind
@@ -18,10 +18,10 @@ Choose the branches needed for the request, including their supporting source, i
 **Existing-file metadata, naming and covers.** Follow each branch's staging, preservation and verification contract.
 
 - Controlled subjects or label cleanup → [tag management](references/tags.md). The current library vocabulary supplies the labels.
-- Missing or incorrect bibliography → [bibliography by book type](references/bibliography.md): BookWalker for light novels/manga and the publisher workflow, with [edition page extraction](references/bibliography.md#extract-an-ordinary-books-edition-page), for other books.
+- Missing or incorrect bibliography → [bibliography by book type](references/bibliography.md): BookWalker for light novels/manga, and the tiered publisher, [public catalog](references/bibliography.md#query-public-book-catalogs) and [edition page extraction](references/bibliography.md#extract-an-ordinary-books-edition-page) workflow for Chinese, Japanese and English books.
 - Self-made or non-retail edition (录入本, personal compilation, doujin, scan-derived) → [identify the work by title, credited people and volume](references/bibliography.md#self-made-and-non-retail-editions), then use its type's source.
 - Description or synopsis → [describe the work, not the file](references/bibliography.md#describe-the-work-not-the-file), including when to translate a Japanese synopsis.
-- Light-novel or manga source records → [BookWalker](references/bookwalker.md).
+- Light-novel or manga source records → [BookWalker](references/bookwalker.md), including candidate discovery via `metadata bookwalker-search`.
 - Performing the write, staging and readback → [embedded metadata maintenance](references/embedded-metadata.md); dirty or source-backed EPUB bibliography uses its [reviewed cleanup plan](references/embedded-metadata.md#epub-clean-bibliography-with-a-reviewed-plan).
 - Organizing books that contain scripts → [preserve scripted content during organization](references/embedded-metadata.md#scripted-epubs-preserve-content-during-organization); select restrictions by the requested operation.
 - Scores, including custom or zero-value ratings → [rating cleanup](references/embedded-metadata.md#remove-score-metadata-completely), with a reviewed file-bound plan and format validation.

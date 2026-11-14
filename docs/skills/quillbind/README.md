@@ -1,6 +1,6 @@
 # Quillbind
 
-以书库受控词表管理标签，将元数据直接写入 EPUB 或 CBZ 的 `ComicInfo.xml`。轻小说和漫画使用 BookWalker 专用流程，其他书籍采用出版社官方资料及书内信息；同时支持 Markdown/网站小说构建 EPUB、已有 EPUB 检查修复、EPUB/MOBI/AZW3 合订本拆分为独立单卷、MOBI/AZW3 转 EPUB、中文繁简转换及扫图打包为无损 JXL CBZ。代理执行入口是 [SKILL.md](../../../skills/quillbind/SKILL.md)。
+以书库受控词表管理标签，将元数据直接写入 EPUB 或 CBZ 的 `ComicInfo.xml`。轻小说和漫画使用 BookWalker 专用流程（含候选检索与版本锁），中日英普通图书采用“出版社官方版本页 + 公共书目目录 + 已核实版本级书目/书店页”三级来源体系；同时支持 Markdown/网站小说构建 EPUB、已有 EPUB 检查修复、EPUB/MOBI/AZW3 合订本拆分为独立单卷、MOBI/AZW3 转 EPUB、中文繁简转换及扫图打包为无损 JXL CBZ。代理执行入口是 [SKILL.md](../../../skills/quillbind/SKILL.md)。
 
 ## 安装与运行条件
 
@@ -35,7 +35,7 @@ $quillbind 将 /absolute/path/to/volume-01 的漫画扫图制作为 CBZ，使用
 
 标签以书库当前受控词表为准，书库只提供分类依据。审计与出版运行时共用[词表来源及迁移规则](../../../skills/quillbind/references/tags.md)。有当前书库文件时，审计指定 `--vocabulary`，出版命令设置 `QUILLBIND_VOCABULARY`；未知标签保留待核对。审计可使用本次任务分配的整数 ID，并保留 ID 与文件路径、哈希的映射，无需 Calibre 书目 ID。
 
-[普通书与专用来源规则](../../../skills/quillbind/references/bibliography.md)区分轻小说/漫画的 BookWalker 流程与其他书籍的出版社流程；定位来源页面时先按[跨简繁与译名检索](../../../skills/quillbind/references/bibliography.md#search-and-cross-script-discovery)用通用搜索引擎定位候选或确认目标站点字形与版本名，再按需做站内检索。普通书定位到版本页后，用 [`metadata edition`](../../../skills/quillbind/references/bibliography.md#extract-an-ordinary-books-edition-page) 抽取并清洗人员角色、书名、ISBN、日期和简介，生成可离线复验的锁文件作为字段计划依据；页面拒绝抓取时保存页面后用 `--page` 解析。常规补资料主动检索并尽可能补全 ISBN，保留有效值，有可靠替代时修正错号；检索失败或候选冲突不能成为清空已有 ISBN 的理由。确无可靠候选或格式无法表达时，保留现状并说明已查来源及限制。仅改标签等限定字段的任务不扩大为 ISBN 修订。发行日直接采用选定来源的日期和精度，不要求交叉复验；已有文件补 ISBN 不使用新书出版项目的 eISBN 审批门槛；来源同时有纸书和电子书 ISBN 时写纸书 ISBN。没有对应台湾版的中文轻小说或漫画使用[日本 BOOK☆WALKER 资料](../../../skills/quillbind/references/bibliography.md#no-taiwan-volume)。
+[普通书与专用来源规则](../../../skills/quillbind/references/bibliography.md)区分轻小说/漫画的 BookWalker 流程（支持 `metadata bookwalker-search` 生成可离线复验的台版/日版候选锁，再用 `metadata bookwalker` 锁定对应单卷）与中日英普通书的三级来源流程：第一级优先采用出版社或丛书官方版本页（用 [`metadata edition`](../../../skills/quillbind/references/bibliography.md#extract-an-ordinary-books-edition-page) 抽取书名、人员角色、ISBN、日期、简介与官方 `coverUrl`，页面拒绝抓取或由脚本渲染时保存页面后用 `--page` 解析）；第二级通过 [`metadata catalog`](../../../skills/quillbind/references/bibliography.md#query-public-book-catalogs) 按语言与 ISBN 前缀查询公共书目目录（日版 `openbd`、`ndl`、`cinii`，美/英及含 MARC-880 中日文原字形的 `loc` SRU、`openlibrary`，以及配置 `GOOGLE_BOOKS_API_KEY` 时的 `google-books`）；第三级在官方页缺失或字段不全时，核实书名、署名人员、出版社与书号后用 `metadata edition`（`--online` 或 `--page`）抽取特定版本的书目/书店详情页（如大陆图书的豆瓣读书单版本条目页、港台图书的博客来/诚品版本页等），严禁采信搜索摘要、多版本百科词条、下载站或社区评分/评论/标签。锁文件中提取的 `coverUrl` 或已核实封面链接可通过 [`metadata cover-fetch`](../../../skills/quillbind/references/covers.md) 下载校验原始 JPEG/PNG 并生成封面锁，再交由 `cover-audit` / `cover-adopt` 应用。常规补资料主动检索并尽可能补全 ISBN，保留有效值，有可靠替代时修正错号；检索失败或候选冲突不能成为清空已有 ISBN 的理由。确无可靠候选或格式无法表达时，保留现状并说明已查来源及限制。仅改标签等限定字段的任务不扩大为 ISBN 修订。发行日直接采用选定来源的日期和精度，不要求交叉复验；已有文件补 ISBN 不使用新书出版项目的 eISBN 审批门槛；来源同时有纸书和电子书 ISBN 时写纸书 ISBN。没有对应台湾版的中文轻小说或漫画使用[日本 BOOK☆WALKER 资料](../../../skills/quillbind/references/bibliography.md#no-taiwan-volume)，中文版出版社与 ISBN 仅从书内版权页、`metadata catalog` 或已核实中文版本页补齐。
 
 录入本、个人汇编、同人志和扫图转制本按书名、署名人员和卷次[识别作品](../../../skills/quillbind/references/bibliography.md#self-made-and-non-retail-editions)，再按作品类型补全字段。简介只写作品内容，[规则](../../../skills/quillbind/references/bibliography.md#describe-the-work-not-the-file)包括中文轻小说和漫画采用日文来源时的翻译；版本来源和字段缺口写进运行报告。
 

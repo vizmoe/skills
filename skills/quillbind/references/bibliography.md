@@ -5,10 +5,44 @@ Use this workflow to supplement or correct existing books, then apply the select
 ## Choose sources by book type
 
 - **Confirmed prose light novels and manga:** use the [BookWalker workflow](bookwalker.md) with the correct work type; an adaptation and its prose original are separate records. For Chinese metadata select the corresponding Taiwan volume, or apply [no Taiwan volume](#no-taiwan-volume) when none matches; use the Japanese original's date, with the existing print-date-first, electronic-date-fallback rule. Use the chosen source field directly; publisher cross-verification is not required. Preserve its available precision rather than shortening a complete date or inventing a missing day.
-- **Other books, including ordinary fiction, nonfiction and art books:** prefer the publisher's or imprint's official page for that book, edition and volume, and [extract it with `metadata edition`](#extract-an-ordinary-books-edition-page). Use the book's title/copyright pages and contents when the official page is unavailable or lacks a field. Apply this route without requiring a BookWalker record, Japanese counterpart or the light-novel/manga date policy. Use the selected edition's publication date from the available source; repeated cross-verification is not required.
+- **Other books, including ordinary fiction, nonfiction and art books:** follow the three-tier ordinary-book source hierarchy below across Chinese (`zh-Hans` / `zh-Hant`), Japanese (`ja`) and English (`en`) editions without requiring a BookWalker record, Japanese counterpart or the light-novel/manga date policy. Use the selected edition's publication date from the available source; repeated cross-verification is not required.
 - **Self-made and non-retail editions** (录入本, personal compilations, doujin or self-published books, scan-derived EPUBs): use the route for the work's type above, after identifying the work as in [self-made and non-retail editions](#self-made-and-non-retail-editions).
 
-Check title, credited people and volume/edition sufficiently to avoid a wrong work or adaptation. One appropriate source can support a field; do not turn every lookup into a mandatory two-source investigation. Record the source URL or book location and adopted values in an external report. If evidence conflicts or is missing, preserve that field and finish other supported changes. The source rule for light novels does not classify every book from the same author or series as a light novel.
+| Tier | Source class | Runtime command | Allowed and excluded scope |
+| --- | --- | --- | --- |
+| Tier 1 | Official publisher or imprint edition page | `metadata edition` (`--online` or `--page saved.html`) | Primary authority for edition title, contributor roles, publisher/imprint, ISBN, date, series, synopsis and official `coverUrl`. |
+| Tier 2 | Public institutional and industry bibliographic catalogs | `metadata catalog` (`openbd`, `ndl`, `cinii`, `loc`, `openlibrary`, optional `google-books`) or `metadata edition --page` on saved national library pages | Structured ISBN, MARC-880 vernacular CJK creators/publishers, publication date, series and JPRO/ONIX or Open Library synopses/covers when Tier 1 is offline, bot-gated or lacks structured fields. |
+| Tier 3 | Verified edition-specific bibliography or bookstore product pages | `metadata edition` (`--online` or `--page saved.html`) plus the book's own title/copyright pages | Edition-specific pages (such as Douban Books `book.douban.com/subject/<id>/` for mainland Chinese editions, Books.com.tw / Eslite for Taiwan editions, or major JP/EN bookstore product pages) after cross-checking title, credited people, publisher and ISBN/volume. Never adopt community ratings/tags/reviews, raw search snippets, multi-edition wiki articles (Wikipedia, Baidu Baike, work-level Bangumi pages) or download sites. |
+
+| Language / ISBN group | Catalog providers (`metadata catalog`) | Typical field coverage and Tier 1 / Tier 3 pairing |
+| --- | --- | --- |
+| Mainland Chinese (`zh-Hans`, `978-7`) | `loc` (SRU MODS 3.8 + MARC-880 vernacular CJK), `ndl`, `cinii`, `openlibrary`, optional `google-books` | Many mainland presses lack public product pages; pair `metadata catalog` bibliography with a verified edition page via `metadata edition` (such as the publisher page or Douban Books edition subject page `--page`) for Chinese synopsis, translator/series details or domestic presses absent from international catalogs. |
+| Traditional Chinese (`zh-Hant`, `978-957` / `978-986` / `978-988`) | `loc` (vernacular `zh-Hant` MARC-880), `ndl`, `cinii`, `openlibrary`, optional `google-books` | Pair publisher/imprint pages (`metadata edition`) with `metadata catalog` and verified Taiwan/HK bookstore edition pages (such as Books.com.tw) when publisher sites omit synopses or ISBNs. |
+| Japanese (`ja`, `978-4`) | `openbd` (JPRO/ONIX), `ndl` (NDL Search DC-NDL), `cinii`, `loc` | `openbd` supplies publisher ONIX synopses, contributor roles, imprints, print/eISBNs and official `coverUrl`; `ndl` and `cinii` cover backlist, academic and non-JPRO editions. |
+| English (`en`, `978-0` / `978-1`) | `loc` (SRU MODS 3.8), `openlibrary`, optional `google-books` | Combine publisher edition pages (`metadata edition`) with `loc` authority bibliography and `openlibrary` / `google-books` synopses and covers. |
+
+Check title, credited people and volume/edition sufficiently to avoid a wrong work or adaptation. One appropriate source can support a field; do not turn every lookup into a mandatory two-source investigation. You may combine a `metadata catalog` lock (for verified ISBN/date/publisher) with a `metadata edition` lock (for the matched edition's synopsis or full translator credits) on the same edition, recording each lock path and digest in the field plan. If evidence conflicts or is missing, preserve that field and finish other supported changes. The source rule for light novels does not classify every book from the same author or series as a light novel.
+
+### Query public book catalogs
+
+Query structured public catalogs by ISBN, title, author, publisher or language to produce an immutable, offline-replayable lock:
+
+```json
+{
+  "isbn": "9784101010014",
+  "title": "<expected title, optional when isbn is supplied>",
+  "author": "<creator lead, optional>",
+  "language": "ja",
+  "matchEvidence": ["Record the verified title, creator and edition correspondence here."]
+}
+```
+
+```sh
+node <skill-directory>/scripts/quillbind.mjs metadata catalog query.json --output catalog.lock.json --online --json
+node <skill-directory>/scripts/quillbind.mjs metadata catalog query.json --output catalog.lock.json --json
+```
+
+Omit `providers` to use automatic language/ISBN routing across `openbd`, `ndl`, `cinii`, `loc` and `openlibrary` (plus `google-books` when `GOOGLE_BOOKS_API_KEY` is set; any API key in request URLs is redacted before writing the lock), or pass an explicit `providers` subset. Each lock records per-provider HTTP status, SHA-256 response hashes, normalized `entries` (including MARC-880 vernacular CJK strings, split contributor roles, print vs electronic ISBNs and optional `coverUrl`), merged candidate fields and conflict diagnostics (`CATALOG_CONFLICT`, `CATALOG_MATCH`, `CATALOG_UNAVAILABLE`). Replay without `--online` verifies the saved lock offline.
 
 ### Extract an ordinary book's edition page
 
@@ -42,7 +76,7 @@ Before using a source's in-site search, query a general search engine (for examp
 
 ## No Taiwan volume
 
-When a Chinese light novel or manga has no matching BOOK☆WALKER Taiwan volume, for example a mainland Simplified-only edition, the matched BOOK☆WALKER Japan volume becomes the source. Fetch it as a [Japanese-only lock](bookwalker.md#select-matching-editions). From it, adopt the date under the Japanese-original policy, the series position and a translated synopsis under the [description rule](#describe-the-work-not-the-file). Keep the book's own Chinese title, series name, contributors' Chinese names and language. Publisher, imprint and ISBN identify the Chinese edition, so fill them only from a Chinese-edition source such as the book's copyright page or its publisher; otherwise leave them as they are and report the gap. Apply these fields through direct OPF or ComicInfo maintenance; `epub enrich` would write the Japanese record's title and language.
+When a Chinese light novel or manga has no matching BOOK☆WALKER Taiwan volume, for example a mainland Simplified-only edition, the matched BOOK☆WALKER Japan volume becomes the work source. Fetch it as a [Japanese-only lock](bookwalker.md#select-matching-editions). From it, adopt the date under the Japanese-original policy, the series position and a translated synopsis under the [description rule](#describe-the-work-not-the-file). Keep the book's own Chinese title, series name, contributors' Chinese names and language. Publisher, imprint and ISBN identify the Chinese edition, so fill them only from a verified Chinese-edition source — the book's copyright page, `metadata catalog` (`978-7` record), or the Chinese publisher / verified edition page via `metadata edition` — otherwise leave them as they are and report the gap. Apply these fields through direct OPF or ComicInfo maintenance; `epub enrich` would write the Japanese record's title and language.
 
 ## Self-made and non-retail editions
 
@@ -90,4 +124,4 @@ For general supplementation or selected corrections, use [bibliography cleanup](
 
 The current runtime's `epub enrich` can supplement supported light-novel or manga EPUBs from a BookWalker lock, but preserves nonempty fields and deliberately updates the original date. It preserves all identifiers and does not fill a missing ISBN, even when the source lock contains one; complete that field through the direct OPF workflow and read it back. Use enrichment only when its changes fit the requested scope. Its output is a new EPUB; follow the file-installation procedure if the user requested replacement of the original. It is not the writer for a generic publisher record, a selected correction to a nonempty field, or a tags-only task.
 
-`metadata resolve` configures new Markdown publications; its online LoC discovery and electronic-edition approval contract are separate from this maintenance workflow. Do not convert an existing book to Markdown or invoke those gates to supplement its metadata. A task-scoped ZIP/XML edit or suitable format-aware writer is valid; `metadata bibliography-clean` covers the EPUB bibliography fields above, not subjects, series, ratings, covers or CBZ. `metadata edition` is a generic page extractor, not a site-specific scraper or a source of authority by itself.
+`metadata resolve` configures new Markdown publications; its multi-provider catalog discovery and electronic-edition approval contract are separate from this maintenance workflow. Do not convert an existing book to Markdown or invoke those authoring gates to supplement its metadata. Use `metadata catalog` and `metadata edition` to gather lock-backed evidence for existing files, then apply changes through `metadata bibliography-audit` / `bibliography-clean` or a task-scoped format-aware writer. `metadata edition` is a generic page extractor, not a source of authority by itself: verify edition correspondence under the tiered hierarchy above.

@@ -4,6 +4,22 @@ Use this operation when cover supplementation or correction is in scope. Tags-on
 
 ## Inspect candidates
 
+When a matched `bookwalker.lock.json`, `edition.lock.json` or `catalog.lock.json` exposes `coverUrl` (or the verified publisher/edition page supplies a direct HTTPS cover image URL), fetch and validate the candidate raster into a local file and immutable provenance lock with `metadata cover-fetch`:
+
+```json
+{
+  "lock": "edition.lock.json",
+  "matchEvidence": ["Matched publisher edition cover for Volume 1."]
+}
+```
+
+```sh
+node <skill-directory>/scripts/quillbind.mjs metadata cover-fetch cover-selection.json --output official.jpg --lock cover.lock.json --online --json
+node <skill-directory>/scripts/quillbind.mjs metadata cover-fetch cover-selection.json --output official.jpg --lock cover.lock.json --json
+```
+
+Pass `"url": "https://..."` instead of `"lock"` when fetching a verified HTTPS cover URL directly; replay without `--online` verifies the saved image and `cover.lock.json` offline. `metadata cover-fetch` enforces public-address SSRF checks, rejects HTML/WebP/placeholder responses, verifies JPEG/PNG magic bytes and intrinsic pixel dimensions, and records SHA-256 provenance without re-encoding bytes.
+
 Record each candidate's source URL/book resource, SHA-256, original pixel dimensions, edition match and selection/rejection reason in the task report. Inspect the actual image with an image viewer: text, all four edges, resolution and any designed white background. Inspect the existing cover page too: a poor container can crop a correct image. If no supported candidate is available, keep the current cover and report attempted sources; one failed URL does not prove that none exists.
 
 Preserve the complete official/original image, its native aspect ratio and original JPEG/PNG bytes. A 2:3 preference never authorizes cropping, stretching, adding borders/padding, upscaling, redrawing or generative reconstruction. White areas integral to the design stay intact. Empty reader viewport space is different from adding white pixels to the image.
@@ -20,7 +36,7 @@ The commands also accept CBZ. Audit is read-only; omit `--image` to inspect curr
 - **EPUB:** inspect `target.image` and `target.document`; unique declarations may be preselected but are not proof of a correct cover. Choose an image manifest path and a cover-only XHTML page, or set either to `null` to add a resource. Incompatible image media types cause a new resource to be added. Correct missing/conflicting/wrong associations explicitly; never replace a body chapter as a cover. Preserve images used outside the cover. The writer displays the entire raster and synchronizes image, legacy, guide and landmark declarations. New cover pages precede the existing spine without reordering it. Complex cover content or ambiguous navigation requires explicit repair instead of flattening.
 - **CBZ:** explicitly set `target.image` after inspecting the displayed book; leave `target.document` null. Supply every image member exactly once in `pageOrder`, and explain the mapping between reader order and zero-based ComicInfo `Page Image` values in `evidence.pageOrder`. Never guess the cover from the first ZIP entry. Selected JPEG/PNG pages require matching source format and retain candidate bytes; an existing JXL page uses lossless encoding with JPEG reconstruction or decoded-sample/metadata verification. Only the selected page changes. Other page bytes/order and unrelated ComicInfo fields/attributes are preserved. Cover role, dimensions and size are maintained; unsupported ComicInfo ISBN remains skipped.
 
-Supported inputs are bounded, passive EPUB 2/3 or CBZ with root ComicInfo 2.0. Protected/multiple-rendition/interactive EPUBs, mixed cover-page content, ambiguous page maps, unsupported source images and collisions stop with evidence. The command does not replace PDF pages or fetch arbitrary image URLs.
+Supported inputs are bounded, passive EPUB 2/3 or CBZ with root ComicInfo 2.0. Protected/multiple-rendition/interactive EPUBs, mixed cover-page content, ambiguous page maps, unsupported source images and collisions stop with evidence. `cover-audit` and `cover-adopt` operate on local image files (such as those retrieved by `metadata cover-fetch` or extracted from book resources) and do not replace PDF pages.
 
 ## Verify delivery
 

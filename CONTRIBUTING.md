@@ -21,8 +21,8 @@
 ```sh
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements-skill.txt
-python3 -B scripts/validate_skills.py
-python3 -B -m unittest discover -s tests -v
+.venv/bin/python -B scripts/validate_skills.py
+.venv/bin/python -B -m unittest discover -s tests -v
 ```
 
 Python 需支持当前技能和测试的运行条件；真实安装测试还需要 Node.js、npm 和网络。测试在临时项目中调用 skills CLI，不修改个人技能目录。依赖与校验工具版本以 [requirements-skill.txt](requirements-skill.txt) 和[安装测试工具](tests/support.py)为准。

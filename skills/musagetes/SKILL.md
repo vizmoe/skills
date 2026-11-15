@@ -2,9 +2,9 @@
 name: musagetes
 description: 整理本地音乐库；organize music folders, fix music tags, split CUE images, or audit a music library. 用于用户指定目录的格式规范化、发行匹配、标签与封面补全、专辑命名归档；不用于音乐下载、播放推荐、流媒体资料库、播客或有声读物整理。
 license: MIT
-compatibility: 辅助脚本需要 Python 3.10+，仅使用标准库；音频工具按具体步骤选用，见 references/audio.md；在线发行检索需要网络访问。
+compatibility: 辅助脚本需要 Python 3.10+ 及 Pillow、mutagen、PyYAML（见 requirements.txt）；音频工具按具体步骤选用，见 references/audio.md；在线发行检索需要网络访问。
 metadata:
-  version: "0.3.12"
+  version: "0.4.0"
 ---
 
 # Musagetes
@@ -49,6 +49,6 @@ metadata:
 
 ## 确定性辅助工具
 
-需要扫描、历史核对、字段校验、封面尺寸或路径生成时，读取[工具输入与局限](references/tools.md)，使用 [library_guard.py](scripts/library_guard.py)。资源从本 SKILL.md 的实际目录解析，与音乐根目录分开；这些 helper 只读，不执行媒体整理或清理。
+需要扫描、历史核对、字段校验、音频头与内嵌元数据预检、封面解码与尺寸校验或路径生成时，读取[工具输入与局限](references/tools.md)，使用 [library_guard.py](scripts/library_guard.py)（Python 依赖见 [requirements.txt](requirements.txt)）。资源从本 SKILL.md 的实际目录解析，与音乐根目录分开；这些 helper 只读，不执行媒体整理或清理。
 
 上游请求使用[请求调度 helper](references/requests.md#helper-调用与记录)计算发送前门槛和响应后的来源冷却；实际发送、等待及状态串行保存由调用代理负责。

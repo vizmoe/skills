@@ -73,7 +73,8 @@
 | 临时在状态词表新增一个执行维度状态 | history 校验即时接受该值；代码不另存一份状态词表 |
 | 把状态词表中 helper 实际分支依赖的状态改名或删除 | `read_vocabulary` 报 `INVALID_STATUS_TABLE` 并指明缺少的值，不静默放过校验 |
 | 事务阶段序列调整末位阶段 | `COMPLETED` 要求的终态阶段随文档顺序改变，不使用代码内硬编码阶段名 |
-| PNG/JPEG 比例恰为 1.40，或多一个像素；仅有完整图片头 | 整数边界判定准确；头部不冒充完整解码或发行身份校验 |
+| PNG/JPEG/WebP 比例恰为 1.40，或多一个像素；仅有图片头而像素负载截断 | 整数边界判定准确；完整像素解码拦截截断/损坏图片，解码通过不冒充发行身份校验 |
+| `.m4a`（ALAC 与 AAC）、含二进制 CUESHEET 块与文本 CUESHEET 的整轨 FLAC、后缀与容器不符的音频 | `audio-info` 只读识别真实容器与 codec、保留多值原生标签、区分二进制与文本内嵌 CUE、解码内嵌封面，并报告容器后缀不匹配 |
 | 已读回 tags 含冒号、非法路径字符或多个艺人 | 只清理生成路径，标签保持原值和顺序；生成计划接入 check-paths |
 | 冷门发行查证后 COUNTRY 或受控 GENRE 无可靠信息 | 可逐字段省略并记录原因与查询证据；其它完成条件满足后可 COMPLETED，仅此缺失不阻断发布或清理 |
 | 一个例外字段已有可靠值，另一个仍无法确定 | 保留可靠值，只为实际缺失字段提供 omissions；不因允许缺失而丢弃可信标签 |
@@ -83,8 +84,8 @@
 
 ## 自动化检查
 
-在仓库根目录运行 `python3 -B -m unittest discover -s tests/skills/musagetes -v` 检查字段、几何、路径安全、跨运行恢复、离线请求调度和无写入副作用。运行 `python3 -B -m unittest discover -s tests -v` 验证资源边界，以及通过真实 skills CLI 安装后脱离源码运行。
+在仓库根目录运行 `.venv/bin/python -B -m unittest discover -s tests/skills/musagetes -v` 检查字段、几何、音频头与原生标签、路径安全、跨运行恢复、离线请求调度和无写入副作用。运行 `.venv/bin/python -B -m unittest discover -s tests -v` 验证资源边界，以及通过真实 skills CLI 安装后脱离源码运行。
 
-运行 `python3 -B scripts/validate_skills.py` 执行官方格式验证、链接、锚点与资源可达性检查。验证环境的安装命令见[贡献指南](../../../CONTRIBUTING.md#本地验证)。
+运行 `.venv/bin/python -B scripts/validate_skills.py` 执行官方格式验证、链接、锚点与资源可达性检查。验证环境的安装命令见[贡献指南](../../../CONTRIBUTING.md#本地验证)。
 
 本文件是验收场景集，不声称已完成每个场景的真实端到端运行。独立前向验证的请求、原始输入指纹、实际产物和结果记录放在隔离 work 目录；在交付中区分自动化测试、实际代理跑过的场景与仅作规范审阅的场景。

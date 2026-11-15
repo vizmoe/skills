@@ -1,8 +1,12 @@
 from pathlib import Path
+import io
 import json
 import subprocess
 import sys
 import tempfile
+import wave
+
+from PIL import Image
 
 from tests.support import SkillInstallationTestCase
 
@@ -13,10 +17,21 @@ class MusagetesInstallationTests(SkillInstallationTestCase):
             project = Path(directory)
             installed = self.install_skill(project, "musagetes")
             self.assertTrue((installed / "LICENSE").is_file())
+            self.assertTrue((installed / "requirements.txt").is_file())
             library = project / "music"
             library.mkdir()
             track = library / "track.wav"
-            track.write_bytes(b"synthetic audio inventory fixture")
+            with wave.open(str(track), "wb") as writer:
+                writer.setnchannels(2)
+                writer.setsampwidth(2)
+                writer.setframerate(44100)
+                writer.writeframes(b"\x00\x00\x00\x00" * 441)
+            track_bytes = track.read_bytes()
+            cover = library / "cover.webp"
+            cover_buf = io.BytesIO()
+            Image.new("RGB", (120, 100), (30, 60, 90)).save(cover_buf, format="WEBP")
+            cover.write_bytes(cover_buf.getvalue())
+            cover_bytes = cover.read_bytes()
             result = subprocess.run(
                 [sys.executable, "-B", str(installed / "scripts/library_guard.py"),
                  "inventory", "--root", str(library), "--hash"],
@@ -24,9 +39,23 @@ class MusagetesInstallationTests(SkillInstallationTestCase):
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn('"audio_candidate"', result.stdout)
-            self.assertEqual(list(library.iterdir()), [track])
-            self.assertEqual(track.read_bytes(), b"synthetic audio inventory fixture")
+            self.assertEqual(sorted(library.iterdir()), [cover, track])
+            self.assertEqual(track.read_bytes(), track_bytes)
             self.assertFalse(list(installed.rglob("__pycache__")))
+            cover_res = subprocess.run(
+                [sys.executable, "-B", str(installed / "scripts/library_guard.py"),
+                 "cover-info", "--root", str(library), "--image", "cover.webp"],
+                cwd=library, text=True, capture_output=True, timeout=30,
+            )
+            self.assertEqual(cover_res.returncode, 0, cover_res.stderr)
+            self.assertTrue(json.loads(cover_res.stdout)["full_decode_verified"])
+            audio_res = subprocess.run(
+                [sys.executable, "-B", str(installed / "scripts/library_guard.py"),
+                 "audio-info", "--root", str(library), "--audio", "track.wav"],
+                cwd=library, text=True, capture_output=True, timeout=30,
+            )
+            self.assertEqual(audio_res.returncode, 0, audio_res.stderr)
+            self.assertEqual(json.loads(audio_res.stdout)["codec"], "pcm")
             # history parses the status vocabulary from the bundled references at run time.
             recorded = subprocess.run(
                 [sys.executable, "-B", str(installed / "scripts/library_guard.py"),
@@ -35,7 +64,7 @@ class MusagetesInstallationTests(SkillInstallationTestCase):
             )
             self.assertEqual(recorded.returncode, 0, recorded.stderr)
             self.assertEqual(json.loads(recorded.stdout)["scope"], "recorded_files_only")
-            self.assertEqual(list(library.iterdir()), [track])
+            self.assertEqual(sorted(library.iterdir()), [cover, track])
             # Installed scheduling reads its own policy reference, without HTTP or writes.
             throttle = [sys.executable, "-B", str(installed / "scripts/source-throttle.py"), "--input", "-"]
             observation = subprocess.run(throttle, input=json.dumps({
@@ -57,7 +86,8 @@ class MusagetesInstallationTests(SkillInstallationTestCase):
                 cwd=library, text=True, capture_output=True, timeout=30)
             self.assertEqual(coverage.returncode, 1, coverage.stderr)
             self.assertEqual(json.loads(coverage.stdout)["pending"], ["variant"])
-            original = {"path": "track.wav", "sha256": json.loads(result.stdout)["files"][0]["sha256"]}
+            files_by_path = {f["path"]: f for f in json.loads(result.stdout)["files"]}
+            original = {"path": "track.wav", "sha256": files_by_path["track.wav"]["sha256"]}
             cleanup = subprocess.run([sys.executable, "-B", str(installed / "scripts/cleanup-audit.py"),
                 "--root", str(library), "--input", "-"], input=json.dumps({"schema_version": 1,
                 "originals": [original], "entries": [{"id": "original", "role": "review", "source": original,
@@ -73,5 +103,6 @@ class MusagetesInstallationTests(SkillInstallationTestCase):
                 cwd=library, text=True, capture_output=True, timeout=30)
             self.assertEqual(report.returncode, 0, report.stderr)
             self.assertEqual(json.loads(report.stdout)["counts"]["unidentified_audio"], 1)
-            self.assertEqual(list(library.iterdir()), [track])
+            self.assertEqual(sorted(library.iterdir()), [cover, track])
+            self.assertEqual(cover.read_bytes(), cover_bytes)
             self.assertFalse(list(installed.rglob("__pycache__")))

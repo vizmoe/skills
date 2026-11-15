@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -8,6 +9,9 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import wave
+
+from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "skills/musagetes/scripts"))
 import library_guard as guard
@@ -196,6 +200,62 @@ class GuardTests(unittest.TestCase):
         result = subprocess.run([sys.executable, "-B", guard.__file__, "check-paths", "--root", str(self.root), "--plan", str(plan)], cwd=self.root, capture_output=True, text=True)
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(json.loads(result.stdout)["scope"], "paths_only")
+
+    def test_cover_info_and_audio_info_cli_enforce_source_safety_and_stay_read_only(self):
+        cover_buf = io.BytesIO()
+        Image.new("RGB", (100, 100), (10, 20, 30)).save(cover_buf, format="WEBP")
+        cover = self.root / "front.webp"
+        cover.write_bytes(cover_buf.getvalue())
+
+        wide_buf = io.BytesIO()
+        Image.new("RGB", (180, 100), (10, 20, 30)).save(wide_buf, format="PNG")
+        wide_cover = self.root / "wide.png"
+        wide_cover.write_bytes(wide_buf.getvalue())
+
+        audio = self.root / "real.wav"
+        with wave.open(str(audio), "wb") as writer:
+            writer.setnchannels(2)
+            writer.setsampwidth(2)
+            writer.setframerate(44100)
+            writer.writeframes(b"\x00\x00\x00\x00" * 441)
+
+        symlink = self.root / "linked.wav"
+        symlink.symlink_to(audio)
+        before_audio = audio.read_bytes()
+        before_cover = cover.read_bytes()
+
+        ok_cover = subprocess.run(
+            [sys.executable, "-B", guard.__file__, "cover-info", "--root", str(self.root), "--image", "front.webp"],
+            cwd=self.root, capture_output=True, text=True,
+        )
+        self.assertEqual(ok_cover.returncode, 0, ok_cover.stderr)
+        self.assertEqual(json.loads(ok_cover.stdout)["format"], "WEBP")
+        self.assertTrue(json.loads(ok_cover.stdout)["full_decode_verified"])
+
+        bad_cover = subprocess.run(
+            [sys.executable, "-B", guard.__file__, "cover-info", "--root", str(self.root), "--image", "wide.png"],
+            cwd=self.root, capture_output=True, text=True,
+        )
+        self.assertEqual(bad_cover.returncode, 1, bad_cover.stderr)
+        self.assertIn("COVER_RATIO_EXCEEDED", [i["code"] for i in json.loads(bad_cover.stdout)["issues"]])
+
+        ok_audio = subprocess.run(
+            [sys.executable, "-B", guard.__file__, "audio-info", "--root", str(self.root), "--audio", "real.wav"],
+            cwd=self.root, capture_output=True, text=True,
+        )
+        self.assertEqual(ok_audio.returncode, 0, ok_audio.stderr)
+        audio_payload = json.loads(ok_audio.stdout)
+        self.assertEqual((audio_payload["container"], audio_payload["codec"], audio_payload["lossless"]), ("wav", "pcm", True))
+
+        refused_link = subprocess.run(
+            [sys.executable, "-B", guard.__file__, "audio-info", "--root", str(self.root), "--audio", "linked.wav"],
+            cwd=self.root, capture_output=True, text=True,
+        )
+        self.assertEqual(refused_link.returncode, 2)
+        self.assertEqual(json.loads(refused_link.stdout)["issues"][0]["code"], "SYMLINK")
+
+        self.assertEqual(audio.read_bytes(), before_audio)
+        self.assertEqual(cover.read_bytes(), before_cover)
 
 
 if __name__ == "__main__":

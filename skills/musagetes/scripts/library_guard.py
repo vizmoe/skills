@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Read-only music library preflights. Python 3.10+, standard library only."""
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#   "mutagen>=1.47.0",
+#   "pillow>=11.0.0",
+#   "PyYAML>=6.0.0",
+# ]
+# ///
+"""Read-only music library preflights. Python 3.10+ with Pillow, mutagen, and PyYAML."""
 from __future__ import annotations
 
 import argparse
@@ -13,8 +21,10 @@ import stat
 import sys
 import unicodedata
 
-from music_rules import (RuleError, check_tags, inspect_cover, read_vocabulary, read_whitelist,
-                         render_path, sanitize_component)
+import yaml
+
+from music_rules import (RuleError, check_tags, inspect_audio, inspect_cover, read_vocabulary,
+                         read_whitelist, render_path, sanitize_component)
 
 
 class GuardError(ValueError):
@@ -264,14 +274,21 @@ def unique_object(pairs: list) -> dict:
     return result
 
 
-def skill_version() -> str:
-    text = (Path(__file__).resolve().parent.parent / "SKILL.md").read_text(encoding="utf-8")
-    front = re.match(r"\A---\n(.*?)\n---(?:\n|$)", text, re.S)
-    metadata = re.search(r'(?m)^metadata:\n((?:  [^\n]+(?:\n|$))+)', front[1]) if front else None
-    match = re.search(r'(?m)^  version: "([0-9]+\.[0-9]+\.[0-9]+)"$', metadata[1]) if metadata else None
-    if not match:
+def skill_version(skill_md: Path | None = None) -> str:
+    target = skill_md or (Path(__file__).resolve().parent.parent / "SKILL.md")
+    text = target.read_text(encoding="utf-8")
+    front = re.match(r"\A---\r?\n(.*?)\r?\n---(?:\r?\n|\Z)", text, re.S)
+    if not front:
+        raise GuardError("INVALID_SKILL_VERSION", "SKILL.md", "Missing YAML frontmatter in SKILL.md.")
+    try:
+        parsed = yaml.safe_load(front[1])
+    except yaml.YAMLError as error:
+        raise GuardError("INVALID_SKILL_VERSION", "SKILL.md", f"Invalid YAML frontmatter: {error}") from error
+    metadata = parsed.get("metadata") if isinstance(parsed, dict) else None
+    version = metadata.get("version") if isinstance(metadata, dict) else None
+    if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
         raise GuardError("INVALID_SKILL_VERSION", "SKILL.md", "Expected metadata.version as a quoted semantic version.")
-    return match[1]
+    return version
 
 
 def directory_entries(root: Path, relative: str) -> list[Path]:
@@ -475,9 +492,12 @@ def main(argv: list[str] | None = None) -> int:
     render.add_argument("--input", required=True, type=Path)
     tags = commands.add_parser("check-tags", help="Check canonical field names, required fields and nonempty ordered values.")
     tags.add_argument("--input", required=True, type=Path)
-    cover = commands.add_parser("cover-info", help="Check PNG/JPEG header dimensions and ratio; not a full image decode.")
+    cover = commands.add_parser("cover-info", help="Decode an image via Pillow and check cover dimensions and ratio.")
     cover.add_argument("--root", required=True)
     cover.add_argument("--image", required=True, help="Root-relative image file; state candidates may be inspected.")
+    audio = commands.add_parser("audio-info", help="Inspect audio container, codec, native tags, embedded CUE, and embedded pictures.")
+    audio.add_argument("--root", required=True)
+    audio.add_argument("--audio", required=True, help="Root-relative audio file; state candidates may be inspected.")
     for command in (scan, check, resume, render):
         command.add_argument("--state-dir", action="append", default=[], help="Additional protected root-relative state directory; repeat for previous locations.")
     args = parser.parse_args(argv)
@@ -494,6 +514,8 @@ def main(argv: list[str] | None = None) -> int:
             result = render_paths(root, read_json(args.input), args.state_dir)
         elif args.command == "cover-info":
             result = inspect_cover(source_path(root, args.image))
+        elif args.command == "audio-info":
+            result = inspect_audio(source_path(root, args.audio))
         else:
             request = read_json(args.input)
             if not isinstance(request, dict) or set(request) not in ({"kind", "tags"}, {"kind", "tags", "omissions"}):

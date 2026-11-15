@@ -5,37 +5,68 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { promisify } from "node:util";
 
+interface ToolsLock {
+  node: string;
+  pnpm: string;
+  playwright: string;
+  ace: string;
+}
+
+interface PackageManifest {
+  engines?: { node?: string };
+  packageManager?: string;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+}
+
+interface DependencyLedger {
+  packages: Array<{
+    name: string;
+    version: string;
+    integrity?: string;
+  }>;
+}
+
 const root = path.resolve(import.meta.dirname, "..");
-const read = (file) => fs.readFile(path.join(root, file), "utf8");
-const readJson = async (file) => JSON.parse(await read(file));
-const tools = await readJson("standards/tools.lock.json");
-const workspace = await readJson("package.json");
-const core = await readJson("packages/core/package.json");
-const cli = await readJson("packages/cli/package.json");
-const dependencies = await readJson("standards/dependencies.lock.json");
+const read = (file: string): Promise<string> =>
+  fs.readFile(path.join(root, file), "utf8");
+const readJson = async <T>(file: string): Promise<T> =>
+  JSON.parse(await read(file)) as T;
+
+const tools = await readJson<ToolsLock>("standards/tools.lock.json");
+const workspace = await readJson<PackageManifest>("package.json");
+const core = await readJson<PackageManifest>("packages/core/package.json");
+const cli = await readJson<PackageManifest>("packages/cli/package.json");
+const dependencies = await readJson<DependencyLedger>(
+  "standards/dependencies.lock.json",
+);
 
 assert.equal(
   (await read(".node-version")).trim(),
   tools.node,
   ".node-version drifted from tools lock",
 );
-assert.equal(workspace.engines.node, tools.node, "Node engine drifted");
+assert.equal(workspace.engines?.node, tools.node, "Node engine drifted");
 assert.equal(
   workspace.packageManager,
   `pnpm@${tools.pnpm}`,
   "pnpm pin drifted",
 );
 assert.equal(
-  workspace.devDependencies["@playwright/test"],
+  workspace.devDependencies?.["@playwright/test"],
   tools.playwright,
   "Browser test version drifted",
 );
 assert.equal(
-  core.dependencies["@playwright/test"],
+  core.dependencies?.["@playwright/test"],
   tools.playwright,
   "Browser runtime version drifted",
 );
-assert.equal(core.dependencies["@daisy/ace"], tools.ace, "Ace version drifted");
+assert.equal(
+  core.dependencies?.["@daisy/ace"],
+  tools.ace,
+  "Ace version drifted",
+);
 
 const docker = await read("Dockerfile.qa");
 assert.equal(
@@ -87,13 +118,16 @@ const require = createRequire(import.meta.url);
 for (const [alias, name, version] of [
   ["@typescript/native", "typescript", compilerVersion],
   ["typescript", "@typescript/typescript6", "6.0.2"],
-]) {
+] as const) {
   assert.equal(
-    workspace.devDependencies[alias],
+    workspace.devDependencies?.[alias],
     `npm:${name}@${version}`,
     `${alias} TypeScript alias drifted; review the compiler/API transition`,
   );
-  const installed = require(`${alias}/package.json`);
+  const installed = require(`${alias}/package.json`) as {
+    name: string;
+    version: string;
+  };
   assert.equal(installed.name, name, `${alias} resolves to the wrong package`);
   assert.equal(
     installed.version,
@@ -103,7 +137,7 @@ for (const [alias, name, version] of [
 }
 // The compatibility package re-exports a separately locked TypeScript 6 API.
 assert.equal(
-  require("typescript").version,
+  (require("typescript") as { version: string }).version,
   lintApiVersion,
   "Lint TypeScript API version drifted",
 );

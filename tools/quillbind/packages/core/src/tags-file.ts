@@ -84,7 +84,7 @@ export async function loadTagVocabulary(
       pathToFileURL(
         path.resolve(
           repoRoot,
-          "../../skills/quillbind/scripts/tag-vocabulary.mjs",
+          "../../skills/quillbind/scripts/tag-vocabulary.ts",
         ),
       ).href
     ) as Promise<{
@@ -99,10 +99,7 @@ export async function loadTagVocabulary(
     }>,
     import(
       pathToFileURL(
-        path.resolve(
-          repoRoot,
-          "../../skills/quillbind/scripts/skill-rules.mjs",
-        ),
+        path.resolve(repoRoot, "../../skills/quillbind/scripts/skill-rules.ts"),
       ).href
     ) as Promise<{
       readWorkTypeTagRules: () => Promise<LoadedVocabulary["workKinds"]>;

@@ -3,18 +3,24 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+
+interface ToolsLock {
+  node: string;
+}
+
 const root = fileURLToPath(new URL("../", import.meta.url));
 const tools = JSON.parse(
   readFileSync(path.join(root, "standards/tools.lock.json"), "utf8"),
-);
+) as ToolsLock;
 const local = path.join(
   root,
   `.cache/tools/node-v${tools.node}-${process.platform}-${process.arch}/bin/node`,
 );
 const runtime = existsSync(local) ? local : process.execPath;
 const timeoutSeconds = Number(process.env.QUILLBIND_TIMEOUT_SECONDS ?? "1800");
-if (!Number.isSafeInteger(timeoutSeconds) || timeoutSeconds <= 0)
+if (!Number.isSafeInteger(timeoutSeconds) || timeoutSeconds <= 0) {
   throw new Error("QUILLBIND_TIMEOUT_SECONDS must be a positive integer");
+}
 const result = spawnSync(
   runtime,
   [
@@ -31,7 +37,7 @@ const result = spawnSync(
     timeout: timeoutSeconds * 1000,
     env: {
       ...process.env,
-      PATH: path.dirname(runtime) + path.delimiter + process.env.PATH,
+      PATH: path.dirname(runtime) + path.delimiter + (process.env.PATH ?? ""),
     },
   },
 );

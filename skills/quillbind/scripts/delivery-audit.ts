@@ -8,17 +8,43 @@ import {
   readInput,
   requireValue,
   strings,
-} from "./tag-vocabulary.mjs";
+} from "./tag-vocabulary.ts";
 import {
   readBibliographyRules,
   readDeliveryRules,
   readNamingRules,
-} from "./skill-rules.mjs";
+  type ProtectedSidecarRule,
+} from "./skill-rules.ts";
 
-const check = (condition, message) =>
+interface CodedError extends Error {
+  code?: string;
+}
+
+interface SidecarState {
+  exists: boolean;
+  type?: "file" | "symlink" | "other";
+  size?: number;
+  mtimeMs?: number;
+  sha256?: string;
+}
+
+interface SidecarSnapshotEntry {
+  path: string;
+  filename: string;
+  inspection: string;
+  state: SidecarState;
+}
+
+interface AuditIssue {
+  code: string;
+  [key: string]: unknown;
+}
+
+function check(condition: unknown, message: string): asserts condition {
   requireValue(condition, "DELIVERY_INPUT", message);
+}
 
-function validIsbn13(value) {
+function validIsbn13(value: unknown): boolean {
   if (typeof value !== "string") return false;
   const digits = value.replace(/[-\s]/gu, "");
   if (!/^97[89]\d{10}$/u.test(digits)) return false;
@@ -29,7 +55,10 @@ function validIsbn13(value) {
   return sum % 10 === 0;
 }
 
-async function writeExclusiveJson(outputPath, value) {
+async function writeExclusiveJson(
+  outputPath: string | undefined,
+  value: unknown,
+): Promise<void> {
   const payload = JSON.stringify(value, null, 2) + "\n";
   if (!outputPath) {
     process.stdout.write(payload);
@@ -44,17 +73,20 @@ async function writeExclusiveJson(outputPath, value) {
         { code: "OUTPUT_EXISTS" },
       );
     })
-    .catch((error) => {
-      if (error.code !== "ENOENT") throw error;
+    .catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     });
   await fs.mkdir(path.dirname(resolved), { recursive: true });
   await fs.writeFile(resolved, payload, { flag: "wx" });
   process.stdout.write(payload);
 }
 
-async function inspectSidecar(filePath, mode) {
-  const stat = await fs.lstat(filePath).catch((error) => {
-    if (error.code === "ENOENT") return null;
+async function inspectSidecar(
+  filePath: string,
+  mode: string,
+): Promise<SidecarState> {
+  const stat = await fs.lstat(filePath).catch((error: unknown) => {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
   });
   if (!stat) return { exists: false };
@@ -81,13 +113,13 @@ async function inspectSidecar(filePath, mode) {
   };
 }
 
-async function collectDirectories(targets) {
-  const dirs = new Set();
+async function collectDirectories(targets: string[]): Promise<string[]> {
+  const dirs = new Set<string>();
   for (const target of targets) {
     check(typeof target === "string" && target.trim(), "Invalid target path");
     const resolved = path.resolve(target);
-    const stat = await fs.lstat(resolved).catch((error) => {
-      if (error.code === "ENOENT") return null;
+    const stat = await fs.lstat(resolved).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw error;
     });
     const baseDir = stat?.isDirectory() ? resolved : path.dirname(resolved);
@@ -101,9 +133,12 @@ async function collectDirectories(targets) {
   return [...dirs].sort();
 }
 
-async function snapshotSidecars(targets, protectedSidecars) {
+async function snapshotSidecars(
+  targets: string[],
+  protectedSidecars: ProtectedSidecarRule[],
+): Promise<SidecarSnapshotEntry[]> {
   const directories = await collectDirectories(targets);
-  const entries = [];
+  const entries: SidecarSnapshotEntry[] = [];
   for (const dir of directories) {
     for (const item of protectedSidecars) {
       const candidate = path.join(dir, item.filename);
@@ -118,7 +153,7 @@ async function snapshotSidecars(targets, protectedSidecars) {
   return entries;
 }
 
-async function verifyNamingPlan(planPath, targetDir) {
+async function verifyNamingPlan(planPath: string, targetDir?: string) {
   const namingRules = await readNamingRules();
   const planInput = await readInput(planPath);
   const plan = planInput.value;
@@ -129,23 +164,29 @@ async function verifyNamingPlan(planPath, targetDir) {
       Array.isArray(plan.books),
     "Expected a schemaVersion 1 light-novel-naming-plan JSON file",
   );
-  const issues = [];
-  const plannedDestinations = new Map();
-  const sourcePaths = new Set();
+  const issues: AuditIssue[] = [];
+  const plannedDestinations = new Map<string, string>();
+  const sourcePaths = new Set<string>();
   for (const book of plan.books) {
     check(object(book) && typeof book.id === "string", "Invalid book entry");
-    if (book.kind !== undefined && !namingRules.kinds.includes(book.kind)) {
+    if (
+      book.kind !== undefined &&
+      (typeof book.kind !== "string" || !namingRules.kinds.includes(book.kind))
+    ) {
       issues.push({
         code: "UNKNOWN_NAMING_KIND",
         id: book.id,
-        detail: `Unsupported book kind: ${book.kind}`,
+        detail: `Unsupported book kind: ${String(book.kind)}`,
       });
     }
-    if (!namingRules.bases.includes(book.basis)) {
+    if (
+      typeof book.basis !== "string" ||
+      !namingRules.bases.includes(book.basis)
+    ) {
       issues.push({
         code: "UNKNOWN_NAMING_BASIS",
         id: book.id,
-        detail: `Unsupported numbering basis: ${book.basis}`,
+        detail: `Unsupported numbering basis: ${String(book.basis)}`,
       });
     }
     if (book.source === null) continue;
@@ -157,8 +198,8 @@ async function verifyNamingPlan(planPath, targetDir) {
     );
     const sourceResolved = path.resolve(book.source.path);
     sourcePaths.add(sourceResolved.normalize("NFC").toLowerCase());
-    const stat = await fs.lstat(sourceResolved).catch((error) => {
-      if (error.code === "ENOENT") return null;
+    const stat = await fs.lstat(sourceResolved).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw error;
     });
     if (!stat || !stat.isFile()) {
@@ -179,8 +220,13 @@ async function verifyNamingPlan(planPath, targetDir) {
         actual: actualSha,
       });
     }
-    const stem = String(book.filenameStem ?? "");
-    if (!stem || /[\/\\:*?"<>|\u0000-\u001f]/u.test(stem) || stem.endsWith(".")) {
+    const stem = typeof book.filenameStem === "string" ? book.filenameStem : "";
+    if (
+      !stem ||
+      /[/\\:*?"<>|]/u.test(stem) ||
+      [...stem].some((ch) => ch.charCodeAt(0) <= 0x1f) ||
+      stem.endsWith(".")
+    ) {
       issues.push({
         code: "ILLEGAL_FILENAME_STEM",
         id: book.id,
@@ -189,7 +235,9 @@ async function verifyNamingPlan(planPath, targetDir) {
       continue;
     }
     const ext = path.extname(sourceResolved);
-    const destDir = targetDir ? path.resolve(targetDir) : path.dirname(sourceResolved);
+    const destDir = targetDir
+      ? path.resolve(targetDir)
+      : path.dirname(sourceResolved);
     const destPath = path.join(destDir, `${stem}${ext}`);
     const destKey = destPath.normalize("NFC").toLowerCase();
     if (plannedDestinations.has(destKey)) {
@@ -202,8 +250,8 @@ async function verifyNamingPlan(planPath, targetDir) {
     } else {
       plannedDestinations.set(destKey, book.id);
     }
-    const destStat = await fs.lstat(destPath).catch((error) => {
-      if (error.code === "ENOENT") return null;
+    const destStat = await fs.lstat(destPath).catch((error: unknown) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw error;
     });
     if (destStat && destKey !== sourceResolved.normalize("NFC").toLowerCase()) {
@@ -228,7 +276,7 @@ const provenanceNoise =
   /(?:录入本|掃描版|扫描版|自制电子书|自製電子書|未找到\s*ISBN|无\s*ISBN|跳过\s*ISBN|https?:\/\/)/iu;
 const japaneseKana = /[\u3040-\u309f\u30a0-\u30ff]{3,}/u;
 
-async function auditDelivery(reportPath, beforePath) {
+async function auditDelivery(reportPath: string, beforePath?: string) {
   const [bibRules, deliveryRules, reportInput] = await Promise.all([
     readBibliographyRules(),
     readDeliveryRules(),
@@ -242,7 +290,7 @@ async function auditDelivery(reportPath, beforePath) {
       Array.isArray(report.items),
     "Expected a schemaVersion 1 delivery report with status and items[]",
   );
-  const issues = [];
+  const issues: AuditIssue[] = [];
   const statusRule = deliveryRules.statuses[report.status];
   if (!statusRule) {
     issues.push({
@@ -253,9 +301,16 @@ async function auditDelivery(reportPath, beforePath) {
 
   if (beforePath) {
     const beforeInput = await readInput(beforePath);
-    const beforeEntries = beforeInput.value?.entries;
+    const beforeValue = beforeInput.value;
+    const beforeEntries = object(beforeValue) ? beforeValue.entries : undefined;
     check(Array.isArray(beforeEntries), "Invalid Calibre snapshot file");
     for (const entry of beforeEntries) {
+      check(
+        object(entry) &&
+          typeof entry.path === "string" &&
+          typeof entry.inspection === "string",
+        "Invalid Calibre snapshot entry",
+      );
       const current = await inspectSidecar(entry.path, entry.inspection);
       if (JSON.stringify(current) !== JSON.stringify(entry.state)) {
         issues.push({
@@ -268,22 +323,42 @@ async function auditDelivery(reportPath, beforePath) {
     }
   }
 
-  for (const [index, item] of report.items.entries()) {
-    const label = item?.source?.path ?? `item[${index}]`;
-    if (!object(item) || !object(item.source) || typeof item.source.path !== "string") {
+  for (const [index, rawItem] of report.items.entries()) {
+    const sourceObj =
+      object(rawItem) && object(rawItem.source) ? rawItem.source : null;
+    const label =
+      sourceObj && typeof sourceObj.path === "string"
+        ? sourceObj.path
+        : `item[${index}]`;
+    if (!object(rawItem) || !sourceObj || typeof sourceObj.path !== "string") {
       issues.push({ code: "INVALID_ITEM", item: label });
       continue;
     }
-    const format = path.extname(item.source.path).toLowerCase().slice(1);
-    const verifyHash = async (role, ref) => {
+    const item = rawItem;
+    const sourcePath = sourceObj.path;
+    const format = path.extname(sourcePath).toLowerCase().slice(1);
+    const verifyHash = async (
+      role: string,
+      ref: unknown,
+    ): Promise<string | null> => {
       if (!ref) return null;
-      if (!object(ref) || typeof ref.path !== "string" || !/^[a-f0-9]{64}$/u.test(ref.sha256 ?? "")) {
+      if (
+        !object(ref) ||
+        typeof ref.path !== "string" ||
+        typeof ref.sha256 !== "string" ||
+        !/^[a-f0-9]{64}$/u.test(ref.sha256)
+      ) {
         issues.push({ code: "INVALID_FILE_REF", item: label, role });
         return null;
       }
       const bytes = await fs.readFile(path.resolve(ref.path)).catch(() => null);
       if (!bytes) {
-        issues.push({ code: "FILE_MISSING", item: label, role, path: ref.path });
+        issues.push({
+          code: "FILE_MISSING",
+          item: label,
+          role,
+          path: ref.path,
+        });
         return null;
       }
       const actual = digest(bytes);
@@ -300,10 +375,13 @@ async function auditDelivery(reportPath, beforePath) {
       return actual;
     };
 
+    const finalObj = object(item.final) ? item.final : null;
+    const backupObj = object(item.backup) ? item.backup : null;
+    const stagedObj = object(item.staged) ? item.staged : null;
     const inPlace =
-      object(item.final) &&
-      typeof item.final.path === "string" &&
-      path.resolve(item.final.path) === path.resolve(item.source.path);
+      finalObj !== null &&
+      typeof finalObj.path === "string" &&
+      path.resolve(finalObj.path) === path.resolve(sourcePath);
 
     if (!inPlace) await verifyHash("source", item.source);
     if (item.backup) await verifyHash("backup", item.backup);
@@ -313,7 +391,11 @@ async function auditDelivery(reportPath, beforePath) {
     if (statusRule?.filesWritten && !item.final) {
       issues.push({ code: "MISSING_FINAL_FILE", item: label });
     }
-    if (!statusRule?.filesWritten && item.final && report.status !== "partial") {
+    if (
+      !statusRule?.filesWritten &&
+      Boolean(item.final) &&
+      report.status !== "partial"
+    ) {
       issues.push({
         code: "UNEXPECTED_FINAL_WRITE",
         item: label,
@@ -321,30 +403,33 @@ async function auditDelivery(reportPath, beforePath) {
       });
     }
     if (inPlace) {
-      if (!item.backup) {
+      if (!backupObj) {
         issues.push({ code: "BACKUP_REQUIRED_FOR_INPLACE", item: label });
-      } else if (item.backup.sha256 !== item.source.sha256) {
+      } else if (backupObj.sha256 !== sourceObj.sha256) {
         issues.push({
           code: "BACKUP_SOURCE_HASH_MISMATCH",
           item: label,
-          sourceSha256: item.source.sha256,
-          backupSha256: item.backup.sha256,
+          sourceSha256: sourceObj.sha256,
+          backupSha256: backupObj.sha256,
         });
       }
     }
-    if (item.staged && item.final && item.staged.sha256 !== item.final.sha256) {
+    if (stagedObj && finalObj && stagedObj.sha256 !== finalObj.sha256) {
       issues.push({
         code: "FINAL_STAGED_HASH_MISMATCH",
         item: label,
-        stagedSha256: item.staged.sha256,
-        finalSha256: item.final.sha256,
+        stagedSha256: stagedObj.sha256,
+        finalSha256: finalObj.sha256,
       });
     }
 
     if (item.isbn !== undefined) {
-      const isbnInfo = item.isbn;
-      const disp = isbnInfo?.disposition;
-      const rule = bibRules.isbnDispositions[disp];
+      const isbnInfo = object(item.isbn) ? item.isbn : null;
+      const disp =
+        isbnInfo && typeof isbnInfo.disposition === "string"
+          ? isbnInfo.disposition
+          : undefined;
+      const rule = disp ? bibRules.isbnDispositions[disp] : undefined;
       if (!rule) {
         issues.push({
           code: "UNKNOWN_ISBN_DISPOSITION",
@@ -359,17 +444,17 @@ async function auditDelivery(reportPath, beforePath) {
             format,
           });
         }
-        if (rule.requiresIsbn && !validIsbn13(isbnInfo.value)) {
+        if (rule.requiresIsbn && !validIsbn13(isbnInfo?.value)) {
           issues.push({
             code: "INVALID_ADOPTED_ISBN",
             item: label,
-            value: isbnInfo.value ?? null,
+            value: isbnInfo?.value ?? null,
           });
         }
         if (
           rule.requiresAttemptedSources &&
-          (!strings(isbnInfo.attemptedSources) ||
-            !isbnInfo.attemptedSources.length ||
+          (!strings(isbnInfo?.attemptedSources) ||
+            isbnInfo.attemptedSources.length === 0 ||
             typeof isbnInfo.reason !== "string" ||
             !isbnInfo.reason.trim())
         ) {
@@ -382,7 +467,9 @@ async function auditDelivery(reportPath, beforePath) {
     }
 
     if (item.editionClass !== undefined) {
-      const edRule = bibRules.editionClasses[item.editionClass];
+      const edClass =
+        typeof item.editionClass === "string" ? item.editionClass : "";
+      const edRule = bibRules.editionClasses[edClass];
       if (!edRule) {
         issues.push({
           code: "UNKNOWN_EDITION_CLASS",
@@ -392,7 +479,7 @@ async function auditDelivery(reportPath, beforePath) {
       } else if (
         edRule.requiresIdentification &&
         (!strings(item.identificationEvidence) ||
-          !item.identificationEvidence.length)
+          item.identificationEvidence.length === 0)
       ) {
         issues.push({
           code: "MISSING_IDENTIFICATION_EVIDENCE",
@@ -403,21 +490,24 @@ async function auditDelivery(reportPath, beforePath) {
     }
 
     if (object(item.synopsis)) {
-      const text = item.synopsis.value;
-      if (typeof text === "string" && provenanceNoise.test(text)) {
+      const synopsisValue = item.synopsis.value;
+      if (
+        typeof synopsisValue === "string" &&
+        provenanceNoise.test(synopsisValue)
+      ) {
         issues.push({
           code: "SYNOPSIS_CONTAINS_PROVENANCE",
           item: label,
         });
       }
-      const bookLang = String(item.language ?? "");
-      const srcLang = String(item.synopsis.sourceLanguage ?? "");
-      const isLnOrManga = ["light-novel", "manga"].includes(item.bookType);
-      if (
-        isLnOrManga &&
-        /^zh(?:-|$)/iu.test(bookLang) &&
-        srcLang === "ja"
-      ) {
+      const bookLang = typeof item.language === "string" ? item.language : "";
+      const srcLang =
+        typeof item.synopsis.sourceLanguage === "string"
+          ? item.synopsis.sourceLanguage
+          : "";
+      const isLnOrManga =
+        item.bookType === "light-novel" || item.bookType === "manga";
+      if (isLnOrManga && /^zh(?:-|$)/iu.test(bookLang) && srcLang === "ja") {
         if (
           typeof item.synopsis.translationSource !== "string" ||
           !item.synopsis.translationSource.trim()
@@ -427,17 +517,17 @@ async function auditDelivery(reportPath, beforePath) {
             item: label,
           });
         }
-        if (typeof text === "string" && japaneseKana.test(text)) {
+        if (
+          typeof synopsisValue === "string" &&
+          japaneseKana.test(synopsisValue)
+        ) {
           issues.push({
             code: "UNTRANSLATED_JAPANESE_SYNOPSIS",
             item: label,
           });
         }
       }
-      if (
-        item.bookType === "ordinary" &&
-        item.synopsis.translated === true
-      ) {
+      if (item.bookType === "ordinary" && item.synopsis.translated === true) {
         issues.push({
           code: "ORDINARY_SYNOPSIS_TRANSLATED",
           item: label,
@@ -456,7 +546,7 @@ async function auditDelivery(reportPath, beforePath) {
   };
 }
 
-try {
+async function run(): Promise<void> {
   const { values, positionals } = parseArgs({
     allowPositionals: true,
     options: {
@@ -472,14 +562,16 @@ try {
   if (values.help || !positionals.length) {
     process.stdout.write(
       [
-        "delivery-audit.mjs snapshot --path FILE_OR_DIR [--path ...] [--output SNAPSHOT.json]",
-        "delivery-audit.mjs verify-naming --plan NAMING_PLAN.json [--directory TARGET_DIR] [--output AUDIT.json]",
-        "delivery-audit.mjs audit --input REPORT.json [--before SNAPSHOT.json] [--output AUDIT.json]",
+        "delivery-audit.ts snapshot --path FILE_OR_DIR [--path ...] [--output SNAPSHOT.json]",
+        "delivery-audit.ts verify-naming --plan NAMING_PLAN.json [--directory TARGET_DIR] [--output AUDIT.json]",
+        "delivery-audit.ts audit --input REPORT.json [--before SNAPSHOT.json] [--output AUDIT.json]",
         "Read-only verification helper; never opens a Calibre database or modifies ebooks.",
         "",
       ].join("\n"),
     );
-  } else if (positionals[0] === "snapshot") {
+    return;
+  }
+  if (positionals[0] === "snapshot") {
     const paths = values.path ?? [];
     check(paths.length > 0, "Supply at least one --path to snapshot");
     const { protectedSidecars } = await readDeliveryRules();
@@ -491,23 +583,28 @@ try {
     });
   } else if (positionals[0] === "verify-naming") {
     check(Boolean(values.plan), "Supply --plan NAMING_PLAN.json");
-    const result = await verifyNamingPlan(values.plan, values.directory);
+    const result = await verifyNamingPlan(values.plan!, values.directory);
     await writeExclusiveJson(values.output, result);
     if (!result.ok) process.exitCode = 1;
   } else if (positionals[0] === "audit") {
     check(Boolean(values.input), "Supply --input REPORT.json");
-    const result = await auditDelivery(values.input, values.before);
+    const result = await auditDelivery(values.input!, values.before);
     await writeExclusiveJson(values.output, result);
     if (!result.ok) process.exitCode = 1;
   } else {
     check(false, "Choose snapshot, verify-naming, or audit; see --help");
   }
+}
+
+try {
+  await run();
 } catch (error) {
+  const err = error as CodedError;
   process.stderr.write(
     JSON.stringify({
       status: "fail",
-      code: error.code ?? "DELIVERY_INPUT",
-      message: error.message,
+      code: err.code ?? "DELIVERY_INPUT",
+      message: err.message ?? String(error),
     }) + "\n",
   );
   process.exitCode = 2;

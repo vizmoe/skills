@@ -103,7 +103,7 @@ for (const scenario of catalog.scenarios) {
     let actualExitCode = 0;
     const result = await execute(
       process.execPath,
-      [path.join(skill, "scripts/quillbind.mjs"), ...args, "--json"],
+      [path.join(skill, "scripts/quillbind.ts"), ...args, "--json"],
       {
         cwd: root,
         timeout: 600000,
@@ -438,7 +438,7 @@ for (const scenario of catalog.scenarios) {
 const report = {
   schemaVersion: 1,
   mode: "scripted-skill-workflows",
-  helper: "../../skills/quillbind/scripts/quillbind.mjs",
+  helper: "../../skills/quillbind/scripts/quillbind.ts",
   node: process.versions.node,
   skillSha256: sha256(await fs.readFile(path.join(skill, "SKILL.md"))),
   status: process.exitCode ? "fail" : "pass",

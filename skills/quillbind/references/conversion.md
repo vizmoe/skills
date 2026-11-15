@@ -5,7 +5,7 @@
 Convert an existing `.mobi` or `.azw3` file to EPUB 3.3 through the skill helper:
 
 ```sh
-node <skill-directory>/scripts/quillbind.mjs epub convert <source.mobi|source.azw3> --output <new.epub> --json
+node <skill-directory>/scripts/quillbind.ts epub convert <source.mobi|source.azw3> --output <new.epub> --json
 ```
 
 The converter unpacks unencrypted PalmDB `BOOKMOBI` containers natively — MOBI 6, KF8 (`.azw3`), and combo MOBI+KF8 files using uncompressed, PalmDOC LZ77 or Huff/CDIC records — and reconstructs EPUB 3.3 chapters, stylesheets, images, cover metadata, navigation and internal links (`filepos` and `kindle:pos:fid`). For an anthology that also needs volume splitting, either convert it to EPUB first or pass the `.mobi`/`.azw3` directly to [local splitting](local-splitting.md).

@@ -4,10 +4,10 @@
 
 | Source / input | Role and precedence | Verification |
 | --- | --- | --- |
-| Explicit `--vocabulary <path>` | Highest precedence for `scripts/tags.mjs` and `metadata tags-audit` / `tags-apply` (e.g., `reports/book-taxonomy/controlled-vocabulary.json`). Fails with `TAXONOMY_INVALID` or `ENOENT` if missing/invalid; never falls back silently. | [scripts/tag-vocabulary.mjs](../scripts/tag-vocabulary.mjs) |
+| Explicit `--vocabulary <path>` | Highest precedence for `scripts/tags.ts` and `metadata tags-audit` / `tags-apply` (e.g., `reports/book-taxonomy/controlled-vocabulary.json`). Fails with `TAXONOMY_INVALID` or `ENOENT` if missing/invalid; never falls back silently. | [scripts/tag-vocabulary.ts](../scripts/tag-vocabulary.ts) |
 | `QUILLBIND_VOCABULARY` env var | Used when `--vocabulary` is omitted across tag audits, file writers and publishing commands. | SHA-256 bound in audit/tag plans and metadata locks |
 | Bundled [tag-vocabulary.json](tag-vocabulary.json) | Portable `Major.Controlled Subclass` baseline when no external library file is supplied; never overrides a newer supplied library vocabulary. | Validated by `loadVocabulary()` |
-| Calibre database / sidecars / historical scripts | Read-only label reference at most; never open `metadata.db`, never write `metadata.opf` or `cover.jpg`, and never rerun historical fixed-ID scripts. | `scripts/delivery-audit.mjs` |
+| Calibre database / sidecars / historical scripts | Read-only label reference at most; never open `metadata.db`, never write `metadata.opf` or `cover.jpg`, and never rerun historical fixed-ID scripts. | `scripts/delivery-audit.ts` |
 
 ### Label formation and exclusions
 
@@ -20,7 +20,7 @@
 
 ## Work-type tag rules
 
-Parsed directly by [scripts/skill-rules.mjs](../scripts/skill-rules.mjs), [scripts/tags.mjs](../scripts/tags.mjs) and `metadata tags-audit` / `tags-apply`:
+Parsed directly by [scripts/skill-rules.ts](../scripts/skill-rules.ts), [scripts/tags.ts](../scripts/tags.ts) and `metadata tags-audit` / `tags-apply`:
 
 | Work kind | Required tag | Forbidden tags | Required prefix | Evidence rule |
 | --- | --- | --- | --- | --- |
@@ -33,7 +33,7 @@ Parsed directly by [scripts/skill-rules.mjs](../scripts/skill-rules.mjs), [scrip
 ### Multi-book JSON inventory audit (standalone Node.js)
 
 ```sh
-node <skill-directory>/scripts/tags.mjs audit \
+node <skill-directory>/scripts/tags.ts audit \
   --input inventory.json --vocabulary /absolute/path/to/controlled-vocabulary.json \
   --decisions decisions.json --output new-tag-audit.json
 ```
@@ -47,8 +47,8 @@ node <skill-directory>/scripts/tags.mjs audit \
 ### Direct EPUB / CBZ file tag maintenance
 
 ```sh
-node <skill-directory>/scripts/quillbind.mjs metadata tags-audit book.epub --decisions tag-decision.json --output tags-plan.json --json
-node <skill-directory>/scripts/quillbind.mjs metadata tags-apply book.epub --plan tags-plan.json --output tagged.epub --json
+node <skill-directory>/scripts/quillbind.ts metadata tags-audit book.epub --decisions tag-decision.json --output tags-plan.json --json
+node <skill-directory>/scripts/quillbind.ts metadata tags-apply book.epub --plan tags-plan.json --output tagged.epub --json
 ```
 
 | Stage / diagnostic | Behavior across `.epub` and `.cbz` |
@@ -56,4 +56,4 @@ node <skill-directory>/scripts/quillbind.mjs metadata tags-apply book.epub --pla
 | `tags-audit` | Reads embedded EPUB `dc:subject` (via `META-INF/container.xml`, including `id`, `refines` and external references) or CBZ root `ComicInfo.xml` `Genre`, binds source/metadata/vocabulary SHA-256, and evaluates `decision` (`kind`, `add`, `remove`, `clearEvidence`, `evidence`). |
 | Review & refinements | Set `reviewed: true` after checking `before`, `proposed` and `unresolved`. Removing/replacing an EPUB `dc:subject` with attached `meta[refines]` requires an explicit `refinementDecisions` entry (`action: "drop-refinements"` + `evidence`, `TAGS_REFINEMENT`); external links/spine references block removal (`TAGS_REFERENCE`). |
 | `tags-apply` | Rejects unresolved tags (`TAGS_UNRESOLVED`), stale source/vocabulary hashes (`METADATA_STALE`, `TAGS_VOCABULARY_STALE`), or edited inventories (`TAGS_INVENTORY`). Writes namespace-clean `dc:subject` (preserving EPUB 2 vs EPUB 3) or ComicInfo 2.0 `Genre` in exact XSD sequence order, preserves all non-target metadata and archive member bytes, runs EPUBCheck or `xmllint --nonet`, and verifies independent readback (`METADATA_READBACK`). |
-| Authoring (`book.yaml`) | Inspect labels via `taxonomy list --json` or `taxonomy explain '<tag>' --json` through `scripts/quillbind.mjs`, place canonical labels in `book.tags`, and run [metadata resolution](metadata.md). |
+| Authoring (`book.yaml`) | Inspect labels via `taxonomy list --json` or `taxonomy explain '<tag>' --json` through `scripts/quillbind.ts`, place canonical labels in `book.tags`, and run [metadata resolution](metadata.md). |

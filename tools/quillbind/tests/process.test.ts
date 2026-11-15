@@ -13,7 +13,7 @@ afterEach(async () => {
 async function fixture() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "quillbind-process-"));
   roots.push(root);
-  const script = path.join(root, "child.mjs");
+  const script = path.join(root, "child.ts");
   await fs.writeFile(
     script,
     `
@@ -62,7 +62,7 @@ it("waits for cleanup on cancellation and preserves the caller's reason", async 
 
 it("closes descendants that retain output pipes after the tool exits", async () => {
   const { root, script } = await fixture();
-  const parent = path.join(root, "parent.mjs");
+  const parent = path.join(root, "parent.ts");
   await fs.writeFile(
     parent,
     `

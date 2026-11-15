@@ -707,7 +707,7 @@ describe("catalog collection, locks, security and CLI", () => {
     const cli = await run(
       process.execPath,
       [
-        path.join(repoRoot, "bin/quillbind.mjs"),
+        path.join(repoRoot, "bin/quillbind.ts"),
         "metadata",
         "catalog",
         queryFile,

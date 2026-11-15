@@ -12,8 +12,8 @@ Run cover retrieval or adoption only when cover work is explicitly in scope (nev
 ```
 
 ```sh
-node <skill-directory>/scripts/quillbind.mjs metadata cover-fetch cover-selection.json --output official.jpg --lock cover.lock.json --online --json
-node <skill-directory>/scripts/quillbind.mjs metadata cover-fetch cover-selection.json --output official.jpg --lock cover.lock.json --json
+node <skill-directory>/scripts/quillbind.ts metadata cover-fetch cover-selection.json --output official.jpg --lock cover.lock.json --online --json
+node <skill-directory>/scripts/quillbind.ts metadata cover-fetch cover-selection.json --output official.jpg --lock cover.lock.json --json
 ```
 
 | Step | Requirement |
@@ -25,8 +25,8 @@ node <skill-directory>/scripts/quillbind.mjs metadata cover-fetch cover-selectio
 ## Audit and apply
 
 ```sh
-node <skill-directory>/scripts/quillbind.mjs metadata cover-audit source.epub --image official.png --output cover-plan.json --json
-node <skill-directory>/scripts/quillbind.mjs metadata cover-adopt source.epub --image official.png --plan cover-plan.json --output covered.epub --json
+node <skill-directory>/scripts/quillbind.ts metadata cover-audit source.epub --image official.png --output cover-plan.json --json
+node <skill-directory>/scripts/quillbind.ts metadata cover-adopt source.epub --image official.png --plan cover-plan.json --output covered.epub --json
 ```
 
 | Format | Plan fields & archive behavior |
@@ -37,4 +37,4 @@ node <skill-directory>/scripts/quillbind.mjs metadata cover-adopt source.epub --
 
 ## Verify delivery
 
-`cover-adopt` requires independent ZIP/XML/resource readback, EPUBCheck or `xmllint --nonet` ComicInfo 2.0 XSD pass, and portrait/tablet/landscape browser renders (decoding final JXL pages where applicable) reviewed for uncropped, unstretched legibility, writing `<output>.reports/`. Keep originals and backups, and verify Calibre sidecars remain untouched via `scripts/delivery-audit.mjs` ([quality](quality.md)).
+`cover-adopt` requires independent ZIP/XML/resource readback, EPUBCheck or `xmllint --nonet` ComicInfo 2.0 XSD pass, and portrait/tablet/landscape browser renders (decoding final JXL pages where applicable) reviewed for uncropped, unstretched legibility, writing `<output>.reports/`. Keep originals and backups, and verify Calibre sidecars remain untouched via `scripts/delivery-audit.ts` ([quality](quality.md)).

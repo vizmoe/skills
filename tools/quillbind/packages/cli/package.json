@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "bin": {
-    "quillbind": "../../bin/quillbind.mjs"
+    "quillbind": "../../bin/quillbind.ts"
   },
   "dependencies": {
     "@quillbind/core": "workspace:*"

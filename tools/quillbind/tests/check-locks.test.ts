@@ -23,7 +23,7 @@ async function fixture() {
     "packages/cli/package.json",
     "standards/tools.lock.json",
     "standards/dependencies.lock.json",
-    "scripts/check-locks.mjs",
+    "scripts/check-locks.ts",
   ]) {
     await fs.mkdir(path.dirname(path.join(root, file)), { recursive: true });
     await fs.copyFile(path.join(repoRoot, file), path.join(root, file));
@@ -44,7 +44,7 @@ async function fixture() {
 const check = (root: string) =>
   promisify(execFile)(
     process.execPath,
-    [path.join(root, "scripts/check-locks.mjs")],
+    [path.join(root, "scripts/check-locks.ts")],
     {
       env: {
         ...process.env,

@@ -3,8 +3,8 @@
 `inspect` reads the EPUB without writing reports, rewriting metadata, extracting files, running validators or fetching links. It works for the supported readable EPUB 2 and 3 package structures even when the publication toolchain is unavailable.
 
 ```sh
-node <skill-directory>/scripts/quillbind.mjs inspect <file.epub> --summary --json
-node <skill-directory>/scripts/quillbind.mjs inspect <file.epub> --json
+node <skill-directory>/scripts/quillbind.ts inspect <file.epub> --summary --json
+node <skill-directory>/scripts/quillbind.ts inspect <file.epub> --json
 ```
 
 The summary gives title, language, package version and path, SHA-256, resource count, linear/non-linear reading order counts, NAV/NCX TOC counts, cover associations and broken-reference counts. Human mode prints a concise summary; JSON is preferable for agent decisions.

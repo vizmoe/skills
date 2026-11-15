@@ -38,8 +38,8 @@ Supplement or correct existing EPUB and CBZ files by locking upstream records an
 ```
 
 ```sh
-node <skill-directory>/scripts/quillbind.mjs metadata catalog query.json --output catalog.lock.json --online --json
-node <skill-directory>/scripts/quillbind.mjs metadata catalog query.json --output catalog.lock.json --json
+node <skill-directory>/scripts/quillbind.ts metadata catalog query.json --output catalog.lock.json --online --json
+node <skill-directory>/scripts/quillbind.ts metadata catalog query.json --output catalog.lock.json --json
 ```
 
 Omit `providers` for automatic language/ISBN routing (`google-books` joins when `GOOGLE_BOOKS_API_KEY` is set, with API keys redacted from saved URLs). Review `CATALOG_CONFLICT`, `CATALOG_MATCH` and `CATALOG_UNAVAILABLE` diagnostics before adopting fields; omit `--online` to replay offline.
@@ -55,9 +55,9 @@ Omit `providers` for automatic language/ISBN routing (`google-books` joins when 
 ```
 
 ```sh
-node <skill-directory>/scripts/quillbind.mjs metadata edition selection.json --output edition.lock.json --online --json
-node <skill-directory>/scripts/quillbind.mjs metadata edition selection.json --output edition.lock.json --page saved.html --json
-node <skill-directory>/scripts/quillbind.mjs metadata edition selection.json --output edition.lock.json --json
+node <skill-directory>/scripts/quillbind.ts metadata edition selection.json --output edition.lock.json --online --json
+node <skill-directory>/scripts/quillbind.ts metadata edition selection.json --output edition.lock.json --page saved.html --json
+node <skill-directory>/scripts/quillbind.ts metadata edition selection.json --output edition.lock.json --json
 ```
 
 | Extractor aspect | Behavior |
@@ -87,7 +87,7 @@ When a Chinese light novel or manga has no matching BOOK☆WALKER Taiwan volume 
 
 ## Self-made and non-retail editions
 
-Parsed directly by [scripts/skill-rules.mjs](../scripts/skill-rules.mjs) and verified by [scripts/delivery-audit.mjs](../scripts/delivery-audit.mjs):
+Parsed directly by [scripts/skill-rules.ts](../scripts/skill-rules.ts) and verified by [scripts/delivery-audit.ts](../scripts/delivery-audit.ts):
 
 | Edition class | Identification evidence | Metadata rule |
 | --- | --- | --- |
@@ -99,7 +99,7 @@ Parsed directly by [scripts/skill-rules.mjs](../scripts/skill-rules.mjs) and ver
 
 ## Complete ISBNs where supported
 
-Parsed directly by [scripts/skill-rules.mjs](../scripts/skill-rules.mjs) and verified by [scripts/delivery-audit.mjs](../scripts/delivery-audit.mjs):
+Parsed directly by [scripts/skill-rules.ts](../scripts/skill-rules.ts) and verified by [scripts/delivery-audit.ts](../scripts/delivery-audit.ts):
 
 | Disposition | Requires ISBN | Requires attemptedSources | Rule |
 | --- | --- | --- | --- |

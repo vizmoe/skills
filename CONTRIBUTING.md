@@ -10,7 +10,7 @@
 4. 随附脚本可按任务需要选用标准库或成熟主流的生态第三方库（拒绝冷门或无人维护的小众依赖），并在 `compatibility`、依赖清单（如 `requirements.txt`、`package.json`）或内联元数据（如 PEP 723）中明确声明运行前提。禁止将 `node_modules`、`.venv`、`__pycache__` 等安装与缓存产物提交进技能目录。校验器静态检查 `.py` 与 `.js`、`.cjs`、`.mjs`、`.ts`、`.cts`、`.mts` 的本地/相对路径导入，确保被引用文件存在于当前技能目录内且不向外逃逸；动态 `import()` / `require()` 调用须使用字符串字面量以便核对边界。
 5. 在 frontmatter 声明 `license: MIT`，将根 `LICENSE` 复制到技能目录。校验器会检查声明与副本；附带的第三方材料保留其许可信息。
 6. 在 `docs/skills/<name>/README.md` 提供面向使用者的调用示例、运行条件及开发指南入口，并在根 README 的技能表中添加一项。代理执行所需规则仍放在安装目录中。
-7. 技能行为测试放在 `tests/skills/<name>/`。Python 测试使用 `test_*.py`，目录包含 `__init__.py`，由公共测试命令递归发现。复杂运行时放在 `tools/<name>/`，在该工作区维护依赖、测试和相应 CI，并在技能说明中链接配置方法。
+7. 技能行为测试放在 `tests/skills/<name>/`。Python 技能测试使用 `test_*.py`（目录包含 `__init__.py`），由公共 Python 测试命令递归发现；TypeScript 技能（如 Quillbind）使用 `*.test.ts`，由对应 TypeScript 工作区的 Vitest 门禁统一执行。复杂运行时放在 `tools/<name>/`，在该工作区维护依赖、测试和相应 CI，并在技能说明中链接配置方法。
 
 新增技能无需修改公共校验器、安装测试中的名称列表或公共 CI 的测试入口。技能指令和资源必须能从独立安装目录使用；可选运行时通过文档声明的配置定位。
 

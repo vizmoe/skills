@@ -647,7 +647,7 @@ describe("coverUrl extraction and cover-fetch lock workflow", () => {
     ).rejects.toMatchObject({ code: "COVER_SOURCE_MISSING" });
 
     // CLI offline replay & argument guards
-    const bin = path.join(repoRoot, "bin/quillbind.mjs");
+    const bin = path.join(repoRoot, "bin/quillbind.ts");
     const cliReplay = await run(process.execPath, [
       bin,
       "metadata",

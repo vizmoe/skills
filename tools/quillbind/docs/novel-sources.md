@@ -4,20 +4,20 @@
 
 ```sh
 # 查看卷号、卷名及章节数量
-./bin/quillbind.mjs novel inspect 'https://www.bilinovel.com/novel/1840.html'
+./bin/quillbind.ts novel inspect 'https://www.bilinovel.com/novel/1840.html'
 
 # 全书合并；输出目录必须是新目录
-./bin/quillbind.mjs novel fetch 'https://www.lightnovel.fun/book/31608' --output ./my-novel
+./bin/quillbind.ts novel fetch 'https://www.lightnovel.fun/book/31608' --output ./my-novel
 
 # 选择并合并第 1～3、5 卷
-./bin/quillbind.mjs novel fetch 'https://www.bilinovel.com/novel/1840.html' --volumes 1-3,5 --output ./selected-novel
+./bin/quillbind.ts novel fetch 'https://www.bilinovel.com/novel/1840.html' --volumes 1-3,5 --output ./selected-novel
 
 # 每卷分别生成一个独立书籍项目和 EPUB
-./bin/quillbind.mjs novel fetch 'https://www.lightnovel.app/book/info/20247' --split-volumes --output ./series
+./bin/quillbind.ts novel fetch 'https://www.lightnovel.app/book/info/20247' --split-volumes --output ./series
 
 # 只采集，稍后检查或修改本地书稿，再离线构建
-./bin/quillbind.mjs novel fetch 'https://www.lightnovel.fun/book/31608' --prepare-only --output ./draft
-./bin/quillbind.mjs build ./draft --json
+./bin/quillbind.ts novel fetch 'https://www.lightnovel.fun/book/31608' --prepare-only --output ./draft
+./bin/quillbind.ts build ./draft --json
 ```
 
 省略 `--output` 时使用当前目录下的 `novel-站点-书籍ID`。`--volumes` 接受 `all`、`1,3`、`1-3,5`；卷号从 1 开始，以 `novel inspect` 的目录为准。重复选择自动去重，最终顺序保持源目录顺序。逐卷输出位于 `volume-001/` 等子目录，每个项目包含自己的本地图片，能独立构建。

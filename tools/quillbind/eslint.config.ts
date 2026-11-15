@@ -6,22 +6,22 @@ export default [
   {
     ignores: [
       "**/node_modules/**",
-      ".cache/**",
-      "dist/**",
-      "examples/**",
-      "test-results/**",
-      "playwright-report/**",
-      "coverage/**",
+      "**/.cache/**",
+      "**/dist/**",
+      "**/examples/**",
+      "**/test-results/**",
+      "**/playwright-report/**",
+      "**/coverage/**",
     ],
   },
   {
-    files: ["**/*.{ts,mjs}"],
-    languageOptions: { globals: { ...globals.node, ...globals.browser } },
-    rules: js.configs.recommended.rules,
-  },
-  {
-    files: ["**/*.ts"],
+    files: [
+      "tools/quillbind/**/*.ts",
+      "skills/quillbind/scripts/**/*.ts",
+      "tests/skills/quillbind/**/*.ts",
+    ],
     languageOptions: {
+      globals: { ...globals.node, ...globals.browser },
       parser: tseslint.parser,
       parserOptions: {
         projectService: true,
@@ -31,6 +31,7 @@ export default [
     },
     plugins: { "@typescript-eslint": tseslint.plugin },
     rules: {
+      ...js.configs.recommended.rules,
       "no-undef": "off", // tsc understands types and browser evaluation contexts.
       "no-unused-vars": "off",
       "@typescript-eslint/no-unused-vars": [
@@ -50,7 +51,20 @@ export default [
     },
   },
   {
-    files: ["tests/visual/**/*.ts"],
+    files: [
+      "skills/quillbind/scripts/**/*.ts",
+      "tests/skills/quillbind/**/*.ts",
+    ],
+    languageOptions: {
+      parserOptions: {
+        projectService: false,
+        project: ["./tsconfig.json"],
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+  },
+  {
+    files: ["tools/quillbind/tests/visual/**/*.ts"],
     // Playwright parses destructured fixture parameters, including empty fixtures.
     rules: {
       "no-empty-pattern": ["error", { allowObjectPatternsAsParameters: true }],

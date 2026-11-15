@@ -154,7 +154,7 @@ export async function taxonomy() {
     pathToFileURL(
       path.resolve(
         repoRoot,
-        "../../skills/quillbind/scripts/tag-vocabulary.mjs",
+        "../../skills/quillbind/scripts/tag-vocabulary.ts",
       ),
     ).href
   )) as {

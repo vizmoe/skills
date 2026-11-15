@@ -4,8 +4,8 @@
 
 | Operation | Required verification & handoff evidence | Publication status |
 | --- | --- | --- |
-| Tag inventory audit (`scripts/tags.mjs`) | Input/vocabulary/decision SHA-256 digests, per-book `proposed` and `unresolved` arrays; writes no ebooks. | `libraryWritten: false`, `publicationReady: false` |
-| Embedded metadata maintenance (`metadata *-clean`, `tags-apply`, `series-normalize`, `cover-adopt`) | Source/backup/staged/final SHA-256 chain, `<output>.reports/metadata.json`, independent field readback, actual EPUBCheck or `xmllint --nonet` ComicInfo 2.0 XSD pass, ISBN disposition (`attemptedSources` when `unresolved`), [self-made identification](bibliography.md#self-made-and-non-retail-editions), [synopsis translation source](bibliography.md#describe-the-work-not-the-file), and unchanged Calibre sidecars via `scripts/delivery-audit.mjs`. | File maintenance (`publicationReady: false` unless `epub enrich` release gates ran) |
+| Tag inventory audit (`scripts/tags.ts`) | Input/vocabulary/decision SHA-256 digests, per-book `proposed` and `unresolved` arrays; writes no ebooks. | `libraryWritten: false`, `publicationReady: false` |
+| Embedded metadata maintenance (`metadata *-clean`, `tags-apply`, `series-normalize`, `cover-adopt`) | Source/backup/staged/final SHA-256 chain, `<output>.reports/metadata.json`, independent field readback, actual EPUBCheck or `xmllint --nonet` ComicInfo 2.0 XSD pass, ISBN disposition (`attemptedSources` when `unresolved`), [self-made identification](bibliography.md#self-made-and-non-retail-editions), [synopsis translation source](bibliography.md#describe-the-work-not-the-file), and unchanged Calibre sidecars via `scripts/delivery-audit.ts`. | File maintenance (`publicationReady: false` unless `epub enrich` release gates ran) |
 | Preparation (`init`) | `metadata/preparation.json` with copied-source hashes and readiness. | Release gates `not-run` |
 | Preview (`preview`) | CLI `status: preview`, `candidate` link for author review. | `publicationReady: false`, release gates `not-run` |
 | Reading repair (`epub repair-copy`, `epub repair-dir`) | `summary.json`, `remaining-findings.json` (or `repair-summary.json`), `copy` SHA-256, content integrity, idempotence and sampled reading QA. | Ace and platform release gates `not-run` |
@@ -16,7 +16,7 @@
 
 ### Maintenance delivery statuses
 
-Parsed directly by [scripts/skill-rules.mjs](../scripts/skill-rules.mjs) and enforced by [scripts/delivery-audit.mjs](../scripts/delivery-audit.mjs):
+Parsed directly by [scripts/skill-rules.ts](../scripts/skill-rules.ts) and enforced by [scripts/delivery-audit.ts](../scripts/delivery-audit.ts):
 
 | Status | Files written | Meaning |
 | --- | --- | --- |
@@ -28,7 +28,7 @@ Parsed directly by [scripts/skill-rules.mjs](../scripts/skill-rules.mjs) and enf
 
 ### Protected Calibre sidecars
 
-Parsed directly by [scripts/skill-rules.mjs](../scripts/skill-rules.mjs) and checked before/after file maintenance by [scripts/delivery-audit.mjs](../scripts/delivery-audit.mjs):
+Parsed directly by [scripts/skill-rules.ts](../scripts/skill-rules.ts) and checked before/after file maintenance by [scripts/delivery-audit.ts](../scripts/delivery-audit.ts):
 
 | File | Inspection | Rule |
 | --- | --- | --- |
@@ -37,8 +37,8 @@ Parsed directly by [scripts/skill-rules.mjs](../scripts/skill-rules.mjs) and che
 | `cover.jpg` | `sha256` | Never overwrite or sync Calibre's directory cover file; verify byte hash is unchanged. |
 
 ```sh
-node <skill-directory>/scripts/delivery-audit.mjs snapshot --path /absolute/books/target.epub --output before-sidecars.json
-node <skill-directory>/scripts/delivery-audit.mjs audit --input delivery-report.json --before before-sidecars.json --output delivery-audit.json
+node <skill-directory>/scripts/delivery-audit.ts snapshot --path /absolute/books/target.epub --output before-sidecars.json
+node <skill-directory>/scripts/delivery-audit.ts audit --input delivery-report.json --before before-sidecars.json --output delivery-audit.json
 ```
 
 ## Release evidence

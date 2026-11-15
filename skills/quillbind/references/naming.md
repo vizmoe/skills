@@ -17,7 +17,7 @@ Apply this naming policy only to a selected light-novel family (main volumes, si
 
 ### Supported work kinds
 
-Parsed directly by [scripts/skill-rules.mjs](../scripts/skill-rules.mjs), [scripts/naming.mjs](../scripts/naming.mjs) and [scripts/delivery-audit.mjs](../scripts/delivery-audit.mjs):
+Parsed directly by [scripts/skill-rules.ts](../scripts/skill-rules.ts), [scripts/naming.ts](../scripts/naming.ts) and [scripts/delivery-audit.ts](../scripts/delivery-audit.ts):
 
 | Work kind | Official numbering requirement | Role in local `.5` insertion |
 | --- | --- | --- |
@@ -28,7 +28,7 @@ Parsed directly by [scripts/skill-rules.mjs](../scripts/skill-rules.mjs), [scrip
 
 ## Choose numbers in this order
 
-Parsed in priority order by [scripts/skill-rules.mjs](../scripts/skill-rules.mjs) and [scripts/naming.mjs](../scripts/naming.mjs):
+Parsed in priority order by [scripts/skill-rules.ts](../scripts/skill-rules.ts) and [scripts/naming.ts](../scripts/naming.ts):
 
 | Priority | Basis | Condition | Filename label | Embedded `officialMetadata` proposal |
 | --- | --- | --- | --- | --- |
@@ -46,13 +46,13 @@ TIGER×DRAGON SPIN OFF (01) 幸福的櫻色龍捲風
 ## Generate and verify a reviewable plan
 
 ```sh
-node <skill-directory>/scripts/naming.mjs plan --input inventory.json --output new-naming-plan.json
-node <skill-directory>/scripts/delivery-audit.mjs verify-naming --plan new-naming-plan.json --output naming-verify.json
+node <skill-directory>/scripts/naming.ts plan --input inventory.json --output new-naming-plan.json
+node <skill-directory>/scripts/delivery-audit.ts verify-naming --plan new-naming-plan.json --output naming-verify.json
 ```
 
 | Input / check | Contract |
 | --- | --- |
 | Inventory template | Start from [naming-example.json](naming-example.json) (`schemaVersion: 1`, `series`, `coverage`, `chronology`, `books`). Include reference-only volumes (`source: null`) when `local-insertion` is used so partial file selections do not miscount shared anchors (`coverage.mainComplete` and `extrasComplete` must be `true`). |
 | Chronology | Disjoint `firstPublished` (`YYYY`, `YYYY-MM`, `YYYY-MM-DD`) intervals establish order; overlapping, same-date or `null` dates require `chronology: {order: [...], evidence: [...]}` matching actual first-publication order without contradicting known dates. |
-| On-disk verification | `naming.mjs` is `sourceVerification: "declared-only"`. Before renaming or editing files, run `delivery-audit.mjs verify-naming` to verify every non-null `source.path` exists, matches `source.sha256`, uses legal filename characters, and has no batch or existing-file destination collision (`DESTINATION_EXISTS`, `DESTINATION_BATCH_COLLISION`, `SOURCE_HASH_MISMATCH`). |
+| On-disk verification | `naming.ts` is `sourceVerification: "declared-only"`. Before renaming or editing files, run `delivery-audit.ts verify-naming` to verify every non-null `source.path` exists, matches `source.sha256`, uses legal filename characters, and has no batch or existing-file destination collision (`DESTINATION_EXISTS`, `DESTINATION_BATCH_COLLISION`, `SOURCE_HASH_MISMATCH`). |
 | Embedded writes | Apply authorized embedded `dc:title` / `Series` changes after source supplementation via [embedded metadata maintenance](embedded-metadata.md) so importers do not overwrite unified names, and never touch Calibre's database or sidecars. |

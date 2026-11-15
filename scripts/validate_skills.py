@@ -183,7 +183,13 @@ def javascript_imports(source: Path):
             yield value, ast.literal_eval(following[1][1])
         elif value == "import" and following[0][0] == "string":
             yield value, ast.literal_eval(following[0][1])
-        elif value == "import" or (value == "export" and following[0][1] in {"{", "*"}):
+        elif value == "import" or (
+            value == "export"
+            and (
+                following[0][1] in {"{", "*"}
+                or (following[0] == ("word", "type") and len(following) > 1 and following[1][1] in {"{", "*"})
+            )
+        ):
             for offset, (next_kind, next_value) in enumerate(following[:-1]):
                 if next_value == ";":
                     break
@@ -200,9 +206,8 @@ def python_module_exists(skill: Path, directory: Path, name: str) -> bool:
 
 
 def validate_dependencies(skill: Path) -> None:
-    """A bundled script runs from the installed directory, so it may only use the standard
-    library or another bundled file. Adding a third-party dependency is a deliberate change
-    to this rule, not something a skill can introduce silently."""
+    """Bundled scripts may import standard-library or third-party packages, while any local
+    or relative import must resolve to an existing file inside the skill directory."""
     skill = skill.resolve()
     for source in sorted(skill.rglob("*.py")):
         roots = [source.parent]
@@ -223,22 +228,25 @@ def validate_dependencies(skill: Path) -> None:
             else:
                 continue
             for name in names:
-                if name.split(".")[0] in sys.stdlib_module_names:
+                top = name.split(".")[0]
+                if top in sys.stdlib_module_names:
                     continue
-                if any(python_module_exists(skill, directory, name) for directory in roots):
-                    continue
-                raise ValueError(f"Bundled script needs an external package: {source} -> {name}")
-    for source in sorted(path for path in skill.rglob("*") if path.is_file() and path.suffix in {".js", ".cjs", ".mjs"}):
+                bundled_roots = [directory for directory in roots if python_module_exists(skill, directory, top)]
+                if bundled_roots and not any(python_module_exists(skill, directory, name) for directory in bundled_roots):
+                    raise ValueError(f"Bundled script imports a missing or escaping file: {source} -> {name}")
+    script_suffixes = {".js", ".cjs", ".mjs", ".ts", ".cts", ".mts"}
+    ts_remap = {".js": ".ts", ".mjs": ".mts", ".cjs": ".cts"}
+    for source in sorted(path for path in skill.rglob("*") if path.is_file() and path.suffix in script_suffixes):
         for kind, specifier in javascript_imports(source):
-            if specifier.startswith("node:"):
-                continue
             if not specifier.startswith(("./", "../")):
-                raise ValueError(f"Bundled script needs an external package: {source} -> {specifier}")
+                continue
             relative = specifier if kind == "require" else unquote(urlsplit(specifier).path)
             target = source.parent / relative
             candidates = [target]
+            if source.suffix in {".ts", ".cts", ".mts"} and target.suffix in ts_remap:
+                candidates.append(target.with_suffix(ts_remap[target.suffix]))
             if kind == "require":
-                candidates.extend(Path(str(target) + suffix) for suffix in (".js", ".json", ".node"))
+                candidates.extend(Path(str(target) + suffix) for suffix in (".ts", ".cts", ".js", ".cjs", ".json", ".node"))
             if not any(path.resolve().is_relative_to(skill) and path.is_file() for path in candidates):
                 raise ValueError(f"Bundled script imports a missing or escaping file: {source} -> {specifier}")
 

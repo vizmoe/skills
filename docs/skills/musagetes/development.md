@@ -3,7 +3,7 @@
 For changes to invocation or domain rules, read the [behavior cases](../../../tests/skills/musagetes/skill-cases.md). Run the focused suite from the repository root:
 
 ```sh
-python3 -B -m unittest discover -s tests/skills/musagetes -v
+.venv/bin/python -B -m unittest discover -s tests/skills/musagetes -v
 ```
 
 Use the [catalog checks](../../../CONTRIBUTING.md#本地验证) for installed-resource validation and all Python regression suites. Fixtures must stay separate from real music libraries.

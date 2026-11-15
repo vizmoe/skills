@@ -1,6 +1,6 @@
 # 只读辅助工具
 
-从当前 SKILL.md 的实际目录定位 [library_guard.py](../scripts/library_guard.py)；内部模块 [music_rules.py](../scripts/music_rules.py) 随包分发。Python 3.10+，仅标准库。先用 `--help` 查看参数；`skill_dir`、`music_root` 等变量由本次实际目录赋值，不提供默认音乐库。
+从当前 SKILL.md 的实际目录定位 [library_guard.py](../scripts/library_guard.py)；内部模块 [music_rules.py](../scripts/music_rules.py) 与依赖清单 [requirements.txt](../requirements.txt) 随包分发，需要 Python 3.10+ 及 `Pillow`、`mutagen`、`PyYAML`。先用 `--help` 查看参数；`skill_dir`、`music_root` 等变量由本次实际目录赋值，不提供默认音乐库。
 
 library_guard 的所有命令只读输入、向 stdout 输出 JSON，既不执行计划也不写账本。退出码：`0` 通过所声明的检查或成功渲染；`1` 检查发现问题；`2` 输入错误。helper 不能证明发行、原生标签映射、音频完整性、清理授权或执行时并发安全。
 
@@ -78,7 +78,15 @@ python3 -B "$skill_dir/scripts/library_guard.py" render-paths --root "$music_roo
 python3 -B "$skill_dir/scripts/library_guard.py" cover-info --root "$music_root" --image "$relative_cover"
 ```
 
-通过 PNG IHDR 或 JPEG SOF 读取宽高，用整数比例检查边界，返回尺寸、像素数和比例。只支持这两种文件头；其它格式使用已安装解码器。输出 `scope: header_geometry_only` 和 `full_decode_verified: false`，有效头部并不证明图片完整。正式选择与嵌入仍按 [cover.md](cover.md) 完整解码、核验身份及读回。
+通过 `Pillow` 完整解码栅格图片（支持 PNG、JPEG、WebP、TIFF、BMP、GIF 等常见格式，并应用 EXIF 方向矫正），用整数比例检查 `max(W, H) * 5 <= min(W, H) * 7` 边界，返回格式、色彩模式、宽高、像素数和比例。截断或损坏的像素负载会报错拒绝；输出 `scope: decoded_image` 和 `full_decode_verified: true`。完整解码只证明图像本身可读且几何合规，正式选择与嵌入仍按 [cover.md](cover.md) 核验发行身份及写入后读回。
+
+## 音频头与内嵌元数据预检
+
+```sh
+python3 -B "$skill_dir/scripts/library_guard.py" audio-info --root "$music_root" --audio "$relative_audio"
+```
+
+通过 `mutagen` 以只读流检查音频真实容器、codec 与无损分类（如区分 `.m4a` 中的 `alac` 与 `aac`、`.ogg` 中的 `vorbis`/`opus`/`flac`、WAV/AIFF 的实际 PCM/浮点/压缩编码，并检测后缀与实际容器不符的 `CONTAINER_EXTENSION_MISMATCH`），同时提取流参数、有序原生文本标签快照、内嵌 CUE（区分 FLAC 二进制 `CUESHEET` 块与 Vorbis/ID3/MP4/APEv2 文本 `CUESHEET` 标签）以及内嵌图片列表（每张内嵌图均经 `Pillow` 完整解码并校验宽高比例）。输出 `scope: header_and_metadata_only` 与 `full_audio_decode_verified: false`；流帧级完整解码仍按 [audio.md](audio.md) 由 `flac -t` 或 `ffmpeg` 验证。
 
 ## 跨运行记录格式
 

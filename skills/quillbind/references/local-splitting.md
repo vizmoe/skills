@@ -5,8 +5,8 @@ Use this workflow for an existing `.epub`, `.mobi` or `.azw3` omnibus/anthology 
 ## Inventory and review boundaries
 
 ```sh
-node <skill-directory>/scripts/quillbind.mjs epub split-plan <anthology.epub|anthology.mobi|anthology.azw3> --output split-plan.json --json
-node <skill-directory>/scripts/quillbind.mjs epub split <anthology.epub|anthology.mobi|anthology.azw3> --plan split-plan.json --output new-volumes --json
+node <skill-directory>/scripts/quillbind.ts epub split-plan <anthology.epub|anthology.mobi|anthology.azw3> --output split-plan.json --json
+node <skill-directory>/scripts/quillbind.ts epub split <anthology.epub|anthology.mobi|anthology.azw3> --plan split-plan.json --output new-volumes --json
 ```
 
 Set `QUILLBIND_VOCABULARY` to the current library's controlled vocabulary as described in [tags](tags.md). Planning is read-only. For `.mobi` and `.azw3` inputs, the planner unpacks the unencrypted Kindle container into its deterministic EPUB 3.3 representation in memory while binding `sourceSha256` in the plan to the original `.mobi` or `.azw3` file (or you may convert to `.epub` first with [MOBI/AZW3 conversion](conversion.md#mobi-and-azw3-to-epub)). The plan records the source hash, vocabulary version/hash, source metadata, reading order, navigation, resource hashes, notes, and ordered content units. Preserve those inventory fields. Re-audit changed sources or vocabulary instead of editing hashes. A new plan has no guessed volumes.

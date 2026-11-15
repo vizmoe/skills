@@ -9,17 +9,19 @@ COPY tools/quillbind/package.json tools/quillbind/pnpm-lock.yaml tools/quillbind
 COPY tools/quillbind/packages/core/package.json packages/core/package.json
 COPY tools/quillbind/packages/cli/package.json packages/cli/package.json
 RUN pnpm install --frozen-lockfile
-COPY tools/quillbind/scripts/install-manga-ci.mjs tools/quillbind/scripts/download-manga-package.ts scripts/
+COPY tools/quillbind/scripts/install-manga-ci.ts tools/quillbind/scripts/download-manga-package.ts scripts/
 COPY tools/quillbind/standards/manga-tools.lock.json standards/manga-tools.lock.json
-RUN node scripts/install-manga-ci.mjs
-COPY tools/quillbind/scripts/install-tools.mjs tools/quillbind/scripts/install-tools.ts scripts/
+RUN node scripts/install-manga-ci.ts
+COPY tools/quillbind/scripts/install-tools.ts scripts/
 COPY tools/quillbind/packages/core/src/ packages/core/src/
 COPY tools/quillbind/standards/tools.lock.json standards/tools.lock.json
-RUN node scripts/install-tools.mjs
-COPY tools/quillbind/scripts/install-qa-fonts.mjs scripts/
+RUN node --import tsx scripts/install-tools.ts
+COPY tools/quillbind/scripts/install-qa-fonts.ts scripts/
 COPY tools/quillbind/standards/qa-fonts.lock.json standards/qa-fonts.lock.json
-RUN node scripts/install-qa-fonts.mjs /usr/local/share/fonts/quillbind
+RUN node scripts/install-qa-fonts.ts /usr/local/share/fonts/quillbind
 COPY tools/quillbind/ ./
+COPY LICENSE /app/LICENSE
 COPY skills/quillbind/ /app/skills/quillbind/
+COPY tests/skills/quillbind/ /app/tests/skills/quillbind/
 ENV CI=true QUILLBIND_QA_ENV=linux-arm64-noble-v2
 CMD ["pnpm", "verify"]

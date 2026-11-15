@@ -20,14 +20,14 @@ build:
   optimizeImages: true
 ```
 
-Use `node <skill-directory>/scripts/quillbind.mjs schema --json` for additional settings, and its `taxonomy explain <id> --json` for controlled classifications. Themes express layout intent independently of tags.
+Use `node <skill-directory>/scripts/quillbind.ts schema --json` for additional settings, and its `taxonomy explain <id> --json` for controlled classifications. Themes express layout intent independently of tags.
 
 ## Prepare a project from local sources
 
 When the metadata and chapter order are known, write the config above to a separate plan file and prepare the project with one command:
 
 ```sh
-node <skill-directory>/scripts/quillbind.mjs init <new-book-directory> --from <raw-source-directory> --config <plan.yaml> --json
+node <skill-directory>/scripts/quillbind.ts init <new-book-directory> --from <raw-source-directory> --config <plan.yaml> --json
 ```
 
 `--config` accepts the same complete schema as `book.yaml`; chapter and asset paths are relative to `--from`. Select `markdown.profile: blog` for Astro `.md` files. Preserve the supplied chapter order explicitly. Store the new project outside the raw source directory.

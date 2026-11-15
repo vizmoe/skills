@@ -10,7 +10,20 @@
     "resolveJsonModule": true,
     "declaration": true,
     "sourceMap": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "paths": {
+      "vitest": ["./node_modules/vitest/dist/index.d.ts"]
+    },
     "types": ["node"]
   },
-  "include": ["packages/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts", "*.ts"]
+  "include": [
+    "packages/**/*.ts",
+    "bin/**/*.ts",
+    "scripts/**/*.ts",
+    "tests/**/*.ts",
+    "*.ts",
+    "../../skills/quillbind/scripts/**/*.ts",
+    "../../tests/skills/quillbind/**/*.ts"
+  ]
 }

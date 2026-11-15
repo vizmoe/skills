@@ -15,8 +15,8 @@ Discover candidate product URLs on [BookWalker Taiwan](https://www.bookwalker.co
 ```
 
 ```sh
-node <skill-directory>/scripts/quillbind.mjs metadata bookwalker-search search-tw.json --output search-tw.lock.json --online --json
-node <skill-directory>/scripts/quillbind.mjs metadata bookwalker-search search-tw.json --output search-tw.lock.json --json
+node <skill-directory>/scripts/quillbind.ts metadata bookwalker-search search-tw.json --output search-tw.lock.json --online --json
+node <skill-directory>/scripts/quillbind.ts metadata bookwalker-search search-tw.json --output search-tw.lock.json --json
 ```
 
 Verify work identity, creators, work type (`light-novel` vs `manga` adaptation â€” never mix bundles, magazines, omnibuses or special editions) and volume on the product pages, then write the edition selection file:
@@ -44,8 +44,8 @@ Verify work identity, creators, work type (`light-novel` vs `manga` adaptation â
 ## Fetch once, replay offline
 
 ```sh
-node <skill-directory>/scripts/quillbind.mjs metadata bookwalker sources.json --output bookwalker.lock.json --online --json
-node <skill-directory>/scripts/quillbind.mjs metadata bookwalker sources.json --output bookwalker.lock.json --json
+node <skill-directory>/scripts/quillbind.ts metadata bookwalker sources.json --output bookwalker.lock.json --online --json
+node <skill-directory>/scripts/quillbind.ts metadata bookwalker sources.json --output bookwalker.lock.json --json
 ```
 
 | Lock field / policy | Behavior |
@@ -71,7 +71,7 @@ bookwalker: metadata/bookwalker.lock.json
 ## Supplement an existing EPUB
 
 ```sh
-node <skill-directory>/scripts/quillbind.mjs epub enrich original.epub --bookwalker bookwalker.lock.json --output enriched.epub --json
+node <skill-directory>/scripts/quillbind.ts epub enrich original.epub --bookwalker bookwalker.lock.json --output enriched.epub --json
 ```
 
 | Aspect | `epub enrich` boundary |

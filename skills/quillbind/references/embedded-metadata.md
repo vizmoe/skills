@@ -16,7 +16,7 @@ Write metadata directly into existing EPUB package OPFs and CBZ root `ComicInfo.
 
 | Invariant | Requirement |
 | --- | --- |
-| Scope & staging | Touch only user-selected fields; write to a new output path (`OUTPUT_EXISTS` blocks collisions). For an authorized in-place replacement, retain a uniquely named backup matching `sourceSha256`, verify the staged output, recheck the source hash, atomically replace the target, and run `scripts/delivery-audit.mjs audit`. |
+| Scope & staging | Touch only user-selected fields; write to a new output path (`OUTPUT_EXISTS` blocks collisions). For an authorized in-place replacement, retain a uniquely named backup matching `sourceSha256`, verify the staged output, recheck the source hash, atomically replace the target, and run `scripts/delivery-audit.ts audit`. |
 | ZIP & XML safety | Parse XML with namespaces and external entity/network access disabled (never regex); reject path traversal, duplicate/case-colliding ZIP entries, signed/encrypted/multi-rendition EPUBs, and ambiguous `ComicInfo.xml` copies. Preserve every non-metadata archive member's bytes, order and compression method. |
 | Housekeeping & validation | Keep EPUB 2 as `2.0` without adding EPUB 3 refinements; record one planned UTC `dcterms:modified` on changed EPUB 3 files; leave byte-identical files untouched. Validate every changed file with EPUBCheck or `xmllint --nonet` against `standards/comicinfo/ComicInfo-2.0.xsd`, reopen independently for semantic readback, and write `<output>.reports/metadata.json`. |
 
@@ -44,8 +44,8 @@ Write metadata directly into existing EPUB package OPFs and CBZ root `ComicInfo.
 ## Remove score metadata completely
 
 ```sh
-node <skill-directory>/scripts/quillbind.mjs metadata ratings-audit original.epub --output ratings.json --json
-node <skill-directory>/scripts/quillbind.mjs metadata ratings-clean original.epub --plan ratings.json --output clean.epub --json
+node <skill-directory>/scripts/quillbind.ts metadata ratings-audit original.epub --output ratings.json --json
+node <skill-directory>/scripts/quillbind.ts metadata ratings-clean original.epub --plan ratings.json --output clean.epub --json
 ```
 
 | Step | Requirement (`.epub` and `.cbz`) |
@@ -57,8 +57,8 @@ node <skill-directory>/scripts/quillbind.mjs metadata ratings-clean original.epu
 ## Clean bibliography with a reviewed plan {#epub-clean-bibliography-with-a-reviewed-plan}
 
 ```sh
-node <skill-directory>/scripts/quillbind.mjs metadata bibliography-audit original.epub --output bibliography.json --json
-node <skill-directory>/scripts/quillbind.mjs metadata bibliography-clean original.epub --plan bibliography.json --output clean.epub --json
+node <skill-directory>/scripts/quillbind.ts metadata bibliography-audit original.epub --output bibliography.json --json
+node <skill-directory>/scripts/quillbind.ts metadata bibliography-clean original.epub --plan bibliography.json --output clean.epub --json
 ```
 
 Both commands accept `.epub` and `.cbz` files. Keep `inventory` and `findings` unchanged, assign every finding `decision: "apply"` or `"retain"` with `evidence`, add optional source-backed `assignments`, and set `reviewed: true`:
@@ -100,4 +100,4 @@ Recognize existing EPUB `dc:identifier` nodes as ISBNs when prefixed with `urn:i
 
 ## Read back and report
 
-Reopen delivered `.epub` / `.cbz` files independently to verify canonical field/tag equality, non-target metadata/member byte identity, validator pass and SHA-256 hashes, then validate the handoff report with `scripts/delivery-audit.mjs` ([quality.md](quality.md)). Format specifications: [ComicInfo 2.0 schema](https://anansi-project.github.io/docs/comicinfo/schemas/v2.0), [field documentation](https://anansi-project.github.io/docs/comicinfo/documentation), [2.1 draft](https://anansi-project.github.io/docs/comicinfo/schemas/v2.1), and EPUB 3.3 [subjects](https://www.w3.org/TR/epub-33/#sec-opf-dcsubject), [container](https://www.w3.org/TR/epub-33/#sec-container-metainf-container.xml) and [modified date](https://www.w3.org/TR/epub-33/#sec-metadata-last-modified).
+Reopen delivered `.epub` / `.cbz` files independently to verify canonical field/tag equality, non-target metadata/member byte identity, validator pass and SHA-256 hashes, then validate the handoff report with `scripts/delivery-audit.ts` ([quality.md](quality.md)). Format specifications: [ComicInfo 2.0 schema](https://anansi-project.github.io/docs/comicinfo/schemas/v2.0), [field documentation](https://anansi-project.github.io/docs/comicinfo/documentation), [2.1 draft](https://anansi-project.github.io/docs/comicinfo/schemas/v2.1), and EPUB 3.3 [subjects](https://www.w3.org/TR/epub-33/#sec-opf-dcsubject), [container](https://www.w3.org/TR/epub-33/#sec-container-metainf-container.xml) and [modified date](https://www.w3.org/TR/epub-33/#sec-metadata-last-modified).

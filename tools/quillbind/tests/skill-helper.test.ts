@@ -8,7 +8,7 @@ import fs from "node:fs/promises";
 
 it("locates the checkout from an unrelated directory without Python or QUILLBIND_ROOT", async () => {
   const helper = fileURLToPath(
-    new URL("../../../skills/quillbind/scripts/quillbind.mjs", import.meta.url),
+    new URL("../../../skills/quillbind/scripts/quillbind.ts", import.meta.url),
   );
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -39,7 +39,7 @@ it("runs a relocated skill against the explicitly configured runtime", async () 
     await fs.cp(source, installed, { recursive: true });
     const result = await promisify(execFile)(
       process.execPath,
-      [path.join(installed, "scripts/quillbind.mjs"), "version", "--json"],
+      [path.join(installed, "scripts/quillbind.ts"), "version", "--json"],
       { cwd: temporary, env: { ...process.env, QUILLBIND_ROOT: runtime } },
     );
     expect(JSON.parse(result.stdout)).toMatchObject({

@@ -1,9 +1,15 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+interface PackageManifest {
+  exports?: Record<string, string>;
+  [key: string]: unknown;
+}
+
 const root = fileURLToPath(new URL("../", import.meta.url));
 // Compiled private-workspace packages resolve the same frozen dependencies as source.
-for (const name of ["core", "cli"]) {
+for (const name of ["core", "cli"] as const) {
   const directory = path.join(root, "dist/packages", name);
   const target = path.join(directory, "node_modules");
   const manifest = JSON.parse(
@@ -11,10 +17,15 @@ for (const name of ["core", "cli"]) {
       path.join(root, "packages", name, "package.json"),
       "utf8",
     ),
-  );
-  if (manifest.exports)
-    for (const key of Object.keys(manifest.exports))
-      manifest.exports[key] = manifest.exports[key].replace(/\.ts$/, ".js");
+  ) as PackageManifest;
+  if (manifest.exports) {
+    for (const exportKey of Object.keys(manifest.exports)) {
+      const targetPath = manifest.exports[exportKey];
+      if (typeof targetPath === "string") {
+        manifest.exports[exportKey] = targetPath.replace(/\.ts$/, ".js");
+      }
+    }
+  }
   await fs.mkdir(directory, { recursive: true });
   await fs.writeFile(
     path.join(directory, "package.json"),
@@ -24,7 +35,7 @@ for (const name of ["core", "cli"]) {
     try {
       if ((await fs.lstat(target)).isSymbolicLink()) await fs.unlink(target);
     } catch (error) {
-      if (error.code !== "ENOENT") throw error;
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
     const scope = path.join(target, "@quillbind");
     await fs.mkdir(scope, { recursive: true });
@@ -35,7 +46,7 @@ for (const name of ["core", "cli"]) {
         "dir",
       );
     } catch (error) {
-      if (error.code !== "EEXIST") throw error;
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
     }
     continue;
   }
@@ -50,6 +61,6 @@ for (const name of ["core", "cli"]) {
       "dir",
     );
   } catch (error) {
-    if (error.code !== "EEXIST") throw error;
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
   }
 }

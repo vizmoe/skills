@@ -2,9 +2,9 @@ name: Publication gates
 on:
   push:
     branches: [main]
-    paths: ['tools/quillbind/**', 'skills/quillbind/**', '.dockerignore', '.github/workflows/quillbind.yml']
+    paths: ['tools/quillbind/**', 'skills/quillbind/**', 'tests/skills/quillbind/**', '.dockerignore', '.github/workflows/quillbind.yml']
   pull_request:
-    paths: ['tools/quillbind/**', 'skills/quillbind/**', '.dockerignore', '.github/workflows/quillbind.yml']
+    paths: ['tools/quillbind/**', 'skills/quillbind/**', 'tests/skills/quillbind/**', '.dockerignore', '.github/workflows/quillbind.yml']
 permissions:
   contents: read
 concurrency:

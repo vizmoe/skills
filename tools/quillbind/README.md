@@ -12,7 +12,7 @@ pnpm quillbind build examples/literature --json
 pnpm quillbind build examples/technical --json
 ```
 
-使用 [.node-version](.node-version) 与 [package.json](package.json) 指定的 Node.js 和 pnpm；[tools.lock.json](standards/tools.lock.json) 是外部工具版本与校验值的来源。`tools:install` 下载并校验 Java、EPUBCheck 和 Chromium。当前工作区也可直接运行 `./bin/quillbind.mjs`；该启动器优先使用项目内已安装的 Node。`pnpm build` 编译 TypeScript 工程，`quillbind build` 构建书籍。
+使用 [.node-version](.node-version) 与 [package.json](package.json) 指定的 Node.js 和 pnpm；[tools.lock.json](standards/tools.lock.json) 是外部工具版本与校验值的来源。`tools:install` 下载并校验 Java、EPUBCheck 和 Chromium。当前工作区也可直接运行 `./bin/quillbind.ts`；该启动器优先使用项目内已安装的 Node。`pnpm build` 编译 TypeScript 工程，`quillbind build` 构建书籍。
 
 正式书籍构建执行：元数据解析 → 章节预检 → 独立出版模型 → XHTML/OPF/NAV/CSS → OCF 打包 → 内部验证 → EPUBCheck → Ace → Playwright/axe → Apple/Kindle lint → 第二次构建字节比较。任何失败都会阻止生成新的发布文件。工具缺失会报告环境错误。构建不联网查询书目。
 
@@ -62,9 +62,9 @@ Agent Skill 入口是 [skills/quillbind/SKILL.md](../../skills/quillbind/SKILL.m
 轻小说采集支持哔哩轻小说、轻之国度和轻书架的书籍 URL，包含封面、插图、目录、章节分页与选卷合并。默认合并全书；`--split-volumes` 逐卷输出，`--prepare-only` 先保存本地书稿。完整命令、站点 URL 形式和访问限制见[轻小说采集](docs/novel-sources.md)。
 
 ```sh
-./bin/quillbind.mjs novel inspect 'https://www.bilinovel.com/novel/1840.html'
-./bin/quillbind.mjs novel fetch 'https://www.lightnovel.fun/book/31608' --output ./novel
-./bin/quillbind.mjs novel fetch 'https://www.lightnovel.app/book/info/20247' --volumes 1 --split-volumes --output ./volumes
+./bin/quillbind.ts novel inspect 'https://www.bilinovel.com/novel/1840.html'
+./bin/quillbind.ts novel fetch 'https://www.lightnovel.fun/book/31608' --output ./novel
+./bin/quillbind.ts novel fetch 'https://www.lightnovel.app/book/info/20247' --volumes 1 --split-volumes --output ./volumes
 ```
 
 | 文档                                   | 内容                                  |

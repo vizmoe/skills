@@ -17,7 +17,7 @@ Review numeric filename order across the entire relative path; `2.png` precedes 
 Install libjxl's `cjxl` and `djxl` on the runtime host. `QUILLBIND_CJXL` and `QUILLBIND_DJXL` can select their executable paths. Missing or unsupported tools block packaging; no lossy fallback is used.
 
 ```sh
-node <skill-directory>/scripts/quillbind.mjs manga package scans/ --bookwalker manga.lock.json --output volume-01.cbz --reading-direction rtl --json
+node <skill-directory>/scripts/quillbind.ts manga package scans/ --bookwalker manga.lock.json --output volume-01.cbz --reading-direction rtl --json
 # Add --page-order order.json when filename order is insufficient.
 ```
 

@@ -1,24 +1,70 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { requireValue } from "./tag-vocabulary.mjs";
+import { requireValue } from "./tag-vocabulary.ts";
+
+export interface WorkKindRule {
+  required?: string;
+  forbidden: string[];
+  requiresPrefix?: string;
+}
+
+export interface NamingRules {
+  kinds: string[];
+  bases: string[];
+}
+
+export interface IsbnDispositionRule {
+  requiresIsbn: boolean;
+  requiresAttemptedSources: boolean;
+}
+
+export interface EditionClassRule {
+  requiresIdentification: boolean;
+}
+
+export interface BibliographyRules {
+  isbnDispositions: Record<string, IsbnDispositionRule>;
+  editionClasses: Record<string, EditionClassRule>;
+}
+
+export interface DeliveryStatusRule {
+  filesWritten: boolean;
+}
+
+export interface ProtectedSidecarRule {
+  filename: string;
+  inspection: string;
+}
+
+export interface DeliveryRules {
+  statuses: Record<string, DeliveryStatusRule>;
+  protectedSidecars: ProtectedSidecarRule[];
+}
 
 const defaultReferencesDir = fileURLToPath(
   new URL("../references", import.meta.url),
 );
 
-const checkRule = (condition, message) =>
+function checkRule(condition: unknown, message: string): asserts condition {
   requireValue(condition, "RULE_TABLE_INVALID", message);
+}
 
-function parseMarkdownSectionTables(markdown, heading) {
+function parseMarkdownSectionTables(
+  markdown: string,
+  heading: string,
+): Record<string, string>[] {
   const lines = markdown.split(/\r?\n/u);
-  const rows = [];
+  const rows: Record<string, string>[] = [];
   let inSection = false;
-  let header = null;
+  let header: string[] | null = null;
   for (const rawLine of lines) {
     const line = rawLine.trim();
     if (/^#{2,3}\s+/u.test(line)) {
-      const title = line.replace(/^#{2,3}\s+/u, "").replace(/\s*\{#[^}]+\}\s*$/u, "").trim();
+      const title = line
+        .replace(/^#{2,3}\s+/u, "")
+        .replace(/\s*\{#[^}]+\}\s*$/u, "")
+        .trim();
       inSection = title === heading;
       header = null;
       continue;
@@ -38,33 +84,40 @@ function parseMarkdownSectionTables(markdown, heading) {
       cells.length === header.length,
       `Malformed table row under "${heading}": ${line}`,
     );
+    const currentHeader = header;
     rows.push(
-      Object.fromEntries(header.map((col, index) => [col, cells[index]])),
+      Object.fromEntries(
+        currentHeader.map((col, index) => [col, cells[index] ?? ""]),
+      ),
     );
   }
   checkRule(rows.length > 0, `Missing or empty rule table under "${heading}"`);
   return rows;
 }
 
-function singleCode(cell, label) {
+function singleCode(cell: string | undefined, label: string): string {
+  checkRule(typeof cell === "string", `Missing table cell in ${label}`);
   const match = /^`([^`]+)`$/u.exec(cell);
-  checkRule(Boolean(match), `Expected backtick code in ${label}, got: ${cell}`);
-  return match[1];
+  checkRule(match !== null, `Expected backtick code in ${label}, got: ${cell}`);
+  return match[1]!;
 }
 
-function codeList(cell, label) {
+function codeList(cell: string | undefined, label: string): string[] {
+  checkRule(typeof cell === "string", `Missing table cell in ${label}`);
   if (cell === "-" || cell === "`-`") return [];
   const items = cell.split(",").map((part) => part.trim());
   return items.map((part) => singleCode(part, label));
 }
 
-export async function readWorkTypeTagRules(referencesDir = defaultReferencesDir) {
+export async function readWorkTypeTagRules(
+  referencesDir: string = defaultReferencesDir,
+): Promise<Record<string, WorkKindRule>> {
   const content = await fs.readFile(
     path.join(referencesDir, "tags.md"),
     "utf8",
   );
   const rows = parseMarkdownSectionTables(content, "Work-type tag rules");
-  const rules = {};
+  const rules: Record<string, WorkKindRule> = {};
   for (const row of rows) {
     const kind = singleCode(row["Work kind"], "Work kind");
     checkRule(!Object.hasOwn(rules, kind), `Duplicate work kind row: ${kind}`);
@@ -94,13 +147,17 @@ export async function readWorkTypeTagRules(referencesDir = defaultReferencesDir)
   return rules;
 }
 
-export async function readNamingRules(referencesDir = defaultReferencesDir) {
+export async function readNamingRules(
+  referencesDir: string = defaultReferencesDir,
+): Promise<NamingRules> {
   const content = await fs.readFile(
     path.join(referencesDir, "naming.md"),
     "utf8",
   );
   const kindRows = parseMarkdownSectionTables(content, "Supported work kinds");
-  const kinds = kindRows.map((row) => singleCode(row["Work kind"], "Work kind"));
+  const kinds = kindRows.map((row) =>
+    singleCode(row["Work kind"], "Work kind"),
+  );
   checkRule(
     new Set(kinds).size === kinds.length,
     "Duplicate naming work kind declaration",
@@ -140,8 +197,8 @@ export async function readNamingRules(referencesDir = defaultReferencesDir) {
 }
 
 export async function readBibliographyRules(
-  referencesDir = defaultReferencesDir,
-) {
+  referencesDir: string = defaultReferencesDir,
+): Promise<BibliographyRules> {
   const content = await fs.readFile(
     path.join(referencesDir, "bibliography.md"),
     "utf8",
@@ -150,7 +207,7 @@ export async function readBibliographyRules(
     content,
     "Complete ISBNs where supported",
   );
-  const isbnDispositions = {};
+  const isbnDispositions: Record<string, IsbnDispositionRule> = {};
   for (const row of isbnRows) {
     const code = singleCode(row["Disposition"], "Disposition");
     checkRule(
@@ -160,8 +217,10 @@ export async function readBibliographyRules(
     isbnDispositions[code] = {
       requiresIsbn: singleCode(row["Requires ISBN"], "Requires ISBN") === "yes",
       requiresAttemptedSources:
-        singleCode(row["Requires attemptedSources"], "Requires attemptedSources") ===
-        "yes",
+        singleCode(
+          row["Requires attemptedSources"],
+          "Requires attemptedSources",
+        ) === "yes",
     };
   }
   for (const expected of [
@@ -182,7 +241,7 @@ export async function readBibliographyRules(
     content,
     "Self-made and non-retail editions",
   );
-  const editionClasses = {};
+  const editionClasses: Record<string, EditionClassRule> = {};
   for (const row of editionRows) {
     const code = singleCode(row["Edition class"], "Edition class");
     checkRule(
@@ -191,8 +250,10 @@ export async function readBibliographyRules(
     );
     editionClasses[code] = {
       requiresIdentification:
-        singleCode(row["Identification evidence"], "Identification evidence") ===
-        "required",
+        singleCode(
+          row["Identification evidence"],
+          "Identification evidence",
+        ) === "required",
     };
   }
   for (const expected of [
@@ -210,7 +271,9 @@ export async function readBibliographyRules(
   return { isbnDispositions, editionClasses };
 }
 
-export async function readDeliveryRules(referencesDir = defaultReferencesDir) {
+export async function readDeliveryRules(
+  referencesDir: string = defaultReferencesDir,
+): Promise<DeliveryRules> {
   const content = await fs.readFile(
     path.join(referencesDir, "quality.md"),
     "utf8",
@@ -219,7 +282,7 @@ export async function readDeliveryRules(referencesDir = defaultReferencesDir) {
     content,
     "Maintenance delivery statuses",
   );
-  const statuses = {};
+  const statuses: Record<string, DeliveryStatusRule> = {};
   for (const row of statusRows) {
     const code = singleCode(row["Status"], "Status");
     checkRule(
@@ -227,8 +290,7 @@ export async function readDeliveryRules(referencesDir = defaultReferencesDir) {
       `Duplicate maintenance status: ${code}`,
     );
     statuses[code] = {
-      filesWritten:
-        singleCode(row["Files written"], "Files written") === "yes",
+      filesWritten: singleCode(row["Files written"], "Files written") === "yes",
     };
   }
   for (const expected of [
@@ -248,7 +310,7 @@ export async function readDeliveryRules(referencesDir = defaultReferencesDir) {
     content,
     "Protected Calibre sidecars",
   );
-  const protectedSidecars = sidecarRows.map((row) => ({
+  const protectedSidecars: ProtectedSidecarRule[] = sidecarRows.map((row) => ({
     filename: singleCode(row["File"], "File"),
     inspection: singleCode(row["Inspection"], "Inspection"),
   }));

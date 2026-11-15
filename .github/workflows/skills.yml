@@ -18,5 +18,5 @@ jobs:
           .venv/bin/python -m pip install -r requirements-skill.txt
       - name: Validate skill format and bundled resources
         run: .venv/bin/python -B scripts/validate_skills.py
-      - name: Verify the catalog and all skill regression suites
+      - name: Verify the catalog and Python skill regression suites
         run: .venv/bin/python -B -m unittest discover -s tests -v

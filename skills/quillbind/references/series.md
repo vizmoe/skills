@@ -21,8 +21,8 @@ Use this workflow when Series membership and reading order are in scope, sourcin
 ## Audit and apply an evidenced decision
 
 ```sh
-node <skill-directory>/scripts/quillbind.mjs metadata series-audit original.epub --output series.json --json
-node <skill-directory>/scripts/quillbind.mjs metadata series-normalize original.epub --plan series.json --output normalized.epub --json
+node <skill-directory>/scripts/quillbind.ts metadata series-audit original.epub --output series.json --json
+node <skill-directory>/scripts/quillbind.ts metadata series-normalize original.epub --plan series.json --output normalized.epub --json
 ```
 
 ```json

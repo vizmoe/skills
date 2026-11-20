@@ -73,6 +73,90 @@ def receipt(root, entry):
         verify(root, record[key])
 
 
+QUARANTINE_ACTIONS = {
+    'remove-intent': 'REMOVE_QUARANTINE',
+    'audited': 'RECORD_REMOVE_INTENT',
+}
+
+
+def _register_entry(entry, ids, originals, candidates):
+    require(isinstance(entry, dict) and set(entry) == {
+        'id', 'role', 'source', 'quarantine', 'outputs', 'reason', 'stage', 'equivalence', 'audit'},
+        'Invalid entry keys.')
+    require(isinstance(entry['id'], str) and entry['id'].strip() and entry['id'] not in ids,
+            'Entry IDs must be unique nonempty strings.')
+    ids.add(entry['id'])
+    file_ref(entry['source'])
+    parts(entry['quarantine'])
+    require(isinstance(entry['outputs'], list) and entry['outputs'], 'Missing surviving outputs.')
+    output_keys = [collision_key(file_ref(ref)['path']) for ref in entry['outputs']]
+    require(len(output_keys) == len(set(output_keys)), 'Duplicate output mapping.')
+    for path in (entry['source']['path'], entry['quarantine']):
+        key = collision_key(path)
+        require(key not in candidates and key not in originals, 'Candidate aliases another candidate or original.')
+        candidates.add(key)
+
+
+def _validate_manifest_graph(root, manifest):
+    originals, candidates, ids = set(), set(), set()
+    for ref in manifest['originals']:
+        verify(root, ref)
+        originals.add(collision_key(ref['path']))
+    for entry in manifest['entries']:
+        _register_entry(entry, ids, originals, candidates)
+    for entry in manifest['entries']:
+        for ref in entry['outputs']:
+            require(collision_key(ref['path']) not in candidates, 'Output is also a cleanup candidate.')
+    return candidates
+
+
+def _verify_audit_receipt(root, entry, candidates):
+    receipt(root, entry)
+    # Evidence, receipts and originals must survive the entire transaction.
+    refs = [entry['audit']['snapshot'], entry['audit']['report']]
+    if 'evidence' in entry['equivalence']:
+        refs.append(entry['equivalence']['evidence'])
+    require(all(collision_key(ref['path']) not in candidates for ref in refs), 'Cleanup would erase its own evidence.')
+
+
+def _resolve_entry_action(source, quarantine, stage):
+    if source:
+        require(stage == 'prepared', 'Source reappeared or journal is inconsistent.')
+        return 'QUARANTINE'
+    if quarantine:
+        require(stage != 'removed', 'Journal claims removal while quarantine exists.')
+        return QUARANTINE_ACTIONS.get(stage, 'RECONCILE')
+    require(stage in ('remove-intent', 'removed'), 'Copies disappeared without audited removal intent.')
+    return 'COMPLETE'
+
+
+def _audit_entry(root, entry, candidates, issues, state_dirs):
+    result = {'id': entry.get('id') if isinstance(entry, dict) else None, 'action': 'REVIEW_REQUIRED'}
+    try:
+        require(not issues, 'Resolve manifest-wide errors first.')
+        require(entry['role'] in ('working', 'review'), 'Only proven working/review duplicates are supported.')
+        require(isinstance(entry['reason'], str) and entry['reason'].strip(), 'Missing cleanup reason.')
+        stage = entry['stage']
+        require(stage in ('prepared', 'quarantined', 'audited', 'remove-intent', 'removed'), 'Invalid journal stage.')
+        require(not is_protected(entry['source']['path'], state_dirs)
+                and is_protected(entry['quarantine'], state_dirs), 'Use a work source and protected quarantine.')
+        for ref in entry['outputs']:
+            require(not is_protected(ref['path'], state_dirs), 'Surviving outputs must be published outside state.')
+            verify(root, ref)
+        equivalent(root, entry)
+        source = current_hash(root, entry['source']['path'])
+        quarantine = current_hash(root, entry['quarantine'])
+        expected = entry['source']['sha256']
+        require(source in (None, expected) and quarantine in (None, expected), 'Candidate changed; preserve it.')
+        require(not (source and quarantine), 'Both source and quarantine exist; reconcile ownership.')
+        if stage in ('audited', 'remove-intent', 'removed'):
+            _verify_audit_receipt(root, entry, candidates)
+        result['action'] = _resolve_entry_action(source, quarantine, stage)
+    except (ValueError, OSError) as error:
+        result['issue'] = str(error)
+    return result
+
+
 def audit(root: Path, manifest: dict, state_dirs=None) -> dict:
     require(isinstance(manifest, dict) and set(manifest) == {'schema_version', 'originals', 'entries'}
             and type(manifest['schema_version']) is int and manifest['schema_version'] == 1,
@@ -80,71 +164,13 @@ def audit(root: Path, manifest: dict, state_dirs=None) -> dict:
     require(isinstance(manifest['originals'], list) and manifest['originals']
             and isinstance(manifest['entries'], list) and manifest['entries'], 'Lists must be nonempty.')
     entries = manifest['entries']
-    issues, results, originals, candidates, ids = [], [], set(), set(), set()
+    issues = []
     try:
-        for ref in manifest['originals']:
-            verify(root, ref)
-            originals.add(collision_key(ref['path']))
-        for entry in entries:
-            require(isinstance(entry, dict) and set(entry) == {
-                'id', 'role', 'source', 'quarantine', 'outputs', 'reason', 'stage', 'equivalence', 'audit'},
-                'Invalid entry keys.')
-            require(isinstance(entry['id'], str) and entry['id'].strip() and entry['id'] not in ids,
-                    'Entry IDs must be unique nonempty strings.')
-            ids.add(entry['id'])
-            file_ref(entry['source'])
-            parts(entry['quarantine'])
-            require(isinstance(entry['outputs'], list) and entry['outputs'], 'Missing surviving outputs.')
-            output_keys = [collision_key(file_ref(ref)['path']) for ref in entry['outputs']]
-            require(len(output_keys) == len(set(output_keys)), 'Duplicate output mapping.')
-            for path in (entry['source']['path'], entry['quarantine']):
-                key = collision_key(path)
-                require(key not in candidates and key not in originals, 'Candidate aliases another candidate or original.')
-                candidates.add(key)
-        for entry in entries:
-            for ref in entry['outputs']:
-                require(collision_key(ref['path']) not in candidates, 'Output is also a cleanup candidate.')
+        candidates = _validate_manifest_graph(root, manifest)
     except (ValueError, OSError) as error:
         issues.append(str(error))
-    for entry in entries:
-        result = {'id': entry.get('id') if isinstance(entry, dict) else None, 'action': 'REVIEW_REQUIRED'}
-        try:
-            require(not issues, 'Resolve manifest-wide errors first.')
-            require(entry['role'] in ('working', 'review'), 'Only proven working/review duplicates are supported.')
-            require(isinstance(entry['reason'], str) and entry['reason'].strip(), 'Missing cleanup reason.')
-            stage = entry['stage']
-            require(stage in ('prepared', 'quarantined', 'audited', 'remove-intent', 'removed'), 'Invalid journal stage.')
-            require(not is_protected(entry['source']['path'], state_dirs)
-                    and is_protected(entry['quarantine'], state_dirs), 'Use a work source and protected quarantine.')
-            for ref in entry['outputs']:
-                require(not is_protected(ref['path'], state_dirs), 'Surviving outputs must be published outside state.')
-                verify(root, ref)
-            equivalent(root, entry)
-            source = current_hash(root, entry['source']['path'])
-            quarantine = current_hash(root, entry['quarantine'])
-            expected = entry['source']['sha256']
-            require(source in (None, expected) and quarantine in (None, expected), 'Candidate changed; preserve it.')
-            require(not (source and quarantine), 'Both source and quarantine exist; reconcile ownership.')
-            if stage in ('audited', 'remove-intent', 'removed'):
-                receipt(root, entry)
-                # Evidence, receipts and originals must survive the entire transaction.
-                refs = [entry['audit']['snapshot'], entry['audit']['report']]
-                if 'evidence' in entry['equivalence']:
-                    refs.append(entry['equivalence']['evidence'])
-                require(all(collision_key(ref['path']) not in candidates for ref in refs), 'Cleanup would erase its own evidence.')
-            if source:
-                require(stage == 'prepared', 'Source reappeared or journal is inconsistent.')
-                result['action'] = 'QUARANTINE'
-            elif quarantine:
-                require(stage != 'removed', 'Journal claims removal while quarantine exists.')
-                result['action'] = ('REMOVE_QUARANTINE' if stage == 'remove-intent' else
-                                    'RECORD_REMOVE_INTENT' if stage == 'audited' else 'RECONCILE')
-            else:
-                require(stage in ('remove-intent', 'removed'), 'Copies disappeared without audited removal intent.')
-                result['action'] = 'COMPLETE'
-        except (ValueError, OSError) as error:
-            result['issue'] = str(error)
-        results.append(result)
+        candidates = set()
+    results = [_audit_entry(root, entry, candidates, issues, state_dirs) for entry in entries]
     return {'scope': 'cleanup_files_and_evidence_bindings_only', 'ok': not issues and all('issue' not in r for r in results),
             'entries': results, 'issues': issues,
             'removed_ids': sorted(r['id'] for r in results if r['action'] == 'COMPLETE')}

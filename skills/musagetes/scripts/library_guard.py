@@ -121,6 +121,65 @@ def hint(path: Path) -> str:
     return next((label for label, extensions in groups.items() if extension in extensions), "other")
 
 
+SKILL_MD_NAME = "SKILL.md"
+SEMVER_PATTERN = re.compile(r"\d+\.\d+\.\d+", re.ASCII)
+
+
+def _format_issue(error: Exception, code: str, path: str) -> dict:
+    return error.issue if isinstance(error, GuardError) else {"code": code, "path": path, "detail": str(error)}
+
+
+def _populate_file_record(record: dict, path: Path, info: os.stat_result, protected: bool, with_hash: bool) -> None:
+    record.update(kind="file", hint="state_artifact" if protected else hint(path), links=info.st_nlink)
+    if info.st_nlink > 1:
+        record["disposition"] = "REVIEW_REQUIRED"
+    if with_hash:
+        record["sha256"] = fingerprint(path)
+
+
+def _inventory_entry(path: Path, rel: str, with_hash: bool, state_dirs: list[str] | None,
+                     include_state: bool) -> tuple[dict, Path | None]:
+    info = path.lstat()
+    record: dict = {"path": rel, "size": info.st_size, "mtime_ns": info.st_mtime_ns}
+    protected = is_protected(rel, state_dirs)
+    if protected:
+        record.update(protected_state=True, disposition="SKIPPED")
+        if not include_state:
+            record.update(kind="state_boundary", contents_scanned=False)
+            return record, None
+    if stat.S_ISLNK(info.st_mode):
+        record.update(kind="symlink", target=os.readlink(path), disposition="SKIPPED")
+    elif stat.S_ISDIR(info.st_mode):
+        record["kind"] = "directory"
+        return record, path
+    elif stat.S_ISREG(info.st_mode):
+        _populate_file_record(record, path, info, protected, with_hash)
+    else:
+        record.update(kind="special", disposition="REVIEW_REQUIRED")
+    return record, None
+
+
+def _scan_directory(root: Path, directory: Path, with_hash: bool, state_dirs: list[str] | None,
+                    include_state: bool) -> tuple[list[dict], list[Path], list[dict]]:
+    # Recheck queued directories so replaced symlinks are not intentionally followed.
+    if not stat.S_ISDIR(directory.lstat().st_mode):
+        raise GuardError("DIRECTORY_CHANGED", str(directory), "Directory changed during inventory.")
+    with os.scandir(directory) as scan:
+        entries = sorted(scan, key=lambda e: e.name)
+    records, subdirs, issues = [], [], []
+    for entry in entries:
+        path = directory / entry.name
+        rel = path.relative_to(root).as_posix()
+        try:
+            record, subdir = _inventory_entry(path, rel, with_hash, state_dirs, include_state)
+            records.append(record)
+            if subdir is not None:
+                subdirs.append(subdir)
+        except (OSError, GuardError) as error:
+            issues.append(_format_issue(error, "READ_ERROR", rel))
+    return records, subdirs, issues
+
+
 def inventory(root: Path, with_hash: bool = False, state_dirs: list[str] | None = None, include_state: bool = False) -> dict:
     protected_roots(state_dirs)
     records, issues = [], []
@@ -128,42 +187,12 @@ def inventory(root: Path, with_hash: bool = False, state_dirs: list[str] | None 
     while pending:
         directory = pending.pop()
         try:
-            # Recheck queued directories so replaced symlinks are not intentionally followed.
-            if not stat.S_ISDIR(directory.lstat().st_mode):
-                raise GuardError("DIRECTORY_CHANGED", str(directory), "Directory changed during inventory.")
-            with os.scandir(directory) as scan:
-                entries = sorted(scan, key=lambda e: e.name)
-            for entry in entries:
-                path = directory / entry.name
-                rel = path.relative_to(root).as_posix()
-                try:
-                    info = path.lstat()
-                    record = {"path": rel, "size": info.st_size, "mtime_ns": info.st_mtime_ns}
-                    protected = is_protected(rel, state_dirs)
-                    if protected:
-                        record.update(protected_state=True, disposition="SKIPPED")
-                        if not include_state:
-                            record.update(kind="state_boundary", contents_scanned=False)
-                            records.append(record)
-                            continue
-                    if stat.S_ISLNK(info.st_mode):
-                        record.update(kind="symlink", target=os.readlink(path), disposition="SKIPPED")
-                    elif stat.S_ISDIR(info.st_mode):
-                        record["kind"] = "directory"
-                        pending.append(path)
-                    elif stat.S_ISREG(info.st_mode):
-                        record.update(kind="file", hint="state_artifact" if protected else hint(path), links=info.st_nlink)
-                        if info.st_nlink > 1:
-                            record["disposition"] = "REVIEW_REQUIRED"
-                        if with_hash:
-                            record["sha256"] = fingerprint(path)
-                    else:
-                        record.update(kind="special", disposition="REVIEW_REQUIRED")
-                    records.append(record)
-                except (OSError, GuardError) as error:
-                    issues.append(error.issue if isinstance(error, GuardError) else {"code": "READ_ERROR", "path": rel, "detail": str(error)})
+            dir_records, subdirs, dir_issues = _scan_directory(root, directory, with_hash, state_dirs, include_state)
+            records.extend(dir_records)
+            pending.extend(subdirs)
+            issues.extend(dir_issues)
         except (OSError, GuardError) as error:
-            issues.append(error.issue if isinstance(error, GuardError) else {"code": "READ_ERROR", "path": str(directory), "detail": str(error)})
+            issues.append(_format_issue(error, "READ_ERROR", str(directory)))
     return {
         "schema_version": 1, "root": str(root), "ok": not issues,
         "classification": "Extension hints only; music type and codec remain unverified.",
@@ -231,33 +260,42 @@ def validate_plan_shape(plan: dict) -> None:
             raise GuardError("INVALID_PLAN", str(index), "Invalid operation or SHA-256.")
 
 
+def _record_target_spellings(components: tuple[str, ...], key: tuple[str, ...], target: str,
+                             targets: dict, spellings: dict) -> None:
+    if key in targets:
+        raise GuardError("PLAN_COLLISION", target, "Multiple entries address the same normalized target.")
+    for i in range(1, len(key) + 1):
+        prefix, spelling = key[:i], components[:i]
+        if prefix in spellings and spellings[prefix] != spelling:
+            raise GuardError("PLAN_ALIAS_COLLISION", target, "Planned path components differ only by case or Unicode normalization.")
+        spellings[prefix] = spelling
+    targets[key] = target
+
+
+def _check_path_entry(root: Path, entry: dict, state_dirs: list[str] | None, targets: dict, spellings: dict) -> None:
+    reject_state_path(entry["source"], state_dirs)
+    reject_state_path(entry["target"], state_dirs)
+    source = source_path(root, entry["source"])
+    if fingerprint(source) != entry["source_sha256"].lower():
+        raise GuardError("SOURCE_CHANGED", entry["source"], "Source SHA-256 differs from the reviewed snapshot.")
+    keep = entry["operation"] == "keep"
+    if keep and entry["source"] != entry["target"]:
+        raise GuardError("INVALID_KEEP", entry["target"], "keep requires identical source and target paths.")
+    components = validate_target_name(root, entry["target"])
+    key = tuple(collision_key(c) for c in components)
+    _record_target_spellings(components, key, entry["target"], targets, spellings)
+    check_existing_target(root, entry["target"], keep)
+
+
 def check_paths(root: Path, plan: dict, state_dirs: list[str] | None = None) -> dict:
     protected_roots(state_dirs)
     validate_plan_shape(plan)
     issues, targets, spellings = [], {}, {}
     for index, entry in enumerate(plan["entries"]):
         try:
-            reject_state_path(entry["source"], state_dirs)
-            reject_state_path(entry["target"], state_dirs)
-            source = source_path(root, entry["source"])
-            if fingerprint(source) != entry["source_sha256"].lower():
-                raise GuardError("SOURCE_CHANGED", entry["source"], "Source SHA-256 differs from the reviewed snapshot.")
-            keep = entry["operation"] == "keep"
-            if keep and entry["source"] != entry["target"]:
-                raise GuardError("INVALID_KEEP", entry["target"], "keep requires identical source and target paths.")
-            components = validate_target_name(root, entry["target"])
-            key = tuple(collision_key(c) for c in components)
-            if key in targets:
-                raise GuardError("PLAN_COLLISION", entry["target"], "Multiple entries address the same normalized target.")
-            for i in range(1, len(key) + 1):
-                prefix, spelling = key[:i], components[:i]
-                if prefix in spellings and spellings[prefix] != spelling:
-                    raise GuardError("PLAN_ALIAS_COLLISION", entry["target"], "Planned path components differ only by case or Unicode normalization.")
-                spellings[prefix] = spelling
-            targets[key] = entry["target"]
-            check_existing_target(root, entry["target"], keep)
+            _check_path_entry(root, entry, state_dirs, targets, spellings)
         except (OSError, GuardError) as error:
-            issue = error.issue if isinstance(error, GuardError) else {"code": "FILESYSTEM_ERROR", "path": entry["source"], "detail": str(error)}
+            issue = _format_issue(error, "FILESYSTEM_ERROR", entry["source"])
             issues.append({"entry": index, **issue})
     for key, target in targets.items():
         if any(key[:i] in targets for i in range(1, len(key))):
@@ -275,19 +313,19 @@ def unique_object(pairs: list) -> dict:
 
 
 def skill_version(skill_md: Path | None = None) -> str:
-    target = skill_md or (Path(__file__).resolve().parent.parent / "SKILL.md")
+    target = skill_md or (Path(__file__).resolve().parent.parent / SKILL_MD_NAME)
     text = target.read_text(encoding="utf-8")
     front = re.match(r"\A---\r?\n(.*?)\r?\n---(?:\r?\n|\Z)", text, re.S)
     if not front:
-        raise GuardError("INVALID_SKILL_VERSION", "SKILL.md", "Missing YAML frontmatter in SKILL.md.")
+        raise GuardError("INVALID_SKILL_VERSION", SKILL_MD_NAME, "Missing YAML frontmatter in SKILL.md.")
     try:
         parsed = yaml.safe_load(front[1])
     except yaml.YAMLError as error:
-        raise GuardError("INVALID_SKILL_VERSION", "SKILL.md", f"Invalid YAML frontmatter: {error}") from error
+        raise GuardError("INVALID_SKILL_VERSION", SKILL_MD_NAME, f"Invalid YAML frontmatter: {error}") from error
     metadata = parsed.get("metadata") if isinstance(parsed, dict) else None
     version = metadata.get("version") if isinstance(metadata, dict) else None
-    if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
-        raise GuardError("INVALID_SKILL_VERSION", "SKILL.md", "Expected metadata.version as a quoted semantic version.")
+    if not isinstance(version, str) or not SEMVER_PATTERN.fullmatch(version):
+        raise GuardError("INVALID_SKILL_VERSION", SKILL_MD_NAME, "Expected metadata.version as a quoted semantic version.")
     return version
 
 
@@ -317,27 +355,28 @@ def actual_state_roots(root: Path, state_dirs: list[str] | None) -> tuple[list[s
     return list(dict.fromkeys(result)), issues
 
 
-def validate_event(event: dict, root: Path, run_id: str, album_id: str, filename: str,
-                   state_dirs: list[str] | None, vocabulary=None) -> None:
-    vocabulary = vocabulary or read_vocabulary()
+def _validate_event_header(event: dict, root: Path, run_id: str, album_id: str, filename: str, vocabulary) -> None:
     required = {"schema_version", "root", "run_id", "album_id", "sequence", "skill_version", "phase", "status", "match_status", "expected_files", "removed_paths"}
     if not isinstance(event, dict) or set(event) not in (required, required | {"details"}):
         raise GuardError("INVALID_HISTORY", filename, "Event fields do not match the documented schema.")
     sequence = event["sequence"]
-    if (type(event["schema_version"]) is not int or event["schema_version"] != 1
-            or event["root"] != str(root) or event["run_id"] != run_id or event["album_id"] != album_id
-            or type(sequence) is not int or sequence < 1 or filename != f"{sequence:06d}.json"
-            or not isinstance(event["skill_version"], str) or not event["skill_version"]
-            or event["phase"] not in vocabulary.phases
-            or event["status"] not in (None, *vocabulary.execution)
-            or not isinstance(event["match_status"], str) or event["match_status"] not in vocabulary.match
-            or not isinstance(event["expected_files"], list) or not event["expected_files"]
-            or not isinstance(event["removed_paths"], list)
-            or ("details" in event and not isinstance(event["details"], dict))):
+    identity_ok = (type(event["schema_version"]) is int and event["schema_version"] == 1
+                   and event["root"] == str(root) and event["run_id"] == run_id and event["album_id"] == album_id
+                   and type(sequence) is int and sequence >= 1 and filename == f"{sequence:06d}.json")
+    fields_ok = (isinstance(event["skill_version"], str) and bool(event["skill_version"])
+                 and event["phase"] in vocabulary.phases
+                 and event["status"] in (None, *vocabulary.execution)
+                 and isinstance(event["match_status"], str) and event["match_status"] in vocabulary.match
+                 and isinstance(event["expected_files"], list) and bool(event["expected_files"])
+                 and isinstance(event["removed_paths"], list)
+                 and ("details" not in event or isinstance(event["details"], dict)))
+    if not identity_ok or not fields_ok:
         raise GuardError("INVALID_HISTORY", filename, "Invalid event identity, phase, status or file manifest.")
-    seen = set()
+
+
+def _validate_expected_files(expected_files: list, filename: str, state_dirs: list[str] | None, seen: set) -> int:
     outputs = 0
-    for entry in event["expected_files"]:
+    for entry in expected_files:
         if (not isinstance(entry, dict) or set(entry) != {"path", "sha256", "role"}
                 or entry["role"] not in ("source", "output", "preserved", "staging")
                 or not isinstance(entry["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", entry["sha256"])):
@@ -350,6 +389,15 @@ def validate_event(event: dict, root: Path, run_id: str, album_id: str, filename
             reject_state_path(entry["path"], state_dirs)
         if entry["role"] == "output":
             outputs += 1
+    return outputs
+
+
+def validate_event(event: dict, root: Path, run_id: str, album_id: str, filename: str,
+                   state_dirs: list[str] | None, vocabulary=None) -> None:
+    vocabulary = vocabulary or read_vocabulary()
+    _validate_event_header(event, root, run_id, album_id, filename, vocabulary)
+    seen: set = set()
+    outputs = _validate_expected_files(event["expected_files"], filename, state_dirs, seen)
     for removed in event["removed_paths"]:
         key = tuple(collision_key(p) for p in parts(removed))
         if key in seen:
@@ -360,31 +408,111 @@ def validate_event(event: dict, root: Path, run_id: str, album_id: str, filename
                          f"COMPLETED requires {vocabulary.phases[-1]} and verified output manifest entries.")
 
 
+def _check_expected_file(root: Path, item: dict) -> dict | None:
+    actual = None
+    try:
+        actual = fingerprint(source_path(root, item["path"]))
+        if actual != item["sha256"]:
+            raise GuardError("HISTORY_FILE_CHANGED", item["path"], "Recorded SHA-256 differs from the current file.")
+        return None
+    except (OSError, GuardError) as error:
+        issue = _format_issue(error, "HISTORY_FILE_MISSING", item["path"])
+        return {**issue, "expected_sha256": item["sha256"], "actual_sha256": actual, "role": item["role"]}
+
+
+def _check_removed_path(root: Path, relative: str) -> dict | None:
+    current = root
+    try:
+        for component in parts(relative):
+            current = current / component
+            info = current.lstat()
+            if stat.S_ISLNK(info.st_mode):
+                raise GuardError("SYMLINK", relative, "Removed path now crosses a symlink.")
+        return {"code": "REMOVED_PATH_REAPPEARED", "path": relative}
+    except FileNotFoundError:
+        return None
+    except (OSError, GuardError) as error:
+        return _format_issue(error, "HISTORY_PATH_ERROR", relative)
+
+
 def check_event_files(root: Path, event: dict) -> list[dict]:
     issues = []
     for item in event["expected_files"]:
-        actual = None
-        try:
-            actual = fingerprint(source_path(root, item["path"]))
-            if actual != item["sha256"]:
-                raise GuardError("HISTORY_FILE_CHANGED", item["path"], "Recorded SHA-256 differs from the current file.")
-        except (OSError, GuardError) as error:
-            issue = error.issue if isinstance(error, GuardError) else {"code": "HISTORY_FILE_MISSING", "path": item["path"], "detail": str(error)}
-            issues.append({**issue, "expected_sha256": item["sha256"], "actual_sha256": actual, "role": item["role"]})
+        issue = _check_expected_file(root, item)
+        if issue is not None:
+            issues.append(issue)
     for relative in event["removed_paths"]:
-        current = root
-        try:
-            for component in parts(relative):
-                current = current / component
-                info = current.lstat()
-                if stat.S_ISLNK(info.st_mode):
-                    raise GuardError("SYMLINK", relative, "Removed path now crosses a symlink.")
-            issues.append({"code": "REMOVED_PATH_REAPPEARED", "path": relative})
-        except FileNotFoundError:
-            pass
-        except (OSError, GuardError) as error:
-            issues.append(error.issue if isinstance(error, GuardError) else {"code": "HISTORY_PATH_ERROR", "path": relative, "detail": str(error)})
+        issue = _check_removed_path(root, relative)
+        if issue is not None:
+            issues.append(issue)
     return issues
+
+
+def _load_album_events(root: Path, run_name: str, album: Path, state_dirs: list[str] | None,
+                       vocabulary, view: dict) -> None:
+    album_rel = album.relative_to(root).as_posix()
+    try:
+        for identity in (run_name, album.name):
+            if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}", identity):
+                raise GuardError("INVALID_HISTORY", album_rel, "Run and album IDs must be opaque ASCII identifiers of 1–64 characters.")
+        events = directory_entries(root, f"{album_rel}/events")
+        if not events:
+            raise GuardError("INVALID_HISTORY", album_rel, "Album has no event snapshots.")
+        for event_path in events:
+            rel = event_path.relative_to(root).as_posix()
+            file = source_path(root, rel)
+            before = fingerprint(file)
+            event = json.loads(file.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
+            if fingerprint(file) != before:
+                raise GuardError("HISTORY_CHANGED", rel, "History changed while it was being read.")
+            validate_event(event, root, run_name, album.name, file.name, state_dirs, vocabulary)
+            view["records"].append({"record_path": rel, "event": event})
+    except (OSError, ValueError) as error:
+        view["issues"].append(_format_issue(error, "INVALID_HISTORY", album_rel))
+
+
+def _collect_run_history(root: Path, run: Path, state_dirs: list[str] | None,
+                         vocabulary, albums: dict, issues: list[dict]) -> None:
+    run_rel = run.relative_to(root).as_posix()
+    try:
+        run_entries = directory_entries(root, run_rel)
+        if not any(p.name == "albums" for p in run_entries):
+            raise GuardError("UNRECOGNIZED_HISTORY", run_rel, "Run has no canonical albums directory; explicitly review legacy or interrupted setup.")
+        for album in directory_entries(root, f"{run_rel}/albums"):
+            view = albums.setdefault(album.name, {"album_id": album.name, "records": [], "issues": []})
+            _load_album_events(root, run.name, album, state_dirs, vocabulary, view)
+    except (OSError, ValueError) as error:
+        issues.append(_format_issue(error, "INVALID_HISTORY", run_rel))
+
+
+def _collect_state_history(root: Path, state: str, state_dirs: list[str] | None,
+                           vocabulary, albums: dict, issues: list[dict]) -> None:
+    state_entries = directory_entries(root, state)
+    if not state_entries:
+        return
+    if not any(p.name == "runs" for p in state_entries):
+        issues.append({"code": "UNRECOGNIZED_HISTORY", "path": state, "detail": "State data has no runs directory; review or migrate existing records."})
+        return
+    for run in directory_entries(root, f"{state}/runs"):
+        _collect_run_history(root, run, state_dirs, vocabulary, albums, issues)
+
+
+def _finalize_album_view(root: Path, album_id: str, view: dict, version: str, global_issues: list[dict]) -> dict:
+    records = sorted(view.pop("records"), key=lambda r: r["event"]["sequence"])
+    sequences = [r["event"]["sequence"] for r in records]
+    if len(sequences) != len(set(sequences)):
+        view["issues"].append({"code": "DUPLICATE_SEQUENCE", "path": album_id})
+    latest = records[-1] if records else None
+    if latest and not view["issues"]:
+        view["issues"].extend({**issue, "record_path": latest["record_path"],
+                               "sequence": latest["event"]["sequence"], "run_id": latest["event"]["run_id"]}
+                              for issue in check_event_files(root, latest["event"]))
+        if latest["event"]["skill_version"] != version:
+            view["issues"].append({"code": "SKILL_VERSION_CHANGED", "path": latest["record_path"], "detail": "Revalidate domain rules with the current skill before reuse."})
+    valid = bool(latest) and not view["issues"] and not global_issues
+    view.update(latest=latest, integrity_ok=valid,
+                reuse_candidate=valid and latest["event"]["status"] == "COMPLETED")
+    return view
 
 
 def history(root: Path, state_dirs: list[str] | None = None) -> dict:
@@ -396,61 +524,11 @@ def history(root: Path, state_dirs: list[str] | None = None) -> dict:
         states, state_issues = actual_state_roots(root, state_dirs)
         issues.extend(state_issues)
         for state in states:
-            state_entries = directory_entries(root, state)
-            if not state_entries:
-                continue
-            runs_rel = f"{state}/runs"
-            if not any(p.name == "runs" for p in state_entries):
-                issues.append({"code": "UNRECOGNIZED_HISTORY", "path": state, "detail": "State data has no runs directory; review or migrate existing records."})
-                continue
-            for run in directory_entries(root, runs_rel):
-                run_rel = run.relative_to(root).as_posix()
-                try:
-                    run_entries = directory_entries(root, run_rel)
-                    if not any(p.name == "albums" for p in run_entries):
-                        raise GuardError("UNRECOGNIZED_HISTORY", run_rel, "Run has no canonical albums directory; explicitly review legacy or interrupted setup.")
-                    for album in directory_entries(root, f"{run_rel}/albums"):
-                        album_rel = album.relative_to(root).as_posix()
-                        view = albums.setdefault(album.name, {"album_id": album.name, "records": [], "issues": []})
-                        try:
-                            for identity in (run.name, album.name):
-                                if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}", identity):
-                                    raise GuardError("INVALID_HISTORY", album_rel, "Run and album IDs must be opaque ASCII identifiers of 1–64 characters.")
-                            events = directory_entries(root, f"{album_rel}/events")
-                            if not events:
-                                raise GuardError("INVALID_HISTORY", album_rel, "Album has no event snapshots.")
-                            for event_path in events:
-                                rel = event_path.relative_to(root).as_posix()
-                                file = source_path(root, rel)
-                                before = fingerprint(file)
-                                event = json.loads(file.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
-                                if fingerprint(file) != before:
-                                    raise GuardError("HISTORY_CHANGED", rel, "History changed while it was being read.")
-                                validate_event(event, root, run.name, album.name, file.name, state_dirs, vocabulary)
-                                view["records"].append({"record_path": rel, "event": event})
-                        except (OSError, ValueError) as error:
-                            view["issues"].append(error.issue if isinstance(error, GuardError) else {"code": "INVALID_HISTORY", "path": album_rel, "detail": str(error)})
-                except (OSError, ValueError) as error:
-                    issues.append(error.issue if isinstance(error, GuardError) else {"code": "INVALID_HISTORY", "path": run_rel, "detail": str(error)})
+            _collect_state_history(root, state, state_dirs, vocabulary, albums, issues)
     except (OSError, ValueError) as error:
-        issues.append(error.issue if isinstance(error, GuardError) else {"code": "INVALID_HISTORY", "path": str(root), "detail": str(error)})
-    results = []
-    for album_id, view in sorted(albums.items()):
-        records = sorted(view.pop("records"), key=lambda r: r["event"]["sequence"])
-        sequences = [r["event"]["sequence"] for r in records]
-        if len(sequences) != len(set(sequences)):
-            view["issues"].append({"code": "DUPLICATE_SEQUENCE", "path": album_id})
-        latest = records[-1] if records else None
-        if latest and not view["issues"]:
-            view["issues"].extend({**issue, "record_path": latest["record_path"],
-                                   "sequence": latest["event"]["sequence"], "run_id": latest["event"]["run_id"]}
-                                  for issue in check_event_files(root, latest["event"]))
-            if latest["event"]["skill_version"] != version:
-                view["issues"].append({"code": "SKILL_VERSION_CHANGED", "path": latest["record_path"], "detail": "Revalidate domain rules with the current skill before reuse."})
-        valid = bool(latest) and not view["issues"] and not issues
-        view.update(latest=latest, integrity_ok=valid,
-                    reuse_candidate=valid and latest["event"]["status"] == "COMPLETED")
-        results.append(view)
+        issues.append(_format_issue(error, "INVALID_HISTORY", str(root)))
+    results = [_finalize_album_view(root, album_id, view, version, issues)
+               for album_id, view in sorted(albums.items())]
     return {"schema_version": 1, "root": str(root), "skill_version": version,
             "ok": not issues and all(a["integrity_ok"] for a in results),
             "scope": "recorded_files_only", "albums": results, "issues": issues}
@@ -475,7 +553,7 @@ def render_paths(root: Path, request: dict, state_dirs: list[str] | None = None)
     return result
 
 
-def main(argv: list[str] | None = None) -> int:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     scan = commands.add_parser("inventory", help="List files and tool availability without modifying files.")
@@ -500,29 +578,40 @@ def main(argv: list[str] | None = None) -> int:
     audio.add_argument("--audio", required=True, help="Root-relative audio file; state candidates may be inspected.")
     for command in (scan, check, resume, render):
         command.add_argument("--state-dir", action="append", default=[], help="Additional protected root-relative state directory; repeat for previous locations.")
-    args = parser.parse_args(argv)
+    return parser
+
+
+def _read_json_file(path: Path):
+    return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
+
+
+def _check_tags_request(path: Path) -> dict:
+    request = _read_json_file(path)
+    if not isinstance(request, dict) or set(request) not in ({"kind", "tags"}, {"kind", "tags", "omissions"}):
+        raise GuardError("INVALID_TAG_INPUT", "", "Expected kind and tags, with optional omissions.")
+    return check_tags(request["tags"], request["kind"], omissions=request.get("omissions"))
+
+
+def _dispatch_command(args: argparse.Namespace) -> dict:
+    root = root_path(args.root) if hasattr(args, "root") else None
+    handlers = {
+        "inventory": lambda: inventory(root, args.hash, args.state_dir, args.include_state),
+        "check-paths": lambda: check_paths(root, _read_json_file(args.plan), args.state_dir),
+        "history": lambda: history(root, args.state_dir),
+        "render-paths": lambda: render_paths(root, _read_json_file(args.input), args.state_dir),
+        "cover-info": lambda: inspect_cover(source_path(root, args.image)),
+        "audio-info": lambda: inspect_audio(source_path(root, args.audio)),
+        "check-tags": lambda: _check_tags_request(args.input),
+    }
+    return handlers[args.command]()
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_parser().parse_args(argv)
     try:
-        root = root_path(args.root) if hasattr(args, "root") else None
-        read_json = lambda path: json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
-        if args.command == "inventory":
-            result = inventory(root, args.hash, args.state_dir, args.include_state)
-        elif args.command == "check-paths":
-            result = check_paths(root, read_json(args.plan), args.state_dir)
-        elif args.command == "history":
-            result = history(root, args.state_dir)
-        elif args.command == "render-paths":
-            result = render_paths(root, read_json(args.input), args.state_dir)
-        elif args.command == "cover-info":
-            result = inspect_cover(source_path(root, args.image))
-        elif args.command == "audio-info":
-            result = inspect_audio(source_path(root, args.audio))
-        else:
-            request = read_json(args.input)
-            if not isinstance(request, dict) or set(request) not in ({"kind", "tags"}, {"kind", "tags", "omissions"}):
-                raise GuardError("INVALID_TAG_INPUT", "", "Expected kind and tags, with optional omissions.")
-            result = check_tags(request["tags"], request["kind"], omissions=request.get("omissions"))
+        result = _dispatch_command(args)
         code = 0 if result.get("ok", True) else 1
-    except (OSError, UnicodeError, ValueError) as error:
+    except (OSError, ValueError) as error:
         issue = error.issue if isinstance(error, (GuardError, RuleError)) else {"code": "INPUT_ERROR", "path": "", "detail": str(error)}
         result, code = {"ok": False, "issues": [issue]}, 2
     print(json.dumps(result, ensure_ascii=False, indent=2))

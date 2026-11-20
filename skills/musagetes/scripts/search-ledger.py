@@ -34,15 +34,10 @@ def query_fields(query):
             quoted = not quoted
         else:
             visible.append(' ' if quoted else char)
-    return sorted(set(re.findall(r'\b([A-Za-z][A-Za-z0-9_]*)\s*:', ''.join(visible)))), not (quoted or escaped)
+    return sorted(set(re.findall(r'\b([A-Za-z]\w*)\s*:', ''.join(visible), re.ASCII))), not (quoted or escaped)
 
 
-def classify(attempt, source, allowed, outcomes):
-    if not isinstance(attempt, dict) or not isinstance(attempt.get('query'), str) or not attempt['query'].strip():
-        raise ValueError('Each attempt needs its actual nonempty query.')
-    for key in ('syntax_valid', 'response_valid'):
-        if type(attempt.get(key)) is not bool:
-            raise ValueError(f'{key} must be a boolean.')
+def _validate_attempt_response(attempt, outcomes):
     status = attempt.get('http_status')
     if status is not None and (type(status) is not int or not 100 <= status <= 599):
         raise ValueError('http_status must be an HTTP integer or null.')
@@ -52,22 +47,76 @@ def classify(attempt, source, allowed, outcomes):
         raise ValueError('Each attempt needs exactly one of http_status or transport_error.')
     if transport is not None and (not isinstance(transport, str) or transport.isdigit() or transport not in outcomes):
         raise ValueError('transport_error must be a transport error declared in requests.md.')
+    return status, transport
+
+
+def _validate_attempt(attempt, outcomes):
+    if not isinstance(attempt, dict) or not isinstance(attempt.get('query'), str) or not attempt['query'].strip():
+        raise ValueError('Each attempt needs its actual nonempty query.')
+    for key in ('syntax_valid', 'response_valid'):
+        if type(attempt.get(key)) is not bool:
+            raise ValueError(f'{key} must be a boolean.')
+    status, transport = _validate_attempt_response(attempt, outcomes)
     count = attempt.get('result_count')
     if count is not None and (type(count) is not int or count < 0):
         raise ValueError('result_count must be a nonnegative integer.')
+    return status, transport, count
+
+
+def _is_invalid_query(attempt, source, fields, balanced, allowed):
+    if not attempt['syntax_valid'] or not balanced:
+        return True
+    if source != 'musicbrainz-recording':
+        return False
+    return bool(set(fields) - allowed) or ('dur' in fields and attempt.get('duration_unit') != 'ms')
+
+
+def _completed_outcome(attempt, count):
+    if count is None or type(attempt.get('pages_complete')) is not bool:
+        raise ValueError('A valid response requires result_count and pages_complete.')
+    if not attempt['pages_complete']:
+        return 'INCOMPLETE'
+    return 'HIT' if count else 'ZERO'
+
+
+def classify(attempt, source, allowed, outcomes):
+    status, transport, count = _validate_attempt(attempt, outcomes)
     fields, balanced = query_fields(attempt['query'])
-    if (not attempt['syntax_valid'] or not balanced or (source == 'musicbrainz-recording'
-            and (set(fields) - allowed or ('dur' in fields and attempt.get('duration_unit') != 'ms')))):
+    response_key = str(status if status is not None else transport)
+    if _is_invalid_query(attempt, source, fields, balanced, allowed):
         outcome = 'INVALID_QUERY'
-    elif outcomes.get(str(status if status is not None else transport)) in {'throttle', 'transient'}:
+    elif outcomes.get(response_key) in {'throttle', 'transient'}:
         outcome = 'TEMPORARY_FAILURE'
     elif status is None or not 200 <= status < 300 or not attempt['response_valid']:
         outcome = 'FAILED'
     else:
-        if count is None or type(attempt.get('pages_complete')) is not bool:
-            raise ValueError('A valid response requires result_count and pages_complete.')
-        outcome = 'INCOMPLETE' if not attempt['pages_complete'] else ('HIT' if count else 'ZERO')
+        outcome = _completed_outcome(attempt, count)
     return {'status': outcome, 'fields': fields}
+
+
+def _validate_route(route, seen):
+    if not isinstance(route, dict):
+        raise ValueError('Each route must be an object.')
+    identity, source = route.get('id'), route.get('source')
+    if not isinstance(identity, str) or not identity.strip() or identity in seen:
+        raise ValueError('Route IDs must be nonempty and unique.')
+    if not isinstance(source, str) or not source.strip() or type(route.get('required')) is not bool or not isinstance(route.get('attempts'), list):
+        raise ValueError('Route requires source, required and attempts.')
+    seen.add(identity)
+    return identity, source
+
+
+def _audit_route(route, seen, allowed, outcomes, errors):
+    identity, source = _validate_route(route, seen)
+    attempts = [classify(item, source, allowed, outcomes) for item in route['attempts']]
+    latest = attempts[-1] if attempts else {'status': 'NOT_RUN', 'fields': []}
+    attempt_errors = sum(item['status'] in errors for item in attempts)
+    return {
+        'entry': {'id': identity, 'required': route['required'], **latest},
+        'complete': latest['status'] in {'HIT', 'ZERO'},
+        'latest_error': int(latest['status'] in errors),
+        'attempt_errors': attempt_errors,
+    }
 
 
 def audit(data):
@@ -80,28 +129,15 @@ def audit(data):
     completed, pending, results, seen = [], [], [], set()
     errors = {'INVALID_QUERY', 'TEMPORARY_FAILURE', 'FAILED'}
     error_count = attempt_error_count = 0
-    required_complete = True
-    required_count = 0
     for route in data['routes']:
-        if not isinstance(route, dict):
-            raise ValueError('Each route must be an object.')
-        identity, source = route.get('id'), route.get('source')
-        if not isinstance(identity, str) or not identity.strip() or identity in seen:
-            raise ValueError('Route IDs must be nonempty and unique.')
-        if not isinstance(source, str) or not source.strip() or type(route.get('required')) is not bool or not isinstance(route.get('attempts'), list):
-            raise ValueError('Route requires source, required and attempts.')
-        seen.add(identity)
-        attempts = [classify(item, source, allowed, outcomes) for item in route['attempts']]
-        latest = attempts[-1] if attempts else {'status': 'NOT_RUN', 'fields': []}
-        attempt_error_count += sum(item['status'] in errors for item in attempts)
-        error_count += latest['status'] in errors
-        complete = latest['status'] in {'HIT', 'ZERO'}
-        (completed if complete else pending).append(identity)
-        if route['required']:
-            required_count += 1
-            required_complete = required_complete and complete
-        results.append({'id': identity, 'required': route['required'], **latest})
-    coverage_complete = bool(required_count) and required_complete
+        outcome = _audit_route(route, seen, allowed, outcomes, errors)
+        entry = outcome['entry']
+        results.append(entry)
+        attempt_error_count += outcome['attempt_errors']
+        error_count += outcome['latest_error']
+        (completed if outcome['complete'] else pending).append(entry['id'])
+    required = [item for item in results if item['required']]
+    coverage_complete = bool(required) and all(item['status'] in {'HIT', 'ZERO'} for item in required)
     return {'scope': 'search_coverage_only', 'routes': results, 'completed_routes': completed,
             'pending': pending, 'coverage_complete': coverage_complete,
             'no_results': coverage_complete and all(item['status'] == 'ZERO' for item in results),

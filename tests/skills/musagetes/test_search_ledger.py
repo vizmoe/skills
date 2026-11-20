@@ -72,8 +72,9 @@ class SearchLedgerTests(unittest.TestCase):
                 self.assertFalse(result['no_results'])
 
     def test_duplicate_routes_and_untyped_counts_are_rejected(self):
+        invalid_attempt = self.attempt(result_count=True)
         with self.assertRaises(ValueError):
-            self.audit([self.attempt(result_count=True)])
+            self.audit([invalid_attempt])
         route = {'id': 'a', 'source': 'musicbrainz-recording', 'required': True, 'attempts': []}
         with self.assertRaises(ValueError):
             self.ledger.audit({'routes': [route, route]})
@@ -84,13 +85,15 @@ class SearchLedgerTests(unittest.TestCase):
             with self.subTest(error=error):
                 result = self.audit([self.attempt(http_status=None, transport_error=error)])
                 self.assertEqual(result['routes'][0]['status'], status)
+        unknown_transport = self.attempt(http_status=None, transport_error='dns')
         with self.assertRaises(ValueError):
-            self.audit([self.attempt(http_status=None, transport_error='dns')])
+            self.audit([unknown_transport])
 
     def test_attempt_has_exactly_one_response_outcome(self):
         for updates in [{'http_status': None}, {'transport_error': 'timeout'}]:
+            invalid_attempt = self.attempt(**updates)
             with self.subTest(updates=updates), self.assertRaises(ValueError):
-                self.audit([self.attempt(**updates)])
+                self.audit([invalid_attempt])
 
     def test_audit_does_not_modify_cached_attempts(self):
         attempts = [self.attempt(http_status=503), self.attempt(result_count=1)]

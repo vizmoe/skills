@@ -77,8 +77,9 @@ class VocabularyTests(unittest.TestCase):
         self.assertIn('DEFERRED', vocabulary.execution)
         self.assertNotIn('DEFERRED', rules.read_vocabulary().execution)
         self.validate(vocabulary, status='DEFERRED')
+        default_vocabulary = rules.read_vocabulary()
         with self.assertRaises(guard.GuardError):
-            self.validate(rules.read_vocabulary(), status='DEFERRED')
+            self.validate(default_vocabulary, status='DEFERRED')
 
     def test_the_documented_phase_order_decides_the_terminal_phase(self):
         execution = self.rewritten('execution.md', ('`PLANNED → STAGED → VERIFIED → COMMITTED → FINALIZED`',
@@ -118,8 +119,9 @@ class VocabularyTests(unittest.TestCase):
         }
         for label, (old, new) in cases.items():
             with self.subTest(case=label):
+                delivery = self.rewritten('delivery.md', (old, new))
                 with self.assertRaises(rules.RuleError):
-                    rules.read_vocabulary(self.rewritten('delivery.md', (old, new)))
+                    rules.read_vocabulary(delivery)
 
     def test_a_missing_phase_sequence_fails(self):
         execution = self.rewritten('execution.md', ('`PLANNED → STAGED → VERIFIED → COMMITTED → FINALIZED`', 'the documented order'))
@@ -142,8 +144,9 @@ class VocabularyTests(unittest.TestCase):
             for updates in ({'status': 'DONE'}, {'match_status': 'PRESERVED'}, {'phase': 'ARCHIVED'},
                             {'status': 'PRESERVED'}, {'match_status': 'COMPLETED'}):
                 with self.subTest(updates=updates):
+                    candidate = event(**updates)
                     with self.assertRaises(guard.GuardError):
-                        guard.validate_event(event(**updates), root, 'r1', 'a1', '000001.json', None)
+                        guard.validate_event(candidate, root, 'r1', 'a1', '000001.json', None)
 
 
 class MetadataTests(unittest.TestCase):
@@ -252,11 +255,12 @@ class MetadataTests(unittest.TestCase):
                  ({'DATE': ['2024', '2025']}, 'MULTIPLE_VALUES')]
         for updates, code in cases:
             with self.subTest(updates=updates):
-                checked = rules.check_tags(album_tags() | updates)
+                candidate_tags = album_tags() | updates
+                checked = rules.check_tags(candidate_tags)
                 self.assertFalse(checked['ok'])
                 self.assertIn(code, [issue['code'] for issue in checked['issues']])
                 with self.assertRaises(rules.RuleError):
-                    rules.render_path(album_tags() | updates, '.flac')
+                    rules.render_path(candidate_tags, '.flac')
 
     def test_tag_check_keeps_multivalued_and_partial_date_values_valid(self):
         for updates in [{'DATE': ['2024']}, {'DATE': ['2024-02']}, {'GENRE': ['J-Pop', 'Anime']},
@@ -269,8 +273,9 @@ class MetadataTests(unittest.TestCase):
         self.assertTrue(rules.check_tags(tags, 'singleton')['ok'])
         self.assertFalse(rules.check_tags(tags, 'album')['ok'])
         self.assertEqual(rules.render_path(tags, '.mp3', 'singleton'), '[麻枝准 & 熊木杏里][雨： 夜].mp3')
+        full_album_tags = album_tags()
         with self.assertRaises(rules.RuleError):
-            rules.render_path(album_tags(), '.mp3', 'singleton')
+            rules.render_path(full_album_tags, '.mp3', 'singleton')
 
     def test_renderer_preserves_tags_order_and_semantics(self):
         tags = album_tags()
@@ -283,8 +288,9 @@ class MetadataTests(unittest.TestCase):
     def test_invalid_numbers_dates_and_scalars_fail(self):
         for updates in [{'DATE': ['2023-02-29']}, {'DATE': ['20']}, {'TRACKNUMBER': ['01/02']},
                         {'DISCNUMBER': ['00']}, {'DISCNUMBER': ['03']}, {'TITLE': ['a', 'b']}]:
+            candidate_tags = album_tags() | updates
             with self.subTest(updates=updates), self.assertRaises(rules.RuleError):
-                rules.render_path(album_tags() | updates, '.flac')
+                rules.render_path(candidate_tags, '.flac')
 
     def test_shared_sanitizer_is_idempotent_and_guard_accepts_results(self):
         with tempfile.TemporaryDirectory() as temp:

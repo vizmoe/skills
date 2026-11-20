@@ -53,7 +53,9 @@ export const key = (value: string): string =>
     .normalize("NFC")
     .trim()
     .replace(/\s+/gu, " ")
-    .replace(/\s*\.\s*/gu, ".")
+    .split(".")
+    .map((part) => part.trim())
+    .join(".")
     .toLowerCase();
 
 export function requireValue(

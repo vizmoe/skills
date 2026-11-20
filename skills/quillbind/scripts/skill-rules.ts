@@ -50,6 +50,15 @@ function checkRule(condition: unknown, message: string): asserts condition {
   requireValue(condition, "RULE_TABLE_INVALID", message);
 }
 
+function stripHeadingAnchor(headingText: string): string {
+  const trimmed = headingText.trim();
+  if (trimmed.length < 4 || !trimmed.endsWith("}")) return trimmed;
+  const prevClose = trimmed.lastIndexOf("}", trimmed.length - 2);
+  const open = trimmed.indexOf("{#", prevClose + 1);
+  if (open === -1 || open + 2 >= trimmed.length - 1) return trimmed;
+  return trimmed.slice(0, open).trim();
+}
+
 function parseMarkdownSectionTables(
   markdown: string,
   heading: string,
@@ -61,10 +70,7 @@ function parseMarkdownSectionTables(
   for (const rawLine of lines) {
     const line = rawLine.trim();
     if (/^#{2,3}\s+/u.test(line)) {
-      const title = line
-        .replace(/^#{2,3}\s+/u, "")
-        .replace(/\s*\{#[^}]+\}\s*$/u, "")
-        .trim();
+      const title = stripHeadingAnchor(line.replace(/^#{2,3}\s+/u, ""));
       inSection = title === heading;
       header = null;
       continue;

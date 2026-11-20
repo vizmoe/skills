@@ -41,8 +41,8 @@ function stripTrailingChars(value: string, chars: string): string {
 
 function stripTrailingPunct(value: string, chars: string): string {
   const trimmed = value.trimEnd();
-  if (trimmed.length > 0 && chars.includes(trimmed[trimmed.length - 1]))
-    return trimmed.slice(0, -1).trimEnd();
+  const last = trimmed.at(-1);
+  if (last && chars.includes(last)) return trimmed.slice(0, -1).trimEnd();
   return value;
 }
 

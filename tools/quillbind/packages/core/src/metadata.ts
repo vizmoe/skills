@@ -162,7 +162,7 @@ function firstMarkdownHeading(source: string): string | undefined {
     const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
     if (!line.startsWith("#")) continue;
     const rest = line.slice(1);
-    if (rest.length === 0 || (rest[0] !== " " && rest[0] !== "\t")) continue;
+    if (!rest.startsWith(" ") && !rest.startsWith("\t")) continue;
     const heading = rest.trimStart();
     if (heading) return heading;
   }

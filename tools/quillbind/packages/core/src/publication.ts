@@ -113,11 +113,9 @@ async function collectSequential<T, U>(
   const results: U[] = [];
   let chain = Promise.resolve();
   for (const [index, item] of items.entries()) {
-    chain = chain.then(() =>
-      fn(item, index).then((value) => {
-        results.push(value);
-      }),
-    );
+    chain = chain.then(async () => {
+      results.push(await fn(item, index));
+    });
   }
   await chain;
   return results;

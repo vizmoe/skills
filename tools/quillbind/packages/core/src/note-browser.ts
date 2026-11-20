@@ -74,7 +74,7 @@ interface NoteActivationTask {
   activation: NoteActivation;
 }
 
-async function createNoteContext(browser: Browser, activation: NoteActivation) {
+function createNoteContext(browser: Browser, activation: NoteActivation) {
   return browser.newContext({
     viewport: { width: 390, height: 844 },
     deviceScaleFactor: 1,

@@ -108,11 +108,9 @@ export async function prepareBook(
     for (const relative of [...files].sort((a, b) =>
       a.localeCompare(b, "en"),
     )) {
-      copyChain = copyChain.then(() =>
-        copyPreparedFile(source, staging, relative).then((entry) => {
-          copied.push(entry);
-        }),
-      );
+      copyChain = copyChain.then(async () => {
+        copied.push(await copyPreparedFile(source, staging, relative));
+      });
     }
     await copyChain;
     const metadata = await resolveMetadata(staging);

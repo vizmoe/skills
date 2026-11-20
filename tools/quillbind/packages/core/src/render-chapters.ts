@@ -28,11 +28,9 @@ async function mapSequential<T, U>(
   const results: U[] = [];
   let chain = Promise.resolve();
   for (const item of items) {
-    chain = chain.then(() =>
-      fn(item).then((value) => {
-        results.push(value);
-      }),
-    );
+    chain = chain.then(async () => {
+      results.push(await fn(item));
+    });
   }
   await chain;
   return results;

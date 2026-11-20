@@ -59,16 +59,14 @@ export async function doctor() {
   } catch (error) {
     checks.push({ tool: "java", status: "fail", detail: String(error) });
   }
-  for (const [tool, file] of [
-    [
-      "epubcheck",
-      `.cache/tools/epubcheck-${toolchain.epubcheck.version}/epubcheck.jar`,
-    ],
-  ])
-    checks.push({
-      tool,
-      status: (await exists(path.join(repoRoot, file))) ? "pass" : "fail",
-    });
+  const epubcheckPath = path.join(
+    repoRoot,
+    `.cache/tools/epubcheck-${toolchain.epubcheck.version}/epubcheck.jar`,
+  );
+  checks.push({
+    tool: "epubcheck",
+    status: (await exists(epubcheckPath)) ? "pass" : "fail",
+  });
   try {
     checks.push({
       tool: "ace",

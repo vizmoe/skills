@@ -2,8 +2,8 @@ import path from "node:path";
 import { fail } from "./errors.js";
 
 export function safeName(name: string) {
+  if (!name) fail("UNSAFE_PATH", `Unsafe path: ${JSON.stringify(name)}`);
   if (
-    !name ||
     name !== name.normalize("NFC") ||
     name.includes("\\") ||
     name.startsWith("/") ||

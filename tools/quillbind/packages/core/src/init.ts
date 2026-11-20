@@ -12,6 +12,27 @@ import { preflightBook } from "./preflight.js";
 import { resolveMetadata } from "./metadata.js";
 import { imageSources } from "./source-files.js";
 
+async function findExistingAncestor(directory: string): Promise<string> {
+  if (await exists(directory)) return directory;
+  return findExistingAncestor(path.dirname(directory));
+}
+
+async function copyPreparedFile(
+  source: string,
+  staging: string,
+  relative: string,
+): Promise<{ path: string; size: number; sha256: string }> {
+  const bytes = await safeRead(source, relative);
+  const target = path.join(staging, relative);
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  await fs.writeFile(target, bytes, { flag: "wx" });
+  return {
+    path: relative,
+    size: bytes.length,
+    sha256: sha256(bytes),
+  };
+}
+
 export async function prepareBook(
   directory: string,
   sourceDirectory: string,
@@ -65,8 +86,7 @@ export async function prepareBook(
   const root = path.resolve(directory);
   if (await exists(root))
     fail("OUTPUT_EXISTS", "Prepared book requires a new output directory");
-  let ancestor = path.dirname(root);
-  while (!(await exists(ancestor))) ancestor = path.dirname(ancestor);
+  const ancestor = await findExistingAncestor(path.dirname(root));
   const destination = path.join(
     await fs.realpath(ancestor),
     path.relative(ancestor, root),
@@ -84,17 +104,17 @@ export async function prepareBook(
     await fs.writeFile(path.join(staging, "book.yaml"), configText, {
       flag: "wx",
     });
-    for (const relative of [...files].sort()) {
-      const bytes = await safeRead(source, relative);
-      const target = path.join(staging, relative);
-      await fs.mkdir(path.dirname(target), { recursive: true });
-      await fs.writeFile(target, bytes, { flag: "wx" });
-      copied.push({
-        path: relative,
-        size: bytes.length,
-        sha256: sha256(bytes),
-      });
+    let copyChain = Promise.resolve();
+    for (const relative of [...files].sort((a, b) =>
+      a.localeCompare(b, "en"),
+    )) {
+      copyChain = copyChain.then(() =>
+        copyPreparedFile(source, staging, relative).then((entry) => {
+          copied.push(entry);
+        }),
+      );
     }
+    await copyChain;
     const metadata = await resolveMetadata(staging);
     const preparation = {
       schemaVersion: 1,
@@ -143,7 +163,7 @@ export async function initBook(
         "Book initialization requires an empty directory",
       );
   }
-  for (const relative of [
+  const directories = [
     "chapters",
     "assets/images",
     "assets/fonts",
@@ -151,8 +171,12 @@ export async function initBook(
     "styles",
     "metadata",
     "dist",
-  ])
-    await fs.mkdir(path.join(root, relative), { recursive: true });
+  ];
+  await Promise.all(
+    directories.map((relative) =>
+      fs.mkdir(path.join(root, relative), { recursive: true }),
+    ),
+  );
   const config = {
     schemaVersion: 1,
     book: {

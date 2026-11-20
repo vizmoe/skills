@@ -91,29 +91,146 @@ function stripTrailingEntries(data: Buffer, flags: number): Buffer {
   return data.subarray(0, end);
 }
 
+function appendPalmDocBackRef(b: number, b2: number, out: number[]) {
+  const pair = ((b << 8) | b2) & 0x3fff;
+  const distance = pair >>> 3;
+  const length = (pair & 0x07) + 3;
+  if (distance === 0 || distance > out.length)
+    fail("MOBI_INVALID", "Corrupt PalmDOC LZ77 back-reference");
+  for (let j = 0; j < length; j++) out.push(out[out.length - distance]);
+}
+
+function consumePalmDocLiteralRun(
+  data: Buffer,
+  start: number,
+  count: number,
+  out: number[],
+): number {
+  const end = Math.min(data.length, start + count);
+  let i = start;
+  while (i < end) out.push(data[i++]);
+  return i;
+}
+
 function decompressPalmDoc(data: Buffer): Buffer {
   const out: number[] = [];
   let i = 0;
   while (i < data.length) {
     const b = data[i++];
-    if (b === 0x00) out.push(0x00);
-    else if (b >= 0x01 && b <= 0x08) {
-      for (let j = 0; j < b && i < data.length; j++) out.push(data[i++]);
-    } else if (b <= 0x7f) out.push(b);
-    else if (b >= 0xc0) {
+    if (b === 0x00 || (b >= 0x09 && b <= 0x7f)) {
+      out.push(b);
+    } else if (b >= 0x01 && b <= 0x08) {
+      i = consumePalmDocLiteralRun(data, i, b, out);
+    } else if (b >= 0xc0) {
       out.push(0x20, b ^ 0x80);
     } else {
       if (i >= data.length) break;
-      const b2 = data[i++];
-      const pair = ((b << 8) | b2) & 0x3fff;
-      const distance = pair >>> 3;
-      const length = (pair & 0x07) + 3;
-      if (distance === 0 || distance > out.length)
-        fail("MOBI_INVALID", "Corrupt PalmDOC LZ77 back-reference");
-      for (let j = 0; j < length; j++) out.push(out[out.length - distance]);
+      appendPalmDocBackRef(b, data[i++], out);
     }
   }
   return Buffer.from(out);
+}
+
+interface HuffTables {
+  dict1: { codelen: number; term: boolean; maxcode: number }[];
+  mincodes: number[];
+  maxcodes: number[];
+  dictionary: { slice: Buffer; final: boolean }[];
+}
+
+function readU32BitWindow(padded: Buffer, bitOffset: number): number {
+  const bytePos = bitOffset >>> 3;
+  const shift = bitOffset & 7;
+  const hi = padded.readUInt32BE(bytePos);
+  if (shift === 0) return hi;
+  const lo = padded[bytePos + 4];
+  return ((hi << shift) | (lo >>> (8 - shift))) >>> 0;
+}
+
+function decodeHuffCode(
+  dw: number,
+  tables: HuffTables,
+): { codelen: number; maxcode: number } {
+  let { codelen, term, maxcode } = tables.dict1[dw >>> 24];
+  if (!term) {
+    while (codelen < 32 && dw < tables.mincodes[codelen]) codelen++;
+    maxcode = tables.maxcodes[codelen];
+  }
+  return { codelen, maxcode };
+}
+
+function unpackHuffSlice(
+  data: Buffer,
+  tables: HuffTables,
+  chunks: Buffer[],
+  depth = 0,
+) {
+  if (depth > 32) fail("MOBI_INVALID", "HUFF/CDIC recursion limit exceeded");
+  let bitsLeft = data.length * 8;
+  const padded = Buffer.concat([data, Buffer.alloc(8)]);
+  let pos = 0;
+  while (bitsLeft > 0) {
+    const dw = readU32BitWindow(padded, pos);
+    const { codelen, maxcode } = decodeHuffCode(dw, tables);
+    if (codelen === 0 || (bitsLeft < codelen && bitsLeft < 8)) break;
+    pos += codelen;
+    bitsLeft -= codelen;
+    const index = (maxcode - dw) >>> (32 - codelen);
+    if (index >= tables.dictionary.length)
+      fail("MOBI_INVALID", "HUFF/CDIC dictionary index out of bounds");
+    const entry = tables.dictionary[index];
+    if (entry.final) chunks.push(entry.slice);
+    else unpackHuffSlice(entry.slice, tables, chunks, depth + 1);
+  }
+}
+
+function loadHuffTables(
+  records: Buffer[],
+  huffIndex: number,
+  huffCount: number,
+): HuffTables {
+  const huff = records[huffIndex];
+  if (huff.subarray(0, 4).toString("ascii") !== "HUFF")
+    fail("MOBI_INVALID", "Invalid HUFF header");
+  const off1 = huff.readUInt32BE(8);
+  const off2 = huff.readUInt32BE(12);
+  const dict1: HuffTables["dict1"] = [];
+  for (let i = 0; i < 256; i++) {
+    const v = huff.readUInt32BE(off1 + i * 4);
+    const codelen = v & 0x1f;
+    const term = (v & 0x80) !== 0;
+    let maxcode = v >>> 8;
+    if (codelen > 0) maxcode = ((maxcode + 1) << (32 - codelen)) - 1;
+    dict1.push({ codelen, term, maxcode: maxcode >>> 0 });
+  }
+  const mincodes = [0];
+  const maxcodes = [0];
+  for (let len = 1; len <= 32; len++) {
+    const min = huff.readUInt32BE(off2 + (len - 1) * 8);
+    const max = huff.readUInt32BE(off2 + (len - 1) * 8 + 4);
+    mincodes.push((min << (32 - len)) >>> 0);
+    maxcodes.push((((max + 1) << (32 - len)) - 1) >>> 0);
+  }
+  const dictionary: HuffTables["dictionary"] = [];
+  for (let c = 1; c < huffCount; c++) {
+    const cdic = records[huffIndex + c];
+    if (cdic.subarray(0, 4).toString("ascii") !== "CDIC")
+      fail("MOBI_INVALID", "Invalid CDIC record");
+    const headerLen = cdic.readUInt32BE(4);
+    const numEntries = cdic.readUInt32BE(8);
+    const codeLength = cdic.readUInt32BE(12);
+    const count = Math.min(numEntries - dictionary.length, 1 << codeLength);
+    for (let i = 0; i < count; i++) {
+      const off = cdic.readUInt16BE(headerLen + i * 2);
+      const blen = cdic.readUInt16BE(headerLen + off);
+      const slice = cdic.subarray(
+        headerLen + off + 2,
+        headerLen + off + 2 + (blen & 0x7fff),
+      );
+      dictionary.push({ slice, final: (blen & 0x8000) !== 0 });
+    }
+  }
+  return { dict1, mincodes, maxcodes, dictionary };
 }
 
 function decompressHuffCdic(
@@ -128,81 +245,62 @@ function decompressHuffCdic(
     huffIndex + huffCount > records.length
   )
     fail("MOBI_INVALID", "Missing HUFF/CDIC dictionary records");
-  const huff = records[huffIndex];
-  if (huff.subarray(0, 4).toString("ascii") !== "HUFF")
-    fail("MOBI_INVALID", "Invalid HUFF header");
-  const off1 = huff.readUInt32BE(8),
-    off2 = huff.readUInt32BE(12);
-  const dict1: { codelen: number; term: boolean; maxcode: number }[] = [];
-  for (let i = 0; i < 256; i++) {
-    const v = huff.readUInt32BE(off1 + i * 4);
-    const codelen = v & 0x1f,
-      term = (v & 0x80) !== 0;
-    let maxcode = v >>> 8;
-    if (codelen > 0) maxcode = ((maxcode + 1) << (32 - codelen)) - 1;
-    dict1.push({ codelen, term, maxcode: maxcode >>> 0 });
-  }
-  const mincodes = [0],
-    maxcodes = [0];
-  for (let len = 1; len <= 32; len++) {
-    const min = huff.readUInt32BE(off2 + (len - 1) * 8);
-    const max = huff.readUInt32BE(off2 + (len - 1) * 8 + 4);
-    mincodes.push((min << (32 - len)) >>> 0);
-    maxcodes.push((((max + 1) << (32 - len)) - 1) >>> 0);
-  }
-  const dictionary: { slice: Buffer; final: boolean }[] = [];
-  for (let c = 1; c < huffCount; c++) {
-    const cdic = records[huffIndex + c];
-    if (cdic.subarray(0, 4).toString("ascii") !== "CDIC")
-      fail("MOBI_INVALID", "Invalid CDIC record");
-    const headerLen = cdic.readUInt32BE(4),
-      numEntries = cdic.readUInt32BE(8);
-    const codeLength = cdic.readUInt32BE(12);
-    const count = Math.min(numEntries - dictionary.length, 1 << codeLength);
-    for (let i = 0; i < count; i++) {
-      const off = cdic.readUInt16BE(headerLen + i * 2);
-      const blen = cdic.readUInt16BE(headerLen + off);
-      const slice = cdic.subarray(
-        headerLen + off + 2,
-        headerLen + off + 2 + (blen & 0x7fff),
-      );
-      dictionary.push({ slice, final: (blen & 0x8000) !== 0 });
-    }
-  }
+  const tables = loadHuffTables(records, huffIndex, huffCount);
   const chunks: Buffer[] = [];
-  const unpackSlice = (data: Buffer, depth = 0) => {
-    if (depth > 32) fail("MOBI_INVALID", "HUFF/CDIC recursion limit exceeded");
-    let bitsLeft = data.length * 8;
-    const padded = Buffer.concat([data, Buffer.alloc(8)]);
-    let pos = 0;
-    const read32 = (bitOffset: number): number => {
-      const bytePos = bitOffset >>> 3,
-        shift = bitOffset & 7;
-      const hi = padded.readUInt32BE(bytePos);
-      if (shift === 0) return hi;
-      const lo = padded[bytePos + 4];
-      return ((hi << shift) | (lo >>> (8 - shift))) >>> 0;
-    };
-    while (bitsLeft > 0) {
-      const dw = read32(pos);
-      let { codelen, term, maxcode } = dict1[dw >>> 24];
-      if (!term) {
-        while (codelen < 32 && dw < mincodes[codelen]) codelen++;
-        maxcode = maxcodes[codelen];
-      }
-      if (codelen === 0 || (bitsLeft < codelen && bitsLeft < 8)) break;
-      pos += codelen;
-      bitsLeft -= codelen;
-      const index = (maxcode - dw) >>> (32 - codelen);
-      if (index >= dictionary.length)
-        fail("MOBI_INVALID", "HUFF/CDIC dictionary index out of bounds");
-      const entry = dictionary[index];
-      if (entry.final) chunks.push(entry.slice);
-      else unpackSlice(entry.slice, depth + 1);
-    }
-  };
-  for (const rec of textRecords) unpackSlice(rec);
+  for (const rec of textRecords) unpackHuffSlice(rec, tables, chunks);
   return Buffer.concat(chunks);
+}
+
+function applyExthRecord(
+  meta: ExthMetadata,
+  type: number,
+  data: Buffer,
+  encoding: BufferEncoding,
+) {
+  if (type === 121 && data.length === 4) {
+    meta.kf8Boundary = data.readUInt32BE(0);
+    return;
+  }
+  if (type === 201 && data.length === 4) {
+    meta.coverOffset = data.readUInt32BE(0);
+    return;
+  }
+  const value = data.toString(encoding).trim().normalize("NFC");
+  if (!value) return;
+  switch (type) {
+    case 100:
+      meta.authors.push(value);
+      break;
+    case 101:
+      meta.publisher = value;
+      break;
+    case 103:
+      meta.description = value;
+      break;
+    case 104: {
+      const digits = value.replace(/[- ]/g, "");
+      if (validIsbn(digits)) meta.isbn = digits;
+      break;
+    }
+    case 105:
+      meta.subjects.push(value);
+      break;
+    case 106:
+      meta.date = value;
+      break;
+    case 108:
+      if (!/^calibre\b/i.test(value)) meta.contributors.push(value);
+      break;
+    case 113:
+      meta.uuid = value;
+      break;
+    case 503:
+      meta.title = value;
+      break;
+    case 524:
+      meta.language = value;
+      break;
+  }
 }
 
 function parseExth(
@@ -219,29 +317,12 @@ function parseExth(
   const count = rec0.readUInt32BE(offset + 8);
   let pos = offset + 12;
   for (let i = 0; i < count && pos + 8 <= rec0.length; i++) {
-    const type = rec0.readUInt32BE(pos),
-      len = rec0.readUInt32BE(pos + 4);
+    const type = rec0.readUInt32BE(pos);
+    const len = rec0.readUInt32BE(pos + 4);
     if (len < 8 || pos + len > rec0.length) break;
     const data = rec0.subarray(pos + 8, pos + len);
     pos += len;
-    const str = () => data.toString(encoding).trim().normalize("NFC");
-    if (type === 100 && str()) meta.authors.push(str());
-    else if (type === 101 && str()) meta.publisher = str();
-    else if (type === 103 && str()) meta.description = str();
-    else if (type === 104 && str()) {
-      const digits = str().replace(/[- ]/g, "");
-      if (validIsbn(digits)) meta.isbn = digits;
-    } else if (type === 105 && str()) meta.subjects.push(str());
-    else if (type === 106 && str()) meta.date = str();
-    else if (type === 108 && str() && !/^calibre\b/i.test(str()))
-      meta.contributors.push(str());
-    else if (type === 113 && str()) meta.uuid = str();
-    else if (type === 121 && data.length === 4)
-      meta.kf8Boundary = data.readUInt32BE(0);
-    else if (type === 201 && data.length === 4)
-      meta.coverOffset = data.readUInt32BE(0);
-    else if (type === 503 && str()) meta.title = str();
-    else if (type === 524 && str()) meta.language = str();
+    applyExthRecord(meta, type, data, encoding);
   }
   return meta;
 }
@@ -332,7 +413,7 @@ function parsePdb(bytes: Uint8Array): Buffer[] {
 }
 
 function normalizeBcp47(lang?: string): string {
-  const raw = (lang ?? "").trim().replace(/_/g, "-");
+  const raw = (lang ?? "").trim().replaceAll("_", "-");
   if (/^zh(?:-(?:cn|sg|hans))?$/i.test(raw)) return "zh-Hans";
   if (/^zh-(?:tw|hk|mo|hant)$/i.test(raw)) return "zh-Hant";
   if (raw && validLanguage(raw)) return raw;
@@ -388,7 +469,7 @@ function sanitizeStylesheet(
       decl.value = decl.value.replace(
         /kindle:embed:([0-9A-Za-z]{4})(?:\?[^)"'\s]*)?/g,
         (_m, id: string) => {
-          const idx = parseInt(id, 32);
+          const idx = Number.parseInt(id, 32);
           const img = images.get(idx);
           return img ? `../images/${img.file}` : "";
         },
@@ -426,15 +507,228 @@ function sanitizeStylesheet(
   }
 }
 
+const allowedKindleTags = new Set([
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "p",
+  "div",
+  "section",
+  "article",
+  "blockquote",
+  "ul",
+  "ol",
+  "li",
+  "dl",
+  "dt",
+  "dd",
+  "pre",
+  "code",
+  "em",
+  "strong",
+  "b",
+  "i",
+  "sup",
+  "sub",
+  "span",
+  "a",
+  "img",
+  "br",
+  "hr",
+  "aside",
+]);
+
+interface KindleRenderOptions {
+  lang: string;
+  defaultTitle: string;
+  stylesheets: string[];
+  images: Map<number, { file: string }>;
+  resolveHref: (href: string, filepos?: string) => string | undefined;
+}
+
+interface KindleRenderState {
+  usedIds: Set<string>;
+  h1Count: number;
+  linkCount: number;
+  detectedTitle: string;
+}
+
+function promoteFontHeadings($: ReturnType<typeof load>) {
+  // Convert MOBI 6 <p><font size="7|6|5"><b>Heading</b></font></p> into semantic headings
+  $("p, div").each((_, el) => {
+    const node = $(el);
+    const children = node
+      .contents()
+      .filter((__, c) => c.type !== "text" || !!(c.data ?? "").trim());
+    if (children.length !== 1 || children[0].type !== "tag") return;
+    const first = $(children[0]);
+    if (!first.is("font")) return;
+    const size = Number(first.attr("size") ?? "0");
+    const text = first.text().trim();
+    if (!text || size < 5) return;
+    const tag = size >= 6 ? "h1" : "h2";
+    const idAttr = node.attr("id") || first.attr("id");
+    const idFragment = idAttr ? ` id="${escapeXml(idAttr)}"` : "";
+    node.replaceWith(`<${tag}${idFragment}>${escapeXml(text)}</${tag}>`);
+  });
+}
+
+function hoistFileposSpans($: ReturnType<typeof load>) {
+  $("span[id^='filepos-']").each((_, span) => {
+    const s = $(span);
+    if (s.text().trim() || s.children().length > 0) return;
+    const next = s.next();
+    if (next.length && !next.attr("id")) {
+      next.attr("id", s.attr("id")!);
+      s.remove();
+      return;
+    }
+    if (
+      s.parent().length &&
+      !s.parent().is("body, html") &&
+      !s.parent().attr("id")
+    ) {
+      s.parent().attr("id", s.attr("id")!);
+      s.remove();
+    }
+  });
+}
+
+function normalizeKindleHeadingTag(
+  tag: string,
+  text: string,
+  state: KindleRenderState,
+): string {
+  if (!state.detectedTitle && text) state.detectedTitle = text;
+  if (tag === "h1") {
+    state.h1Count++;
+    return tag;
+  }
+  if (state.h1Count === 0) {
+    state.h1Count++;
+    return "h1";
+  }
+  return Number(tag[1]) > 2 ? "h2" : tag;
+}
+
+function renderKindleImageTag(
+  el: ReturnType<ReturnType<typeof load>>,
+  attrs: string[],
+  images: Map<number, { file: string }>,
+): string | undefined {
+  let imgIdx: number | undefined;
+  const recindex = el.attr("recindex");
+  const src = el.attr("src") ?? "";
+  const embedMatch = /^kindle:embed:([0-9a-z]{4})/i.exec(src);
+  if (recindex && /^\d+$/.test(recindex)) imgIdx = Number(recindex);
+  else if (embedMatch) imgIdx = Number.parseInt(embedMatch[1], 32);
+  else if (images.size === 1) imgIdx = 1;
+  const img = imgIdx ? images.get(imgIdx) : undefined;
+  if (!img) return undefined;
+  const alt = (el.attr("alt") ?? "").trim() || "Illustration";
+  attrs.push(
+    `src="../images/${escapeXml(img.file)}"`,
+    `alt="${escapeXml(alt)}"`,
+  );
+  return `<img ${attrs.join(" ")}/>`;
+}
+
+function renderKindleAnchorTag(
+  el: ReturnType<ReturnType<typeof load>>,
+  attrs: string[],
+  inner: string,
+  options: KindleRenderOptions,
+  state: KindleRenderState,
+): string {
+  const resolved = options.resolveHref(
+    el.attr("href") ?? "",
+    el.attr("filepos"),
+  );
+  if (!resolved || !inner.trim()) {
+    return attrs.length ? `<span ${attrs.join(" ")}>${inner}</span>` : inner;
+  }
+  if (
+    !attrs.some((a) => a.startsWith('id="')) &&
+    !/^(?:https?:|mailto:)/i.test(resolved)
+  ) {
+    let linkId = `link-${++state.linkCount}`;
+    while (state.usedIds.has(linkId)) linkId = `link-${++state.linkCount}`;
+    state.usedIds.add(linkId);
+    attrs.push(`id="${linkId}"`);
+  }
+  attrs.push(`href="${escapeXml(resolved)}"`);
+  return `<a ${attrs.join(" ")}>${inner}</a>`;
+}
+
+function collectElementIdAttr(
+  el: ReturnType<ReturnType<typeof load>>,
+  state: KindleRenderState,
+): string[] {
+  const rawId = (el.attr("id") || el.attr("name") || "").trim();
+  if (
+    rawId &&
+    /^[A-Za-z_][A-Za-z0-9_.-]*$/.test(rawId) &&
+    !state.usedIds.has(rawId)
+  ) {
+    state.usedIds.add(rawId);
+    return [`id="${escapeXml(rawId)}"`];
+  }
+  return [];
+}
+
+function renderKindleElement(
+  $: ReturnType<typeof load>,
+  rawTag: string,
+  el: ReturnType<ReturnType<typeof load>>,
+  options: KindleRenderOptions,
+  state: KindleRenderState,
+): string | undefined {
+  let tag = rawTag.toLowerCase();
+  if (tag.includes(":") || tag === "mbp:pagebreak") return undefined;
+  if (!allowedKindleTags.has(tag)) tag = "span";
+  if (/^h[1-6]$/.test(tag))
+    tag = normalizeKindleHeadingTag(tag, el.text().trim(), state);
+  const attrs = collectElementIdAttr(el, state);
+  if (tag === "img") return renderKindleImageTag(el, attrs, options.images);
+  const attrSuffix = attrs.length ? " " + attrs.join(" ") : "";
+  if (tag === "br" || tag === "hr") return `<${tag}${attrSuffix}/>`;
+  const inner = renderKindleChildren($, el, options, state);
+  if (tag === "a")
+    return renderKindleAnchorTag(el, attrs, inner, options, state);
+  return `<${tag}${attrSuffix}>${inner}</${tag}>`;
+}
+
+function renderKindleChildren(
+  $: ReturnType<typeof load>,
+  nodes: { contents: () => ReturnType<ReturnType<typeof load>> },
+  options: KindleRenderOptions,
+  state: KindleRenderState,
+): string {
+  const parts: string[] = [];
+  nodes.contents().each((_, child) => {
+    if (child.type === "text") {
+      parts.push(escapeXml(child.data ?? ""));
+      return;
+    }
+    if (child.type !== "tag") return;
+    const rendered = renderKindleElement(
+      $,
+      child.tagName ?? "",
+      $(child),
+      options,
+      state,
+    );
+    if (rendered) parts.push(rendered);
+  });
+  return parts.join("");
+}
+
 function serializeCleanXhtml(
   rawHtml: string,
-  options: {
-    lang: string;
-    defaultTitle: string;
-    stylesheets: string[];
-    images: Map<number, { file: string }>;
-    resolveHref: (href: string, filepos?: string) => string | undefined;
-  },
+  options: KindleRenderOptions,
 ): { xhtml: string; title: string; isGeneratedToc: boolean } | null {
   const $ = load(rawHtml);
   const isGeneratedToc =
@@ -443,177 +737,27 @@ function serializeCleanXhtml(
   $(
     "script, style, meta, base, iframe, object, embed, form, input, video, audio",
   ).remove();
-  // Convert MOBI 6 <p><font size="7|6|5"><b>Heading</b></font></p> into semantic headings
-  $("p, div").each((_, el) => {
-    const node = $(el);
-    const children = node
-      .contents()
-      .filter((__, c) => c.type !== "text" || !!(c.data ?? "").trim());
-    if (children.length === 1 && children[0].type === "tag") {
-      const first = $(children[0]);
-      if (first.is("font")) {
-        const size = Number(first.attr("size") ?? "0");
-        const text = first.text().trim();
-        if (text && size >= 5) {
-          const tag = size >= 6 ? "h1" : "h2";
-          const idAttr = node.attr("id") || first.attr("id");
-          node.replaceWith(
-            `<${tag}${idAttr ? ` id="${escapeXml(idAttr)}"` : ""}>${escapeXml(text)}</${tag}>`,
-          );
-        }
-      }
-    }
-  });
+  promoteFontHeadings($);
   // Unwrap remaining <font>, <center>, <mbp:*> wrappers while keeping their children
   for (let pass = 0; pass < 3; pass++) {
     $("font, center, strike, u").each((_, el) => {
       $(el).replaceWith($(el).contents());
     });
   }
-  const usedIds = new Set<string>();
-  let h1Count = 0;
-  let linkCount = 0;
-  let detectedTitle = "";
-  const allowedTags = new Set([
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-    "p",
-    "div",
-    "section",
-    "article",
-    "blockquote",
-    "ul",
-    "ol",
-    "li",
-    "dl",
-    "dt",
-    "dd",
-    "pre",
-    "code",
-    "em",
-    "strong",
-    "b",
-    "i",
-    "sup",
-    "sub",
-    "span",
-    "a",
-    "img",
-    "br",
-    "hr",
-    "aside",
-  ]);
-  const renderChildren = (nodes: {
-    contents: () => ReturnType<typeof $>;
-  }): string => {
-    const parts: string[] = [];
-    nodes.contents().each((_, child) => {
-      if (child.type === "text") {
-        parts.push(escapeXml(child.data ?? ""));
-        return;
-      }
-      if (child.type !== "tag") return;
-      let tag = (child.tagName ?? "").toLowerCase();
-      if (tag.includes(":") || tag === "mbp:pagebreak") return;
-      if (!allowedTags.has(tag)) tag = "span";
-      const el = $(child);
-      if (/^h[1-6]$/.test(tag)) {
-        if (!detectedTitle && el.text().trim())
-          detectedTitle = el.text().trim();
-        if (tag === "h1") h1Count++;
-        else if (h1Count === 0) {
-          tag = "h1";
-          h1Count++;
-        } else if (Number(tag[1]) > 2) tag = "h2";
-      }
-      const attrs: string[] = [];
-      const rawId = (el.attr("id") || el.attr("name") || "").trim();
-      if (
-        rawId &&
-        /^[A-Za-z_][A-Za-z0-9_.-]*$/.test(rawId) &&
-        !usedIds.has(rawId)
-      ) {
-        usedIds.add(rawId);
-        attrs.push(`id="${escapeXml(rawId)}"`);
-      }
-      if (tag === "img") {
-        let imgIdx: number | undefined;
-        const recindex = el.attr("recindex");
-        const src = el.attr("src") ?? "";
-        const embedMatch = /^kindle:embed:([0-9A-Za-z]{4})/i.exec(src);
-        if (recindex && /^\d+$/.test(recindex)) imgIdx = Number(recindex);
-        else if (embedMatch) imgIdx = parseInt(embedMatch[1], 32);
-        else if (options.images.size === 1) imgIdx = 1;
-        const img = imgIdx ? options.images.get(imgIdx) : undefined;
-        if (!img) return;
-        const alt = (el.attr("alt") ?? "").trim() || "Illustration";
-        attrs.push(
-          `src="../images/${escapeXml(img.file)}"`,
-          `alt="${escapeXml(alt)}"`,
-        );
-        parts.push(`<img ${attrs.join(" ")}/>`);
-        return;
-      }
-      if (tag === "br" || tag === "hr") {
-        parts.push(`<${tag}${attrs.length ? " " + attrs.join(" ") : ""}/>`);
-        return;
-      }
-      const inner = renderChildren(el);
-      if (tag === "a") {
-        const resolved = options.resolveHref(
-          el.attr("href") ?? "",
-          el.attr("filepos"),
-        );
-        if (!resolved || !inner.trim()) {
-          if (attrs.length)
-            parts.push(`<span ${attrs.join(" ")}>${inner}</span>`);
-          else parts.push(inner);
-          return;
-        }
-        if (
-          !attrs.some((a) => a.startsWith('id="')) &&
-          !/^(?:https?:|mailto:)/i.test(resolved)
-        ) {
-          let linkId = `link-${++linkCount}`;
-          while (usedIds.has(linkId)) linkId = `link-${++linkCount}`;
-          usedIds.add(linkId);
-          attrs.push(`id="${linkId}"`);
-        }
-        attrs.push(`href="${escapeXml(resolved)}"`);
-      }
-      parts.push(
-        `<${tag}${attrs.length ? " " + attrs.join(" ") : ""}>${inner}</${tag}>`,
-      );
-    });
-    return parts.join("");
+  hoistFileposSpans($);
+  const state: KindleRenderState = {
+    usedIds: new Set<string>(),
+    h1Count: 0,
+    linkCount: 0,
+    detectedTitle: "",
   };
-
-  $("span[id^='filepos-']").each((_, span) => {
-    const s = $(span);
-    if (!s.text().trim() && s.children().length === 0) {
-      const next = s.next();
-      if (next.length && !next.attr("id")) {
-        next.attr("id", s.attr("id")!);
-        s.remove();
-      } else if (
-        s.parent().length &&
-        !s.parent().is("body, html") &&
-        !s.parent().attr("id")
-      ) {
-        s.parent().attr("id", s.attr("id")!);
-        s.remove();
-      }
-    }
-  });
   const bodyRoot = $("body").length ? $("body") : $.root();
-  let bodyContent = renderChildren(bodyRoot).trim();
+  let bodyContent = renderKindleChildren($, bodyRoot, options, state).trim();
   if (!bodyContent) return null;
   const title =
-    detectedTitle || $("title").first().text().trim() || options.defaultTitle;
+    state.detectedTitle ||
+    $("title").first().text().trim() ||
+    options.defaultTitle;
   // Ensure block-level root children inside <body> for valid XHTML & split units
   if (
     !/<(?:h[1-6]|p|div|section|article|blockquote|ul|ol|dl|pre|aside)\b/.test(
@@ -632,26 +776,28 @@ function serializeCleanXhtml(
   return { xhtml, title, isGeneratedToc };
 }
 
-export function unpackKindle(bytes: Uint8Array): {
+interface KindleImageRecord {
+  index: number;
+  file: string;
+  path: string;
+  mediaType: string;
   bytes: Buffer;
+}
+
+interface KindleChapterFile {
+  id: string;
+  file: string;
+  path: string;
+  title: string;
+}
+
+function selectKindleHeader(records: Buffer[]): {
+  primary: MobiHeader;
+  header: MobiHeader;
+  recordOffset: number;
   format: KindleFormat;
-  metadata: {
-    title: string;
-    language: string;
-    authors: string[];
-    publisher?: string;
-    description?: string;
-    isbn?: string;
-    date?: string;
-    chapters: number;
-    images: number;
-  };
 } {
-  const records = parsePdb(bytes);
   const primary = parseRecord0(records[0]);
-  let header = primary;
-  let recordOffset = 0;
-  let format: KindleFormat = primary.version >= 8 ? "kf8" : "mobi6";
   if (
     primary.version < 8 &&
     primary.exth.kf8Boundary !== undefined &&
@@ -661,11 +807,27 @@ export function unpackKindle(bytes: Uint8Array): {
       .toString("ascii")
       .startsWith("BOUNDARY")
   ) {
-    recordOffset = primary.exth.kf8Boundary + 1;
-    header = parseRecord0(records[recordOffset]);
-    format = "combo-kf8";
+    const recordOffset = primary.exth.kf8Boundary + 1;
+    return {
+      primary,
+      header: parseRecord0(records[recordOffset]),
+      recordOffset,
+      format: "combo-kf8",
+    };
   }
+  return {
+    primary,
+    header: primary,
+    recordOffset: 0,
+    format: primary.version >= 8 ? "kf8" : "mobi6",
+  };
+}
 
+function decompressKindleText(
+  records: Buffer[],
+  header: MobiHeader,
+  recordOffset: number,
+): Buffer {
   if (
     recordOffset + header.textRecordCount >= records.length ||
     header.textRecordCount < 1
@@ -691,27 +853,34 @@ export function unpackKindle(bytes: Uint8Array): {
       `Unsupported MOBI compression type: ${header.compression}`,
     );
   if (rawText.length > header.textLength && header.textLength > 0)
-    rawText = rawText.subarray(0, header.textLength);
+    return rawText.subarray(0, header.textLength);
+  return rawText;
+}
 
-  // Extract image records
-  const imgStart =
+function findImageStartIndex(
+  header: MobiHeader,
+  primary: MobiHeader,
+  recordOffset: number,
+  recordCount: number,
+): number {
+  if (
     header.firstImageIndex !== 0xffffffff &&
-    recordOffset + header.firstImageIndex < records.length
-      ? recordOffset + header.firstImageIndex
-      : primary.firstImageIndex !== 0xffffffff &&
-          primary.firstImageIndex < records.length
-        ? primary.firstImageIndex
-        : records.length;
-  const images = new Map<
-    number,
-    {
-      index: number;
-      file: string;
-      path: string;
-      mediaType: string;
-      bytes: Buffer;
-    }
-  >();
+    recordOffset + header.firstImageIndex < recordCount
+  )
+    return recordOffset + header.firstImageIndex;
+  if (
+    primary.firstImageIndex !== 0xffffffff &&
+    primary.firstImageIndex < recordCount
+  )
+    return primary.firstImageIndex;
+  return recordCount;
+}
+
+function extractKindleImages(
+  records: Buffer[],
+  imgStart: number,
+): Map<number, KindleImageRecord> {
+  const images = new Map<number, KindleImageRecord>();
   for (let r = imgStart; r < records.length; r++) {
     const detected = detectImage(records[r]);
     if (!detected) continue;
@@ -725,7 +894,354 @@ export function unpackKindle(bytes: Uint8Array): {
       bytes: records[r],
     });
   }
+  return images;
+}
 
+function sliceFdstFlows(
+  records: Buffer[],
+  header: MobiHeader,
+  recordOffset: number,
+  rawText: Buffer,
+): Buffer[] {
+  if (
+    header.fdstIndex === 0xffffffff ||
+    recordOffset + header.fdstIndex >= records.length
+  )
+    return [rawText];
+  const fdst = records[recordOffset + header.fdstIndex];
+  if (fdst.length < 12 || fdst.subarray(0, 4).toString("ascii") !== "FDST")
+    return [rawText];
+  const hlen = fdst.readUInt32BE(4);
+  const nflows = fdst.readUInt32BE(8);
+  const sliced: Buffer[] = [];
+  for (let i = 0; i < nflows && hlen + (i + 1) * 8 <= fdst.length; i++) {
+    const s = fdst.readUInt32BE(hlen + i * 8);
+    const e = fdst.readUInt32BE(hlen + i * 8 + 4);
+    if (s <= e && e <= rawText.length) sliced.push(rawText.subarray(s, e));
+  }
+  return sliced.length ? sliced : [rawText];
+}
+
+function scanKf8FidTargets(
+  flow0Str: string,
+  fragBuf: Buffer,
+  idx: number,
+  encoding: BufferEncoding,
+  fidTargets: Map<string, { chapterIdx: number; id?: string }>,
+) {
+  const fidCode = idx.toString(32).toUpperCase().padStart(4, "0");
+  const posRegex = new RegExp(
+    `kindle:pos:fid:${fidCode}:off:([0-9a-z]{10})`,
+    "gi",
+  );
+  let m: RegExpExecArray | null;
+  while ((m = posRegex.exec(flow0Str)) !== null) {
+    const off = Number.parseInt(m[1], 32);
+    const key = `${idx}:${off}`;
+    if (fidTargets.has(key)) continue;
+    if (off === 0) {
+      fidTargets.set(key, { chapterIdx: idx });
+    } else if (off < fragBuf.length) {
+      const tail = fragBuf.subarray(off).toString(encoding);
+      const idMatch = /^<[^>]*?\bid=["']([^"']+)["']/i.exec(tail);
+      fidTargets.set(
+        key,
+        idMatch ? { chapterIdx: idx, id: idMatch[1] } : { chapterIdx: idx },
+      );
+    }
+  }
+}
+
+function extractKf8Chapters(
+  records: Buffer[],
+  header: MobiHeader,
+  recordOffset: number,
+  rawText: Buffer,
+  encoding: BufferEncoding,
+  context: {
+    images: Map<number, KindleImageRecord>;
+    entries: Map<string, Buffer>;
+    stylesheets: string[];
+    fidTargets: Map<string, { chapterIdx: number; id?: string }>;
+  },
+): string[] {
+  const flows = sliceFdstFlows(records, header, recordOffset, rawText);
+  for (let f = 1; f < flows.length; f++) {
+    const cleanCss = sanitizeStylesheet(
+      flows[f].toString(encoding),
+      context.images,
+    );
+    if (cleanCss.trim()) {
+      const name = `flow-${String(f).padStart(4, "0")}.css`;
+      context.entries.set(`OEBPS/styles/${name}`, Buffer.from(cleanCss));
+      context.stylesheets.push(`../styles/${name}`);
+    }
+  }
+  const flow0Str = flows[0].toString(encoding);
+  const parts = flow0Str
+    .split(/(?=<\?xml\s)/i)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return parts.map((part, idx) => {
+    const closeIdx = part.search(/<\/body>\s*<\/html>/i);
+    if (closeIdx < 0) return part;
+    const closeMatch = /<\/body>\s*<\/html>\s*/i.exec(part.slice(closeIdx))!;
+    const skelEnd = closeIdx + closeMatch.index + closeMatch[0].length;
+    const skel = part.slice(0, skelEnd);
+    const frag = part.slice(skelEnd);
+    scanKf8FidTargets(
+      flow0Str,
+      Buffer.from(frag, encoding),
+      idx,
+      encoding,
+      context.fidTargets,
+    );
+    if (!frag.trim()) return skel;
+    return skel.slice(0, closeIdx) + frag + skel.slice(closeIdx);
+  });
+}
+
+function extractMobi6Chapters(
+  rawText: Buffer,
+  encoding: BufferEncoding,
+  fileposTargets: Map<number, { chapterIdx: number; id: string }>,
+): string[] {
+  // MOBI 6: resolve filepos byte offsets before splitting on <mbp:pagebreak>
+  const fullStr = rawText.toString(encoding);
+  const posSet = new Set<number>();
+  let m: RegExpExecArray | null;
+  const posRe = /\bfilepos=["']?(\d+)["']?/gi;
+  while ((m = posRe.exec(fullStr)) !== null) posSet.add(Number(m[1]));
+  const sortedPos = [...posSet]
+    .filter((p) => p >= 0 && p < rawText.length)
+    .sort((a, b) => b - a);
+  let annotated = rawText;
+  for (const pos of sortedPos) {
+    const marker = Buffer.from(`<span id="filepos-${pos}"></span>`, encoding);
+    annotated = Buffer.concat([
+      annotated.subarray(0, pos),
+      marker,
+      annotated.subarray(pos),
+    ]);
+  }
+  const rawChapters = annotated
+    .toString(encoding)
+    .split(/<mbp:pagebreak\s*\/?>/i)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  rawChapters.forEach((ch, idx) => {
+    const markerRe = /\bid="filepos-(\d+)"/g;
+    let mm: RegExpExecArray | null;
+    while ((mm = markerRe.exec(ch)) !== null) {
+      fileposTargets.set(Number(mm[1]), {
+        chapterIdx: idx,
+        id: `filepos-${mm[1]}`,
+      });
+    }
+  });
+  return rawChapters;
+}
+
+function selectActiveChapterIndices(rawChapters: string[]): number[] {
+  const activeIndices: number[] = [];
+  rawChapters.forEach((raw, idx) => {
+    const $ = load(raw);
+    const isToc =
+      $("#calibre_generated_inline_toc").length > 0 ||
+      $("body").attr("id") === "calibre_generated_inline_toc" ||
+      (idx === rawChapters.length - 1 &&
+        rawChapters.length > 1 &&
+        /^(?:目录|目錄|Table of Contents)$/i.test(
+          $("font[size='5'] b, h1, h2").first().text().trim(),
+        ));
+    const hasTextOrImg =
+      $("body").text().trim().length > 0 ||
+      $.root().text().trim().length > 0 ||
+      $("img").length > 0;
+    if (!isToc && hasTextOrImg) activeIndices.push(idx);
+  });
+  if (!activeIndices.length && rawChapters.length) activeIndices.push(0);
+  return activeIndices;
+}
+
+function formatChapterLink(
+  destIdx: number,
+  finalIdx: number,
+  fragment?: string,
+): string {
+  const destFile = `c${String(destIdx + 1).padStart(4, "0")}.xhtml`;
+  if (!fragment) return destIdx === finalIdx ? "#" : destFile;
+  return destIdx === finalIdx ? `#${fragment}` : `${destFile}#${fragment}`;
+}
+
+function resolveFileposHref(
+  filepos: string,
+  finalIdx: number,
+  rawToFinalIdx: Map<number, number>,
+  fileposTargets: Map<number, { chapterIdx: number; id: string }>,
+): string | undefined {
+  const target = fileposTargets.get(Number(filepos));
+  if (!target) return undefined;
+  const destIdx = rawToFinalIdx.get(target.chapterIdx);
+  if (destIdx === undefined) return undefined;
+  return formatChapterLink(destIdx, finalIdx, target.id);
+}
+
+function resolveKf8PosHref(
+  posMatch: RegExpExecArray,
+  finalIdx: number,
+  rawToFinalIdx: Map<number, number>,
+  fidTargets: Map<string, { chapterIdx: number; id?: string }>,
+): string | undefined {
+  const fid = Number.parseInt(posMatch[1], 32);
+  const off = Number.parseInt(posMatch[2], 32);
+  const target = fidTargets.get(`${fid}:${off}`) ?? { chapterIdx: fid };
+  const destIdx = rawToFinalIdx.get(target.chapterIdx);
+  if (destIdx === undefined) return undefined;
+  return formatChapterLink(destIdx, finalIdx, target.id);
+}
+
+function createChapterHrefResolver(
+  finalIdx: number,
+  rawToFinalIdx: Map<number, number>,
+  fileposTargets: Map<number, { chapterIdx: number; id: string }>,
+  fidTargets: Map<string, { chapterIdx: number; id?: string }>,
+) {
+  return (href: string, filepos?: string): string | undefined => {
+    if (filepos && /^\d+$/.test(filepos))
+      return resolveFileposHref(
+        filepos,
+        finalIdx,
+        rawToFinalIdx,
+        fileposTargets,
+      );
+    const posMatch = /^kindle:pos:fid:([0-9a-z]{4}):off:([0-9a-z]{10})/i.exec(
+      href,
+    );
+    if (posMatch)
+      return resolveKf8PosHref(posMatch, finalIdx, rawToFinalIdx, fidTargets);
+    if (/^https?:\/\/|^mailto:/i.test(href) || href.startsWith("#"))
+      return href;
+    return undefined;
+  };
+}
+
+function buildKindleOpf(options: {
+  bytes: Uint8Array;
+  header: MobiHeader;
+  primary: MobiHeader;
+  metadata: {
+    lang: string;
+    title: string;
+    authors: string[];
+    contributors: string[];
+    publisher?: string;
+    description?: string;
+    isbn?: string;
+    date?: string;
+    subjects: string[];
+    coverOffset?: number;
+  };
+  entries: Map<string, Buffer>;
+  chapterFiles: KindleChapterFile[];
+  images: Map<number, KindleImageRecord>;
+}): string {
+  const { bytes, header, primary, metadata, entries, chapterFiles, images } =
+    options;
+  const coverImageEntry =
+    metadata.coverOffset !== undefined
+      ? images.get(metadata.coverOffset + 1)
+      : undefined;
+  const digest = sha256(bytes);
+  const fallbackUuid = `${digest.slice(0, 8)}-${digest.slice(8, 12)}-4${digest.slice(13, 16)}-8${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
+  const rawUuid = header.exth.uuid ?? primary.exth.uuid;
+  const primaryId =
+    rawUuid &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      rawUuid,
+    )
+      ? `urn:uuid:${rawUuid.toLowerCase()}`
+      : `urn:uuid:${fallbackUuid}`;
+  const metaParts: string[] = [
+    `<dc:identifier id="uid">${escapeXml(primaryId)}</dc:identifier>`,
+    ...(metadata.isbn
+      ? [
+          `<dc:identifier id="isbn">${escapeXml(metadata.isbn)}</dc:identifier>`,
+          `<meta refines="#isbn" property="identifier-type" scheme="onix:codelist5">15</meta>`,
+        ]
+      : []),
+    `<dc:title>${escapeXml(metadata.title)}</dc:title>`,
+    `<dc:language>${escapeXml(metadata.lang)}</dc:language>`,
+    ...(metadata.authors.length ? metadata.authors : ["Unknown"]).map(
+      (a) => `<dc:creator>${escapeXml(a)}</dc:creator>`,
+    ),
+    ...metadata.contributors.map(
+      (c) => `<dc:contributor>${escapeXml(c)}</dc:contributor>`,
+    ),
+    ...(metadata.publisher
+      ? [`<dc:publisher>${escapeXml(metadata.publisher)}</dc:publisher>`]
+      : []),
+    ...(metadata.description
+      ? [`<dc:description>${escapeXml(metadata.description)}</dc:description>`]
+      : []),
+    ...metadata.subjects.map((s) => `<dc:subject>${escapeXml(s)}</dc:subject>`),
+    ...(metadata.date
+      ? [`<dc:date>${escapeXml(metadata.date)}</dc:date>`]
+      : []),
+    `<meta property="dcterms:modified">2000-01-01T00:00:00Z</meta>`,
+    `<meta property="schema:accessMode">textual</meta>`,
+    `<meta property="schema:accessModeSufficient">textual</meta>`,
+    `<meta property="schema:accessibilityFeature">tableOfContents</meta>`,
+    `<meta property="schema:accessibilityHazard">none</meta>`,
+    `<meta property="schema:accessibilitySummary">Converted from Kindle format with preserved text and navigation; accessibility has not been certified.</meta>`,
+  ];
+  const manifestParts: string[] = [
+    `<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>`,
+    `<item id="reading-css" href="styles/reading.css" media-type="text/css"/>`,
+    ...[...entries.keys()]
+      .filter((k) => k.startsWith("OEBPS/styles/flow-"))
+      .map((k, i) => {
+        const rel = k.slice("OEBPS/".length);
+        return `<item id="css-${i + 1}" href="${escapeXml(rel)}" media-type="text/css"/>`;
+      }),
+    ...chapterFiles.map(
+      (ch) =>
+        `<item id="${ch.id}" href="text/${escapeXml(ch.file)}" media-type="application/xhtml+xml"/>`,
+    ),
+    ...[...images.values()].map(
+      (img) =>
+        `<item id="img-${img.index}" href="images/${escapeXml(img.file)}" media-type="${img.mediaType}"${coverImageEntry?.index === img.index ? ' properties="cover-image"' : ""}/>`,
+    ),
+  ];
+  const spineParts = chapterFiles.map((ch) => `<itemref idref="${ch.id}"/>`);
+  return `<?xml version="1.0" encoding="utf-8"?><package xmlns="${NS.opf}" xmlns:dc="${NS.dc}" version="3.0" unique-identifier="uid" xml:lang="${escapeXml(metadata.lang)}"><metadata>${metaParts.join("")}</metadata><manifest>${manifestParts.join("")}</manifest><spine>${spineParts.join("")}</spine></package>`;
+}
+
+export function unpackKindle(bytes: Uint8Array): {
+  bytes: Buffer;
+  format: KindleFormat;
+  metadata: {
+    title: string;
+    language: string;
+    authors: string[];
+    publisher?: string;
+    description?: string;
+    isbn?: string;
+    date?: string;
+    chapters: number;
+    images: number;
+  };
+} {
+  const records = parsePdb(bytes);
+  const { primary, header, recordOffset, format } = selectKindleHeader(records);
+  const rawText = decompressKindleText(records, header, recordOffset);
+  const imgStart = findImageStartIndex(
+    header,
+    primary,
+    recordOffset,
+    records.length,
+  );
+  const images = extractKindleImages(records, imgStart);
   const lang = normalizeBcp47(header.exth.language ?? primary.exth.language);
   const title = header.title || primary.title || "Untitled";
   const authors = header.exth.authors.length
@@ -754,183 +1270,36 @@ export function unpackKindle(bytes: Uint8Array): {
   );
   entries.set("OEBPS/styles/reading.css", Buffer.from(readingCss));
   const stylesheets = ["../styles/reading.css"];
-
-  let rawChapters: string[] = [];
   const fidTargets = new Map<string, { chapterIdx: number; id?: string }>();
   const fileposTargets = new Map<number, { chapterIdx: number; id: string }>();
+  const rawChapters =
+    header.version >= 8
+      ? extractKf8Chapters(records, header, recordOffset, rawText, encoding, {
+          images,
+          entries,
+          stylesheets,
+          fidTargets,
+        })
+      : extractMobi6Chapters(rawText, encoding, fileposTargets);
 
-  if (header.version >= 8) {
-    let flows = [rawText];
-    if (
-      header.fdstIndex !== 0xffffffff &&
-      recordOffset + header.fdstIndex < records.length
-    ) {
-      const fdst = records[recordOffset + header.fdstIndex];
-      if (
-        fdst.length >= 12 &&
-        fdst.subarray(0, 4).toString("ascii") === "FDST"
-      ) {
-        const hlen = fdst.readUInt32BE(4),
-          nflows = fdst.readUInt32BE(8);
-        const sliced: Buffer[] = [];
-        for (let i = 0; i < nflows && hlen + (i + 1) * 8 <= fdst.length; i++) {
-          const s = fdst.readUInt32BE(hlen + i * 8),
-            e = fdst.readUInt32BE(hlen + i * 8 + 4);
-          if (s <= e && e <= rawText.length)
-            sliced.push(rawText.subarray(s, e));
-        }
-        if (sliced.length) flows = sliced;
-      }
-    }
-    for (let f = 1; f < flows.length; f++) {
-      const cleanCss = sanitizeStylesheet(flows[f].toString(encoding), images);
-      if (cleanCss.trim()) {
-        const name = `flow-${String(f).padStart(4, "0")}.css`;
-        entries.set(`OEBPS/styles/${name}`, Buffer.from(cleanCss));
-        stylesheets.push(`../styles/${name}`);
-      }
-    }
-    const flow0Str = flows[0].toString(encoding);
-    const parts = flow0Str
-      .split(/(?=<\?xml\s)/i)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    rawChapters = parts.map((part, idx) => {
-      const closeIdx = part.search(/<\/body>\s*<\/html>/i);
-      if (closeIdx < 0) return part;
-      const closeMatch = /<\/body>\s*<\/html>\s*/i.exec(part.slice(closeIdx))!;
-      const skelEnd = closeIdx + closeMatch.index + closeMatch[0].length;
-      const skel = part.slice(0, skelEnd);
-      const frag = part.slice(skelEnd);
-      const fragBuf = Buffer.from(frag, encoding);
-      // Scan all kindle:pos:fid:XXXX:off:YYYYYYYYYY references in flow0 targeting this fid
-      const fidCode = idx.toString(32).toUpperCase().padStart(4, "0");
-      const posRegex = new RegExp(
-        `kindle:pos:fid:${fidCode}:off:([0-9A-Za-z]{10})`,
-        "gi",
-      );
-      let m: RegExpExecArray | null;
-      while ((m = posRegex.exec(flow0Str)) !== null) {
-        const off = parseInt(m[1], 32);
-        const key = `${idx}:${off}`;
-        if (fidTargets.has(key)) continue;
-        if (off === 0) {
-          fidTargets.set(key, { chapterIdx: idx });
-        } else if (off < fragBuf.length) {
-          const tail = fragBuf.subarray(off).toString(encoding);
-          const idMatch = /^<[^>]*?\bid=["']([^"']+)["']/i.exec(tail);
-          if (idMatch) fidTargets.set(key, { chapterIdx: idx, id: idMatch[1] });
-          else fidTargets.set(key, { chapterIdx: idx });
-        }
-      }
-      if (!frag.trim()) return skel;
-      return skel.slice(0, closeIdx) + frag + skel.slice(closeIdx);
-    });
-  } else {
-    // MOBI 6: resolve filepos byte offsets before splitting on <mbp:pagebreak>
-    const fullStr = rawText.toString(encoding);
-    const posSet = new Set<number>();
-    let m: RegExpExecArray | null;
-    const posRe = /\bfilepos=["']?(\d+)["']?/gi;
-    while ((m = posRe.exec(fullStr)) !== null) posSet.add(Number(m[1]));
-    const sortedPos = [...posSet]
-      .filter((p) => p >= 0 && p < rawText.length)
-      .sort((a, b) => b - a);
-    let annotated = rawText;
-    for (const pos of sortedPos) {
-      const marker = Buffer.from(`<span id="filepos-${pos}"></span>`, encoding);
-      annotated = Buffer.concat([
-        annotated.subarray(0, pos),
-        marker,
-        annotated.subarray(pos),
-      ]);
-    }
-    rawChapters = annotated
-      .toString(encoding)
-      .split(/<mbp:pagebreak\s*\/?>/i)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    rawChapters.forEach((ch, idx) => {
-      const markerRe = /\bid="filepos-(\d+)"/g;
-      let mm: RegExpExecArray | null;
-      while ((mm = markerRe.exec(ch)) !== null) {
-        fileposTargets.set(Number(mm[1]), {
-          chapterIdx: idx,
-          id: `filepos-${mm[1]}`,
-        });
-      }
-    });
-  }
-
-  // First pass: identify which raw chapters are real content vs generated inline TOC
-  const activeIndices: number[] = [];
-  rawChapters.forEach((raw, idx) => {
-    const $ = load(raw);
-    const isToc =
-      $("#calibre_generated_inline_toc").length > 0 ||
-      $("body").attr("id") === "calibre_generated_inline_toc" ||
-      (idx === rawChapters.length - 1 &&
-        rawChapters.length > 1 &&
-        /^(?:目录|目錄|Table of Contents)$/i.test(
-          $("font[size='5'] b, h1, h2").first().text().trim(),
-        ));
-    const hasTextOrImg =
-      $("body").text().trim().length > 0 ||
-      $.root().text().trim().length > 0 ||
-      $("img").length > 0;
-    if (!isToc && hasTextOrImg) activeIndices.push(idx);
-  });
-  if (!activeIndices.length && rawChapters.length) activeIndices.push(0);
+  const activeIndices = selectActiveChapterIndices(rawChapters);
   const rawToFinalIdx = new Map<number, number>(
     activeIndices.map((rawIdx, finalIdx) => [rawIdx, finalIdx]),
   );
-
-  const chapterFiles: {
-    id: string;
-    file: string;
-    path: string;
-    title: string;
-  }[] = [];
+  const chapterFiles: KindleChapterFile[] = [];
   for (const [finalIdx, rawIdx] of activeIndices.entries()) {
     const file = `c${String(finalIdx + 1).padStart(4, "0")}.xhtml`;
-    const resolveHref = (
-      href: string,
-      filepos?: string,
-    ): string | undefined => {
-      if (filepos && /^\d+$/.test(filepos)) {
-        const target = fileposTargets.get(Number(filepos));
-        if (!target) return undefined;
-        const destIdx = rawToFinalIdx.get(target.chapterIdx);
-        if (destIdx === undefined) return undefined;
-        const destFile = `c${String(destIdx + 1).padStart(4, "0")}.xhtml`;
-        return destIdx === finalIdx
-          ? `#${target.id}`
-          : `${destFile}#${target.id}`;
-      }
-      const posMatch =
-        /^kindle:pos:fid:([0-9A-Za-z]{4}):off:([0-9A-Za-z]{10})/i.exec(href);
-      if (posMatch) {
-        const fid = parseInt(posMatch[1], 32),
-          off = parseInt(posMatch[2], 32);
-        const target = fidTargets.get(`${fid}:${off}`) ?? { chapterIdx: fid };
-        const destIdx = rawToFinalIdx.get(target.chapterIdx);
-        if (destIdx === undefined) return undefined;
-        const destFile = `c${String(destIdx + 1).padStart(4, "0")}.xhtml`;
-        if (!target.id) return destIdx === finalIdx ? "#" : destFile;
-        return destIdx === finalIdx
-          ? `#${target.id}`
-          : `${destFile}#${target.id}`;
-      }
-      if (/^https?:\/\/|^mailto:/i.test(href) || href.startsWith("#"))
-        return href;
-      return undefined;
-    };
     const rendered = serializeCleanXhtml(rawChapters[rawIdx], {
       lang,
       defaultTitle: `${title} - ${finalIdx + 1}`,
       stylesheets,
       images,
-      resolveHref,
+      resolveHref: createChapterHrefResolver(
+        finalIdx,
+        rawToFinalIdx,
+        fileposTargets,
+        fidTargets,
+      ),
     });
     if (!rendered) continue;
     const id = `c${String(finalIdx + 1).padStart(4, "0")}`;
@@ -941,12 +1310,7 @@ export function unpackKindle(bytes: Uint8Array): {
   if (!chapterFiles.length)
     fail("MOBI_EMPTY", "Kindle file contains no readable chapters");
 
-  // Optional cover page if coverOffset points to a valid image
-  const coverImageEntry =
-    coverOffset !== undefined ? images.get(coverOffset + 1) : undefined;
-
   for (const img of images.values()) entries.set(img.path, img.bytes);
-
   const navItems = chapterFiles
     .map(
       (ch) =>
@@ -955,69 +1319,26 @@ export function unpackKindle(bytes: Uint8Array): {
     .join("");
   const navXhtml = `<?xml version="1.0" encoding="utf-8"?><html xmlns="${NS.xhtml}" xmlns:epub="${NS.epub}" lang="${escapeXml(lang)}" xml:lang="${escapeXml(lang)}"><head><title>${escapeXml(title)}</title><link rel="stylesheet" type="text/css" href="styles/reading.css"/></head><body><nav epub:type="toc" role="doc-toc" aria-label="Contents"><h1>Contents</h1><ol>${navItems}</ol></nav><nav epub:type="landmarks" aria-label="Landmarks"><h2>Landmarks</h2><ol><li><a epub:type="bodymatter" href="text/${escapeXml(chapterFiles[0].file)}">Start of text</a></li></ol></nav></body></html>`;
   entries.set("OEBPS/nav.xhtml", Buffer.from(navXhtml));
-
-  const digest = sha256(bytes);
-  const fallbackUuid = `${digest.slice(0, 8)}-${digest.slice(8, 12)}-4${digest.slice(13, 16)}-8${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
-  const rawUuid = header.exth.uuid ?? primary.exth.uuid;
-  const primaryId =
-    rawUuid &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      rawUuid,
-    )
-      ? `urn:uuid:${rawUuid.toLowerCase()}`
-      : `urn:uuid:${fallbackUuid}`;
-
-  const metaParts: string[] = [
-    `<dc:identifier id="uid">${escapeXml(primaryId)}</dc:identifier>`,
-    ...(isbn
-      ? [
-          `<dc:identifier id="isbn">${escapeXml(isbn)}</dc:identifier>`,
-          `<meta refines="#isbn" property="identifier-type" scheme="onix:codelist5">15</meta>`,
-        ]
-      : []),
-    `<dc:title>${escapeXml(title)}</dc:title>`,
-    `<dc:language>${escapeXml(lang)}</dc:language>`,
-    ...(authors.length ? authors : ["Unknown"]).map(
-      (a) => `<dc:creator>${escapeXml(a)}</dc:creator>`,
-    ),
-    ...contributors.map(
-      (c) => `<dc:contributor>${escapeXml(c)}</dc:contributor>`,
-    ),
-    ...(publisher
-      ? [`<dc:publisher>${escapeXml(publisher)}</dc:publisher>`]
-      : []),
-    ...(description
-      ? [`<dc:description>${escapeXml(description)}</dc:description>`]
-      : []),
-    ...subjects.map((s) => `<dc:subject>${escapeXml(s)}</dc:subject>`),
-    ...(date ? [`<dc:date>${escapeXml(date)}</dc:date>`] : []),
-    `<meta property="dcterms:modified">2000-01-01T00:00:00Z</meta>`,
-    `<meta property="schema:accessMode">textual</meta>`,
-    `<meta property="schema:accessModeSufficient">textual</meta>`,
-    `<meta property="schema:accessibilityFeature">tableOfContents</meta>`,
-    `<meta property="schema:accessibilityHazard">none</meta>`,
-    `<meta property="schema:accessibilitySummary">Converted from Kindle format with preserved text and navigation; accessibility has not been certified.</meta>`,
-  ];
-  const manifestParts: string[] = [
-    `<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>`,
-    `<item id="reading-css" href="styles/reading.css" media-type="text/css"/>`,
-    ...[...entries.keys()]
-      .filter((k) => k.startsWith("OEBPS/styles/flow-"))
-      .map((k, i) => {
-        const rel = k.slice("OEBPS/".length);
-        return `<item id="css-${i + 1}" href="${escapeXml(rel)}" media-type="text/css"/>`;
-      }),
-    ...chapterFiles.map(
-      (ch) =>
-        `<item id="${ch.id}" href="text/${escapeXml(ch.file)}" media-type="application/xhtml+xml"/>`,
-    ),
-    ...[...images.values()].map(
-      (img) =>
-        `<item id="img-${img.index}" href="images/${escapeXml(img.file)}" media-type="${img.mediaType}"${coverImageEntry?.index === img.index ? ' properties="cover-image"' : ""}/>`,
-    ),
-  ];
-  const spineParts = chapterFiles.map((ch) => `<itemref idref="${ch.id}"/>`);
-  const opf = `<?xml version="1.0" encoding="utf-8"?><package xmlns="${NS.opf}" xmlns:dc="${NS.dc}" version="3.0" unique-identifier="uid" xml:lang="${escapeXml(lang)}"><metadata>${metaParts.join("")}</metadata><manifest>${manifestParts.join("")}</manifest><spine>${spineParts.join("")}</spine></package>`;
+  const opf = buildKindleOpf({
+    bytes,
+    header,
+    primary,
+    metadata: {
+      lang,
+      title,
+      authors,
+      contributors,
+      publisher,
+      description,
+      isbn,
+      date,
+      subjects,
+      coverOffset,
+    },
+    entries,
+    chapterFiles,
+    images,
+  });
   entries.set("OEBPS/package.opf", Buffer.from(opf));
 
   return {

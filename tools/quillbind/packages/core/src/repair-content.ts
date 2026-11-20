@@ -6,7 +6,7 @@ import { externalHyperlink } from "./hyperlinks.js";
 
 export function fingerprint(
   info: EpubInspection,
-  paths = [...info.documents.keys()].sort(),
+  paths = [...info.documents.keys()].sort((a, b) => a.localeCompare(b, "en")),
 ) {
   const spine = info.spine.map(
     (id) => info.manifest.find((m) => m.id === id)?.path ?? id,

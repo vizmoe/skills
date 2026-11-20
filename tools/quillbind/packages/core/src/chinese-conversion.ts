@@ -1,7 +1,14 @@
-import type { Element, Node } from "@xmldom/xmldom";
-import { inspectBytes } from "./epub.js";
-import { contentXml, ncxXml, xml, attr, serialize, NS } from "./xml.js";
-import { escapeXml } from "./xml.js";
+import type { Document as XmlDocument, Element, Node } from "@xmldom/xmldom";
+import { inspectBytes, type EpubInspection } from "./epub.js";
+import {
+  contentXml,
+  ncxXml,
+  xml,
+  attr,
+  serialize,
+  NS,
+  escapeXml,
+} from "./xml.js";
 import { fail } from "./errors.js";
 import { sha256 } from "./hash.js";
 import { pack } from "./zip.js";
@@ -9,7 +16,7 @@ import { conversionLanguages, type ZhconvertSession } from "./zhconvert.js";
 
 const chinese = (language: string) => /^zh(?:-|$)/i.test(language);
 const xmlNamespace = "http://www.w3.org/XML/1998/namespace";
-const ncxNamespace = "http://www.daisy.org/z3986/2005/ncx/";
+const ncxNamespace = NS.ncx;
 const protectedElements = new Set([
   "code",
   "pre",
@@ -28,6 +35,177 @@ const metadataFields = new Set([
   "rights",
   "coverage",
 ]);
+
+type DocumentKind = "opf" | "xhtml" | "ncx";
+interface ConversionSlot {
+  value: string;
+  apply: (value: string) => void;
+}
+interface DocumentState {
+  path: string;
+  save: () => string;
+  changed: boolean;
+}
+interface WalkContext {
+  document: XmlDocument;
+  kind: DocumentKind;
+  language: string;
+  state: DocumentState;
+  slots: ConversionSlot[];
+}
+
+function collectConversionFiles(
+  info: EpubInspection,
+): Map<string, DocumentKind> {
+  const files = new Map<string, DocumentKind>([[info.packagePath, "opf"]]);
+  for (const item of info.manifest) {
+    if (info.documents.has(item.path)) files.set(item.path, "xhtml");
+    else if (item.mediaType === "application/x-dtbncx+xml")
+      files.set(item.path, "ncx");
+  }
+  return files;
+}
+
+function parseConversionDocument(
+  kind: DocumentKind,
+  source: Buffer,
+  file: string,
+): XmlDocument {
+  const text = source.toString("utf8");
+  if (kind === "xhtml") return contentXml(text, file);
+  if (kind === "ncx") return ncxXml(text, file);
+  return xml(text, file);
+}
+
+function recordSlot(
+  context: WalkContext,
+  value: string,
+  apply: (value: string) => void,
+) {
+  // URL labels and source citations can contain Han paths; keep their identity.
+  if (/^[a-z][a-z0-9+.-]*:\S+$/i.test(value.trim())) return;
+  context.slots.push({
+    value,
+    apply: (converted) => {
+      if (converted !== value) {
+        escapeXml(converted);
+        apply(converted);
+        context.state.changed = true;
+      }
+    },
+  });
+}
+
+function isProtectedElement(element: Element, name: string): boolean {
+  return (
+    element.namespaceURI === NS.math ||
+    element.namespaceURI === "http://www.w3.org/2000/svg" ||
+    (element.namespaceURI === NS.xhtml && protectedElements.has(name)) ||
+    attr(element, "translate").toLowerCase() === "no"
+  );
+}
+
+function updateLangAttributes(
+  element: Element,
+  language: string,
+  state: DocumentState,
+) {
+  for (const langAttr of ["xml:lang", "lang"]) {
+    if (chinese(attr(element, langAttr))) {
+      element.setAttribute(langAttr, language);
+      state.changed = true;
+    }
+  }
+}
+
+function collectXhtmlAttributes(
+  element: Element,
+  name: string,
+  context: WalkContext,
+) {
+  for (const attribute of ["alt", "title", "aria-label", "aria-description"]) {
+    if (element.hasAttribute(attribute))
+      recordSlot(context, attr(element, attribute), (value) =>
+        element.setAttribute(attribute, value),
+      );
+  }
+  if (
+    name === "meta" &&
+    ["author", "description"].includes(attr(element, "name"))
+  )
+    recordSlot(context, attr(element, "content"), (value) =>
+      element.setAttribute("content", value),
+    );
+}
+
+function handleOpfElement(
+  element: Element,
+  name: string,
+  context: WalkContext,
+): { allowed: boolean; descend: boolean } {
+  if (element.namespaceURI === NS.dc && name === "language") {
+    if (chinese((element.textContent ?? "").trim())) {
+      element.textContent = context.language;
+      context.state.changed = true;
+    }
+    return { allowed: false, descend: false };
+  }
+  const isDcField = element.namespaceURI === NS.dc && metadataFields.has(name);
+  const isOpfMeta =
+    element.namespaceURI === NS.opf &&
+    name === "meta" &&
+    ["file-as", "alternate-script"].includes(attr(element, "property"));
+  return { allowed: isDcField || isOpfMeta, descend: true };
+}
+
+function handleElementScope(
+  element: Element,
+  name: string,
+  isChinese: boolean,
+  context: WalkContext,
+): { allowed: boolean; descend: boolean } {
+  if (context.kind === "xhtml") {
+    const allowed = element.namespaceURI === NS.xhtml;
+    if (allowed && isChinese) collectXhtmlAttributes(element, name, context);
+    return { allowed, descend: true };
+  }
+  if (context.kind === "opf") return handleOpfElement(element, name, context);
+  return {
+    allowed: element.namespaceURI === ncxNamespace && name === "text",
+    descend: true,
+  };
+}
+
+function walkConversionNode(
+  node: Node,
+  context: WalkContext,
+  inherited: string,
+  allowed: boolean,
+) {
+  if (node.nodeType === 3 || node.nodeType === 4) {
+    if (allowed && chinese(inherited))
+      recordSlot(context, node.nodeValue ?? "", (value) =>
+        node.parentNode!.replaceChild(
+          context.document.createTextNode(value),
+          node,
+        ),
+      );
+    return;
+  }
+  if (node.nodeType !== 1) return;
+  const element = node as Element;
+  const name = element.localName ?? "";
+  if (isProtectedElement(element, name)) return;
+  const current =
+    element.getAttributeNS(xmlNamespace, "lang") ??
+    element.getAttribute("lang") ??
+    inherited;
+  updateLangAttributes(element, context.language, context.state);
+  const scope = handleElementScope(element, name, chinese(current), context);
+  if (!scope.descend) return;
+  for (const child of Array.from(element.childNodes))
+    walkConversionNode(child, context, current, scope.allowed);
+}
 
 /** Convert text slots, never serialized markup, paths, identifiers or resources. */
 export async function convertChineseContent(
@@ -56,123 +234,38 @@ export async function convertChineseContent(
     [...info.entries].map(([name, entry]) => [name, entry.bytes]),
   );
   const language = conversionLanguages[session.target];
-  const slots: { value: string; apply: (value: string) => void }[] = [];
-  const documents: { path: string; save: () => string; changed: boolean }[] =
-    [];
-  const files = new Map<string, string>([[info.packagePath, "opf"]]);
-  for (const item of info.manifest)
-    if (info.documents.has(item.path)) files.set(item.path, "xhtml");
-    else if (item.mediaType === "application/x-dtbncx+xml")
-      files.set(item.path, "ncx");
-  for (const [file, kind] of files) {
+  const slots: ConversionSlot[] = [];
+  const documents: DocumentState[] = [];
+  for (const [file, kind] of collectConversionFiles(info)) {
     const source = entries.get(file);
     if (!source)
       fail("RESOURCE_MISSING", `Missing conversion document: ${file}`);
-    const document = (
-      kind === "xhtml" ? contentXml : kind === "ncx" ? ncxXml : xml
-    )(source.toString("utf8"), file);
-    const state = {
+    const document = parseConversionDocument(kind, source, file);
+    const state: DocumentState = {
       path: file,
       save: () => serialize(document),
       changed: false,
     };
     documents.push(state);
-    const slot = (value: string, apply: (value: string) => void) => {
-      // URL labels and source citations can contain Han paths; keep their identity.
-      if (/^[a-z][a-z0-9+.-]*:\S+$/i.test(value.trim())) return;
-      slots.push({
-        value,
-        apply: (converted) => {
-          if (converted !== value) {
-            escapeXml(converted);
-            apply(converted);
-            state.changed = true;
-          }
-        },
-      });
-    };
-    const walk = (node: Node, inherited: string, allowed: boolean) => {
-      if (node.nodeType === 3 || node.nodeType === 4) {
-        if (allowed && chinese(inherited))
-          slot(node.nodeValue ?? "", (value) =>
-            node.parentNode!.replaceChild(document.createTextNode(value), node),
-          );
-        return;
-      }
-      if (node.nodeType !== 1) return;
-      const element = node as Element;
-      const name = element.localName ?? "";
-      if (
-        element.namespaceURI === NS.math ||
-        element.namespaceURI === "http://www.w3.org/2000/svg" ||
-        (element.namespaceURI === NS.xhtml && protectedElements.has(name)) ||
-        attr(element, "translate").toLowerCase() === "no"
-      )
-        return;
-      const current =
-        element.getAttributeNS(xmlNamespace, "lang") ??
-        element.getAttribute("lang") ??
-        inherited;
-      const isChinese = chinese(current);
-      for (const name of ["xml:lang", "lang"])
-        if (chinese(attr(element, name))) {
-          element.setAttribute(name, language);
-          state.changed = true;
-        }
-      if (kind === "xhtml") {
-        allowed = element.namespaceURI === NS.xhtml;
-        if (allowed && isChinese) {
-          for (const attribute of [
-            "alt",
-            "title",
-            "aria-label",
-            "aria-description",
-          ])
-            if (element.hasAttribute(attribute))
-              slot(attr(element, attribute), (value) =>
-                element.setAttribute(attribute, value),
-              );
-          if (
-            name === "meta" &&
-            ["author", "description"].includes(attr(element, "name"))
-          )
-            slot(attr(element, "content"), (value) =>
-              element.setAttribute("content", value),
-            );
-        }
-      } else if (kind === "opf") {
-        allowed =
-          (element.namespaceURI === NS.dc && metadataFields.has(name)) ||
-          (element.namespaceURI === NS.opf &&
-            name === "meta" &&
-            ["file-as", "alternate-script"].includes(
-              attr(element, "property"),
-            ));
-        if (element.namespaceURI === NS.dc && name === "language") {
-          if (chinese((element.textContent ?? "").trim())) {
-            element.textContent = language;
-            state.changed = true;
-          }
-          return;
-        }
-      } else allowed = element.namespaceURI === ncxNamespace && name === "text";
-      for (const child of Array.from(element.childNodes))
-        walk(child, current, allowed);
-    };
-    walk(document.documentElement!, info.language, false);
+    walkConversionNode(
+      document.documentElement!,
+      { document, kind, language, state, slots },
+      info.language,
+      false,
+    );
   }
   const converted = await session.translate(slots.map((slot) => slot.value));
   slots.forEach((slot, index) => slot.apply(converted[index]));
   const changes = documents
     .filter((document) => document.changed)
     .map((document) => {
-      const converted = Buffer.from(document.save());
+      const convertedBytes = Buffer.from(document.save());
       const change = {
         path: document.path,
         sourceSha256: sha256(entries.get(document.path)!),
-        outputSha256: sha256(converted),
+        outputSha256: sha256(convertedBytes),
       };
-      entries.set(document.path, converted);
+      entries.set(document.path, convertedBytes);
       return change;
     });
   // Parse the new bytes before any candidate is passed to release tooling.

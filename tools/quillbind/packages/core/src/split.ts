@@ -41,6 +41,179 @@ export async function auditSplit(
     crossLinks: [],
   };
 }
+type ParsedSplitPlan = z.infer<typeof splitPlanSchema>;
+type PackagedSplitVolume = ReturnType<typeof splitPackage>;
+
+async function runSequential<T>(
+  items: readonly T[],
+  fn: (item: T) => Promise<void>,
+): Promise<void> {
+  let chain = Promise.resolve();
+  for (const item of items) chain = chain.then(() => fn(item));
+  await chain;
+}
+
+interface VolumeSelectionState {
+  source: SplitSource;
+  labels: Set<string>;
+  primary: string | undefined;
+  identities: Set<string>;
+  keys: Set<string>;
+  assigned: Map<string, string>;
+  previous: number;
+}
+
+function validateVolumeMetadataAndRange(
+  volume: ParsedSplitPlan["volumes"][number],
+  state: VolumeSelectionState,
+) {
+  const identity = volume.metadata.identifier.toLowerCase();
+  if (state.identities.has(identity) || identity === state.primary)
+    fail(
+      "SPLIT_IDENTITY",
+      "Each volume requires its own stable identifier, distinct from the bundle",
+    );
+  state.identities.add(identity);
+  if (state.keys.has(volume.key))
+    fail("SPLIT_KEY", "Duplicate volume output key");
+  state.keys.add(volume.key);
+  if (
+    new Set(volume.metadata.tags).size !== volume.metadata.tags.length ||
+    volume.metadata.tags.some((tag) => !state.labels.has(tag))
+  )
+    fail(
+      "SPLIT_TAGS",
+      "Use exact, distinct labels from the current library vocabulary",
+    );
+  const from = state.source.units.findIndex((unit) => unit.key === volume.from);
+  const through = state.source.units.findIndex(
+    (unit) => unit.key === volume.through,
+  );
+  if (from < 0 || through < from)
+    fail("SPLIT_BOUNDARY", "Missing or reversed volume boundaries");
+  if (from <= state.previous)
+    fail(
+      "SPLIT_OVERLAP",
+      "Volume boundaries overlap or reverse source reading order",
+    );
+  state.previous = through;
+  return { from, through };
+}
+
+function selectSingleVolumeUnits(
+  volume: ParsedSplitPlan["volumes"][number],
+  state: VolumeSelectionState,
+) {
+  const { from, through } = validateVolumeMetadataAndRange(volume, state);
+  const { units } = state.source;
+  if (
+    !units[from].boundary ||
+    (units[through + 1]?.path === units[through].path &&
+      !units[through + 1].boundary)
+  )
+    fail(
+      "SPLIT_BOUNDARY",
+      "A shared-document cut requires a reliable block/container anchor; inspect and prepare the source boundary",
+    );
+  const selected = units.slice(from, through + 1);
+  for (const unit of selected) {
+    if (state.assigned.has(unit.key))
+      fail("SPLIT_OVERLAP", `Duplicate content unit ${unit.key}`);
+    state.assigned.set(unit.key, volume.key);
+  }
+  for (const cover of state.source.inspection.covers) {
+    if (
+      cover.target.path &&
+      state.source.info.documents.has(cover.target.path) &&
+      selected.some((unit) => unit.path === cover.target.path) &&
+      volume.metadata.cover?.document !== cover.target.path
+    )
+      fail(
+        "SPLIT_COVER",
+        "Selected bundle cover needs per-volume evidence or an explicit unit exclusion",
+      );
+  }
+  return selected;
+}
+
+function selectVolumeUnits(
+  plan: ParsedSplitPlan,
+  source: SplitSource,
+  labels: Set<string>,
+  primary: string | undefined,
+) {
+  const state: VolumeSelectionState = {
+    source,
+    labels,
+    primary,
+    identities: new Set<string>(),
+    keys: new Set<string>(),
+    assigned: new Map<string, string>(),
+    previous: -1,
+  };
+  const selections = plan.volumes.map((volume) =>
+    selectSingleVolumeUnits(volume, state),
+  );
+  return { selections, assigned: state.assigned };
+}
+
+function verifySplitOutcomes(
+  plan: ParsedSplitPlan,
+  source: SplitSource,
+  volumes: PackagedSplitVolume[],
+  assigned: Map<string, string>,
+  decisions: Set<string>,
+) {
+  const usedNotes = new Set(volumes.flatMap((volume) => volume.report.notes));
+  const omittedNotes = new Set<string>();
+  for (const item of plan.omitNotes) {
+    if (
+      !source.notes.has(item.key) ||
+      usedNotes.has(item.key) ||
+      omittedNotes.has(item.key)
+    )
+      fail(
+        "SPLIT_NOTE",
+        "Note exclusions must identify unused source notes once",
+      );
+    omittedNotes.add(item.key);
+  }
+  for (const key of source.notes.keys()) {
+    if (!usedNotes.has(key) && !omittedNotes.has(key))
+      fail(
+        "SPLIT_NOTE",
+        `Unassigned source note requires an explicit exclusion: ${key}`,
+      );
+  }
+  const usedLinks = new Set(
+    volumes
+      .flatMap((volume) => volume.report.crossLinks)
+      .map((item) => stable([item.source, item.id, item.href])),
+  );
+  if ([...decisions].some((key) => !usedLinks.has(key)))
+    fail(
+      "SPLIT_LINK",
+      "Unused cross-volume link decision does not match a removed target",
+    );
+  const actual = volumes.flatMap((volume) => volume.report.units);
+  const duplicates = actual.filter(
+    (key, index) => actual.indexOf(key) !== index,
+  );
+  if (
+    duplicates.length ||
+    actual.join("\n") !==
+      source.units
+        .filter((unit) => assigned.has(unit.key))
+        .map((unit) => unit.key)
+        .join("\n")
+  )
+    fail(
+      "SPLIT_COVERAGE",
+      "Independent output coverage/order differs from the source plan",
+    );
+  return duplicates;
+}
+
 export async function applySplit(bytes: Buffer, value: unknown) {
   const parsed = splitPlanSchema.safeParse(value);
   if (!parsed.success)
@@ -49,8 +222,8 @@ export async function applySplit(bytes: Buffer, value: unknown) {
   if (plan.sourceSha256 !== sha256(bytes))
     fail("SPLIT_STALE", "Source hash differs from the split plan");
   const epubBytes = isKindleBytes(bytes) ? unpackKindle(bytes).bytes : bytes;
-  const source = splitSource(epubBytes),
-    vocabulary = await taxonomy();
+  const source = splitSource(epubBytes);
+  const vocabulary = await taxonomy();
   if (plan.vocabularyVersion !== vocabulary.version)
     fail(
       "SPLIT_VOCABULARY",
@@ -63,16 +236,13 @@ export async function applySplit(bytes: Buffer, value: unknown) {
       .filter((subject) => !subject.deprecated)
       .map((subject) => subject.id),
   );
-  const identities = new Set<string>(),
-    keys = new Set<string>(),
-    assigned = new Map<string, string>();
   const sourceId = attr(
-      source.info.packageDocument.documentElement!,
-      "unique-identifier",
-    ),
-    primary = elements(source.info.packageDocument, "identifier", NS.dc)
-      .find((node) => attr(node, "id") === sourceId)
-      ?.textContent?.toLowerCase();
+    source.info.packageDocument.documentElement!,
+    "unique-identifier",
+  );
+  const primary = elements(source.info.packageDocument, "identifier", NS.dc)
+    .find((node) => attr(node, "id") === sourceId)
+    ?.textContent?.toLowerCase();
   const decisions = new Set<string>();
   for (const item of plan.crossLinks) {
     const key = stable([item.source, item.id, item.href]);
@@ -80,63 +250,12 @@ export async function applySplit(bytes: Buffer, value: unknown) {
       fail("SPLIT_LINK", "Duplicate cross-volume link decision");
     decisions.add(key);
   }
-  let previous = -1;
-  const selections = plan.volumes.map((volume) => {
-    const identity = volume.metadata.identifier.toLowerCase();
-    if (identities.has(identity) || identity === primary)
-      fail(
-        "SPLIT_IDENTITY",
-        "Each volume requires its own stable identifier, distinct from the bundle",
-      );
-    identities.add(identity);
-    if (keys.has(volume.key)) fail("SPLIT_KEY", "Duplicate volume output key");
-    keys.add(volume.key);
-    if (
-      new Set(volume.metadata.tags).size !== volume.metadata.tags.length ||
-      volume.metadata.tags.some((tag) => !labels.has(tag))
-    )
-      fail(
-        "SPLIT_TAGS",
-        "Use exact, distinct labels from the current library vocabulary",
-      );
-    const from = source.units.findIndex((unit) => unit.key === volume.from),
-      through = source.units.findIndex((unit) => unit.key === volume.through);
-    if (from < 0 || through < from)
-      fail("SPLIT_BOUNDARY", "Missing or reversed volume boundaries");
-    if (from <= previous)
-      fail(
-        "SPLIT_OVERLAP",
-        "Volume boundaries overlap or reverse source reading order",
-      );
-    previous = through;
-    if (
-      !source.units[from].boundary ||
-      (source.units[through + 1]?.path === source.units[through].path &&
-        !source.units[through + 1].boundary)
-    )
-      fail(
-        "SPLIT_BOUNDARY",
-        "A shared-document cut requires a reliable block/container anchor; inspect and prepare the source boundary",
-      );
-    const selected = source.units.slice(from, through + 1);
-    for (const unit of selected) {
-      if (assigned.has(unit.key))
-        fail("SPLIT_OVERLAP", `Duplicate content unit ${unit.key}`);
-      assigned.set(unit.key, volume.key);
-    }
-    for (const cover of source.inspection.covers)
-      if (
-        cover.target.path &&
-        source.info.documents.has(cover.target.path) &&
-        selected.some((unit) => unit.path === cover.target.path) &&
-        volume.metadata.cover?.document !== cover.target.path
-      )
-        fail(
-          "SPLIT_COVER",
-          "Selected bundle cover needs per-volume evidence or an explicit unit exclusion",
-        );
-    return selected;
-  });
+  const { selections, assigned } = selectVolumeUnits(
+    plan,
+    source,
+    labels,
+    primary,
+  );
   const omitted = new Set<string>();
   for (const item of plan.omit) {
     if (
@@ -168,50 +287,13 @@ export async function applySplit(bytes: Buffer, value: unknown) {
       plan.modified,
     ),
   );
-  const usedNotes = new Set(volumes.flatMap((volume) => volume.report.notes)),
-    omittedNotes = new Set<string>();
-  for (const item of plan.omitNotes) {
-    if (
-      !source.notes.has(item.key) ||
-      usedNotes.has(item.key) ||
-      omittedNotes.has(item.key)
-    )
-      fail(
-        "SPLIT_NOTE",
-        "Note exclusions must identify unused source notes once",
-      );
-    omittedNotes.add(item.key);
-  }
-  for (const key of source.notes.keys())
-    if (!usedNotes.has(key) && !omittedNotes.has(key))
-      fail(
-        "SPLIT_NOTE",
-        `Unassigned source note requires an explicit exclusion: ${key}`,
-      );
-  const usedLinks = new Set(
-    volumes
-      .flatMap((volume) => volume.report.crossLinks)
-      .map((item) => stable([item.source, item.id, item.href])),
+  const duplicates = verifySplitOutcomes(
+    plan,
+    source,
+    volumes,
+    assigned,
+    decisions,
   );
-  if ([...decisions].some((key) => !usedLinks.has(key)))
-    fail(
-      "SPLIT_LINK",
-      "Unused cross-volume link decision does not match a removed target",
-    );
-  const actual = volumes.flatMap((volume) => volume.report.units),
-    duplicates = actual.filter((key, index) => actual.indexOf(key) !== index);
-  if (
-    duplicates.length ||
-    actual.join("\n") !==
-      source.units
-        .filter((unit) => assigned.has(unit.key))
-        .map((unit) => unit.key)
-        .join("\n")
-  )
-    fail(
-      "SPLIT_COVERAGE",
-      "Independent output coverage/order differs from the source plan",
-    );
   return {
     volumes,
     report: {
@@ -242,6 +324,85 @@ export async function auditFileSplit(
     await fs.writeFile(options.output, stable(plan), { flag: "wx" });
   return plan;
 }
+
+async function verifyStagedVolume(
+  volume: PackagedSplitVolume,
+  staging: string,
+  reports: string,
+  output: string,
+  signal?: AbortSignal,
+) {
+  checkAbort(signal);
+  const candidate = path.join(staging, `${volume.key}.epub`);
+  const volumeReports = path.join(reports, volume.key);
+  await fs.mkdir(volumeReports);
+  await fs.writeFile(candidate, volume.bytes, { flag: "wx" });
+  const validation = await checkEpubConformance(candidate, {
+    reports: volumeReports,
+    signal,
+  });
+  if (validation.status !== "pass")
+    fail(
+      "SPLIT_VALIDATION",
+      `Volume failed EPUBCheck: ${volume.key}`,
+      validation,
+    );
+  const reading = await readingQa(
+    inspectBytes(await readSourceFile(candidate), true),
+    path.join(volumeReports, "reading"),
+    signal,
+  );
+  if (reading.status !== "pass")
+    fail(
+      "SPLIT_READING",
+      `Volume failed actual reading checks: ${volume.key}`,
+      reading,
+    );
+  const actual = await readSourceFile(candidate);
+  if (sha256(actual) !== sha256(volume.bytes))
+    fail("SPLIT_STALE", "Candidate changed during verification");
+  const selectedCover = volume.report.metadata.cover;
+  const cover = selectedCover
+    ? await coverQa(
+        candidate,
+        {
+          format: "epub",
+          image: await coverImage(
+            inspectBytes(actual).entries.get(selectedCover.image)!.bytes,
+          ),
+          imagePath: selectedCover.image,
+          documentPath: selectedCover.document,
+        },
+        path.join(volumeReports, "cover"),
+        signal,
+      )
+    : null;
+  return {
+    key: volume.key,
+    output: path.join(output, `${volume.key}.epub`),
+    sha256: sha256(actual),
+    validation,
+    reading,
+    cover,
+    metadata: volume.report,
+  };
+}
+
+async function assertPathDoesNotExist(target: string) {
+  const existsAlready = await fs.lstat(target).then(
+    () => true,
+    (error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+      return false;
+    },
+  );
+  if (existsAlready)
+    fail(
+      "OUTPUT_EXISTS",
+      "Split output already exists; choose a new directory",
+    );
+}
+
 export async function splitEpub(
   file: string,
   options: { plan: unknown; output: string; signal?: AbortSignal },
@@ -249,110 +410,53 @@ export async function splitEpub(
   checkAbort(options.signal);
   if (path.extname(file).toLowerCase() !== ".epub" && !isKindlePath(file))
     fail("SPLIT_FORMAT", "Choose an existing EPUB, MOBI or AZW3");
-  const bytes = await readSourceFile(file),
-    result = await applySplit(bytes, options.plan),
-    output = path.resolve(options.output);
-  if (
-    await fs.lstat(output).then(
-      () => true,
-      (error: NodeJS.ErrnoException) => {
-        if (error.code !== "ENOENT") throw error;
-        return false;
-      },
-    )
-  )
-    fail(
-      "OUTPUT_EXISTS",
-      "Split output already exists; choose a new directory",
-    );
+  const bytes = await readSourceFile(file);
+  const result = await applySplit(bytes, options.plan);
+  const output = path.resolve(options.output);
+  await assertPathDoesNotExist(output);
   await fs.mkdir(path.dirname(output), { recursive: true });
   const reports = output + ".reports";
   await fs.mkdir(reports);
   const staging = await fs.mkdtemp(
-      path.join(path.dirname(output), ".quillbind-split-"),
-    ),
-    published: string[] = [];
+    path.join(path.dirname(output), ".quillbind-split-"),
+  );
+  const published: string[] = [];
   let claimed = false;
   try {
     await json(path.join(reports, "plan.json"), options.plan);
     await json(path.join(reports, "coverage.json"), result.report);
-    const volumes = [];
-    for (const volume of result.volumes) {
-      checkAbort(options.signal);
-      const candidate = path.join(staging, `${volume.key}.epub`),
-        volumeReports = path.join(reports, volume.key);
-      await fs.mkdir(volumeReports);
-      await fs.writeFile(candidate, volume.bytes, { flag: "wx" });
-      const validation = await checkEpubConformance(candidate, {
-        reports: volumeReports,
-        signal: options.signal,
-      });
-      if (validation.status !== "pass")
-        fail(
-          "SPLIT_VALIDATION",
-          `Volume failed EPUBCheck: ${volume.key}`,
-          validation,
-        );
-      const reading = await readingQa(
-        inspectBytes(await readSourceFile(candidate), true),
-        path.join(volumeReports, "reading"),
-        options.signal,
+    const volumes: Awaited<ReturnType<typeof verifyStagedVolume>>[] = [];
+    await runSequential(result.volumes, async (volume) => {
+      volumes.push(
+        await verifyStagedVolume(
+          volume,
+          staging,
+          reports,
+          output,
+          options.signal,
+        ),
       );
-      if (reading.status !== "pass")
-        fail(
-          "SPLIT_READING",
-          `Volume failed actual reading checks: ${volume.key}`,
-          reading,
-        );
-      const actual = await readSourceFile(candidate);
-      if (sha256(actual) !== sha256(volume.bytes))
-        fail("SPLIT_STALE", "Candidate changed during verification");
-      const selectedCover = volume.report.metadata.cover;
-      const cover = selectedCover
-        ? await coverQa(
-            candidate,
-            {
-              format: "epub",
-              image: await coverImage(
-                inspectBytes(actual).entries.get(selectedCover.image)!.bytes,
-              ),
-              imagePath: selectedCover.image,
-              documentPath: selectedCover.document,
-            },
-            path.join(volumeReports, "cover"),
-            options.signal,
-          )
-        : null;
-      volumes.push({
-        key: volume.key,
-        output: path.join(output, `${volume.key}.epub`),
-        sha256: sha256(actual),
-        validation,
-        reading,
-        cover,
-        metadata: volume.report,
-      });
-    }
+    });
     if (sha256(await readSourceFile(file)) !== sha256(bytes))
       fail("SPLIT_STALE", "Source changed during verification");
-    for (const volume of volumes)
-      if (
-        sha256(
-          await readSourceFile(path.join(staging, `${volume.key}.epub`)),
-        ) !== volume.sha256
-      )
+    await runSequential(volumes, async (volume) => {
+      const stagedBytes = await readSourceFile(
+        path.join(staging, `${volume.key}.epub`),
+      );
+      if (sha256(stagedBytes) !== volume.sha256)
         fail(
           "SPLIT_STALE",
           `Candidate changed before batch delivery: ${volume.key}`,
         );
+    });
     checkAbort(options.signal);
     await fs.mkdir(output);
     claimed = true;
-    for (const volume of volumes) {
+    await runSequential(volumes, async (volume) => {
       checkAbort(options.signal);
       await fs.link(path.join(staging, `${volume.key}.epub`), volume.output);
       published.push(volume.output);
-    }
+    });
     const delivered = {
       status: "pass" as const,
       purpose: "split-reading-copies",
@@ -368,7 +472,7 @@ export async function splitEpub(
     await json(path.join(reports, "split.json"), delivered);
     return delivered;
   } catch (error) {
-    for (const name of published) await fs.unlink(name);
+    await Promise.all(published.map((name) => fs.unlink(name)));
     if (claimed) await fs.rmdir(output).catch(() => {});
     await json(path.join(reports, "failure.json"), {
       status: "fail",

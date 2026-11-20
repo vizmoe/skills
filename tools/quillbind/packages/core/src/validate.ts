@@ -27,25 +27,41 @@ export async function inspectEpub(file: string) {
   const bytes = await readSourceFile(file);
   return describeInspection(inspectBytes(bytes), bytes.length);
 }
-export function validateInternal(input: Uint8Array | EpubInspection) {
-  const diagnostics: Diagnostic[] = [];
-  let inspection: EpubInspection;
-  try {
-    if (input instanceof Uint8Array) inspection = inspectBytes(input, true);
-    else {
-      inspection = input;
-      validateOcf(inspection.entries);
-    }
-  } catch (error) {
-    const e = error as Error & { code?: string };
-    return result([
-      diagnostic(e.code ?? "EPUB_INVALID", e.message, undefined, EPUB),
-    ]);
-  }
-  const add = (code: string, message: string, source?: string, url = EPUB) =>
-    diagnostics.push(diagnostic(code, message, source, url));
-  const { manifest, spine, documents, packageDocument, packagePath, entries } =
-    inspection;
+type AddDiagnostic = (
+  code: string,
+  message: string,
+  source?: string,
+  url?: string,
+) => void;
+type LinkChecker = (
+  name: string,
+  href: string,
+  externalAllowed?: boolean,
+) => void;
+
+const activeContentTags = new Set([
+  "script",
+  "iframe",
+  "object",
+  "embed",
+  "form",
+  "input",
+  "video",
+  "audio",
+]);
+const accessibilityMetaProperties = [
+  "schema:accessMode",
+  "schema:accessModeSufficient",
+  "schema:accessibilityFeature",
+  "schema:accessibilityHazard",
+  "schema:accessibilitySummary",
+];
+
+function validatePackageMetadata(
+  inspection: EpubInspection,
+  add: AddDiagnostic,
+) {
+  const { packageDocument, packagePath } = inspection;
   if (inspection.version !== "3.0")
     add("OPF_VERSION", "EPUB 3.3 requires package version 3.0", packagePath);
   if (inspection.unsupported.length)
@@ -81,6 +97,39 @@ export function validateInternal(input: Uint8Array | EpubInspection) {
       "Missing or invalid dcterms:modified",
       packagePath,
     );
+}
+
+function validateNavigationDocument(
+  inspection: EpubInspection,
+  add: AddDiagnostic,
+) {
+  const { manifest, documents, packagePath } = inspection;
+  const navs = manifest.filter((m) => m.properties.includes("nav"));
+  if (navs.length !== 1) {
+    add(
+      "NAV_REQUIRED",
+      "Exactly one navigation document is required",
+      packagePath,
+    );
+    return;
+  }
+  const nav = documents.get(navs[0].path);
+  if (
+    !nav ||
+    !elements(nav, "nav", NS.xhtml).some(
+      (el) =>
+        attr(el, "epub:type").split(" ").includes("toc") &&
+        elements(el, "a", NS.xhtml).length,
+    )
+  )
+    add("TOC_REQUIRED", "Navigation requires a nonempty TOC", navs[0].path);
+}
+
+function validateManifestAndSpine(
+  inspection: EpubInspection,
+  add: AddDiagnostic,
+) {
+  const { manifest, spine, packagePath, entries } = inspection;
   if (
     new Set(manifest.map((m) => m.id)).size !== manifest.length ||
     manifest.some((m) => !m.id)
@@ -100,14 +149,15 @@ export function validateInternal(input: Uint8Array | EpubInspection) {
     add("SPINE_INVALID", "Spine has missing item references", packagePath);
   if (new Set(spine).size !== spine.length)
     add("SPINE_DUPLICATE", "Duplicate spine item", packagePath);
-  for (const item of manifest)
+  for (const item of manifest) {
     if (!entries.has(item.path))
       add(
         "MANIFEST_MISSING",
         `Missing manifest resource ${item.path}`,
         packagePath,
       );
-  for (const name of entries.keys())
+  }
+  for (const name of entries.keys()) {
     if (
       name !== "mimetype" &&
       !name.startsWith("META-INF/") &&
@@ -119,28 +169,17 @@ export function validateInternal(input: Uint8Array | EpubInspection) {
         `Unmanifested resource ${name}`,
         packagePath,
       );
-  const navs = manifest.filter((m) => m.properties.includes("nav"));
-  if (navs.length !== 1)
-    add(
-      "NAV_REQUIRED",
-      "Exactly one navigation document is required",
-      packagePath,
-    );
-  else {
-    const nav = documents.get(navs[0].path);
-    if (
-      !nav ||
-      !elements(nav, "nav", NS.xhtml).some(
-        (el) =>
-          attr(el, "epub:type").split(" ").includes("toc") &&
-          elements(el, "a", NS.xhtml).length,
-      )
-    )
-      add("TOC_REQUIRED", "Navigation requires a nonempty TOC", navs[0].path);
   }
+  validateNavigationDocument(inspection, add);
+}
+
+function collectDocumentIds(
+  inspection: EpubInspection,
+  add: AddDiagnostic,
+): Map<string, Set<string>> {
   const ids = new Map<string, Set<string>>();
-  for (const [name, doc] of documents) {
-    if (hasLegacyDoctype(entries.get(name)!.bytes.toString()))
+  for (const [name, doc] of inspection.documents) {
+    if (hasLegacyDoctype(inspection.entries.get(name)!.bytes.toString()))
       add(
         "LEGACY_XHTML",
         "Legacy XHTML DTD must be normalized for the canonical artifact",
@@ -154,123 +193,171 @@ export function validateInternal(input: Uint8Array | EpubInspection) {
     }
     ids.set(name, set);
   }
-  const checkLink = (name: string, href: string, externalAllowed = false) => {
-    if (externalAllowed && externalHyperlink(href)) return;
-    try {
-      const target = localTarget(name, href);
-      if (!entries.has(target.path))
-        add("LINK_MISSING", `Missing target ${href}`, name);
-      else if (target.fragment && !ids.get(target.path)?.has(target.fragment))
-        add("FRAGMENT_MISSING", `Missing fragment ${href}`, name);
-    } catch (error) {
-      add("UNSAFE_URI", String(error), name);
-    }
-  };
+  return ids;
+}
+
+function validateFootnoteBacklink(
+  name: string,
+  el: import("@xmldom/xmldom").Element,
+  documents: EpubInspection["documents"],
+  add: AddDiagnostic,
+) {
+  const target = localTarget(name, attr(el, "href"));
+  const foot = documents.get(target.path);
+  const note = foot
+    ? elements(foot).find((n) => attr(n, "id") === target.fragment)
+    : undefined;
+  const hasReturn =
+    !!note &&
+    elements(note, "a").some((a) => {
+      try {
+        const back = localTarget(target.path, attr(a, "href"));
+        return back.path === name && back.fragment === attr(el, "id");
+      } catch {
+        return false;
+      }
+    });
+  if (!hasReturn)
+    add("FOOTNOTE_BACKLINK", "Footnote has no return link", name, A11Y);
+}
+
+function validateAnchorElement(
+  name: string,
+  el: import("@xmldom/xmldom").Element,
+  checkLink: LinkChecker,
+  add: AddDiagnostic,
+) {
+  if (!el.hasAttribute("href")) return;
+  if (
+    !el.textContent?.trim() &&
+    !attr(el, "aria-label") &&
+    !elements(el, "img").length
+  )
+    add("LINK_NAME", "Link has no accessible name", name, A11Y);
+  checkLink(name, attr(el, "href"), true);
+}
+
+function validateImageElement(
+  name: string,
+  el: import("@xmldom/xmldom").Element,
+  tag: string,
+  checkLink: LinkChecker,
+  add: AddDiagnostic,
+) {
+  const src = attr(el, "src") || attr(el, "href") || attr(el, "xlink:href");
+  checkLink(name, src);
+  if (tag !== "img") return;
+  const missingAlt =
+    !el.hasAttribute("alt") ||
+    (!attr(el, "alt").trim() && attr(el, "role") !== "presentation");
+  if (missingAlt)
+    add(
+      "IMAGE_ALT",
+      "Image requires alt or explicit decoration role",
+      name,
+      A11Y,
+    );
+}
+
+function validateAnchorAndImageElement(
+  name: string,
+  el: import("@xmldom/xmldom").Element,
+  tag: string,
+  checkLink: LinkChecker,
+  add: AddDiagnostic,
+) {
+  if (tag === "a") validateAnchorElement(name, el, checkLink, add);
+  else if (tag === "img" || tag === "image")
+    validateImageElement(name, el, tag, checkLink, add);
+}
+
+function validateStructureElement(
+  name: string,
+  el: import("@xmldom/xmldom").Element,
+  tag: string,
+  checkLink: LinkChecker,
+  add: AddDiagnostic,
+  state: { previous: number; mainText: string },
+) {
+  if (tag === "link" && attr(el, "rel") === "stylesheet")
+    checkLink(name, attr(el, "href"));
+  if (
+    tag === "table" &&
+    (!elements(el, "caption").length ||
+      !elements(el, "th").length ||
+      elements(el, "th").some((th) => !attr(th, "scope")))
+  )
+    add(
+      "TABLE_SEMANTICS",
+      "Table needs caption and scoped headers",
+      name,
+      A11Y,
+    );
+  if (/^h[1-6]$/.test(tag)) {
+    const level = Number(tag[1]);
+    if (level > state.previous + 1)
+      add(
+        "HEADING_SEQUENCE",
+        `Heading skips from ${state.previous} to ${level}`,
+        name,
+        A11Y,
+      );
+    state.previous = level;
+  }
+  if (tag === "body") state.mainText = el.textContent ?? "";
+}
+
+function validateDocumentElement(
+  name: string,
+  el: import("@xmldom/xmldom").Element,
+  context: {
+    documents: EpubInspection["documents"];
+    diagnostics: Diagnostic[];
+    add: AddDiagnostic;
+    checkLink: LinkChecker;
+    state: { previous: number; mainText: string };
+  },
+) {
+  const { documents, diagnostics, add, checkLink, state } = context;
+  const tag = el.localName ?? "";
+  if (activeContentTags.has(tag))
+    add("ACTIVE_CONTENT", `Unsupported active content: ${tag}`, name);
+  for (const a of Array.from(el.attributes)) {
+    if (/^on/i.test(a.name))
+      add("EVENT_HANDLER", "Event handlers are forbidden", name);
+  }
+  if (el.hasAttribute("style"))
+    diagnostics.push(...lintCss(`p {${attr(el, "style")}}`, name).diagnostics);
+  validateAnchorAndImageElement(name, el, tag, checkLink, add);
+  validateStructureElement(name, el, tag, checkLink, add, state);
+  if (attr(el, "epub:type").split(" ").includes("noteref"))
+    validateFootnoteBacklink(name, el, documents, add);
+}
+
+function validateDocuments(
+  inspection: EpubInspection,
+  checkLink: LinkChecker,
+  diagnostics: Diagnostic[],
+  add: AddDiagnostic,
+) {
+  const { manifest, documents } = inspection;
   for (const [name, doc] of documents) {
     const root = doc.documentElement!;
     if (root.namespaceURI !== NS.xhtml)
       add("XHTML_NAMESPACE", "Invalid XHTML namespace", name);
     if (!validLanguage(attr(root, "xml:lang") || attr(root, "lang")))
       add("DOCUMENT_LANGUAGE", "Document language missing/invalid", name, A11Y);
-    let previous = 0;
-    let mainText = "";
-    for (const el of elements(doc)) {
-      const tag = el.localName ?? "";
-      if (
-        [
-          "script",
-          "iframe",
-          "object",
-          "embed",
-          "form",
-          "input",
-          "video",
-          "audio",
-        ].includes(tag)
-      )
-        add("ACTIVE_CONTENT", `Unsupported active content: ${tag}`, name);
-      for (const a of Array.from(el.attributes))
-        if (/^on/i.test(a.name))
-          add("EVENT_HANDLER", "Event handlers are forbidden", name);
-      if (el.hasAttribute("style"))
-        diagnostics.push(
-          ...lintCss(`p {${attr(el, "style")}}`, name).diagnostics,
-        );
-      if (tag === "a") {
-        if (
-          el.hasAttribute("href") &&
-          !el.textContent?.trim() &&
-          !attr(el, "aria-label") &&
-          !elements(el, "img").length
-        )
-          add("LINK_NAME", "Link has no accessible name", name, A11Y);
-        if (el.hasAttribute("href")) checkLink(name, attr(el, "href"), true);
-      }
-      if (["img", "image"].includes(tag)) {
-        const src =
-          attr(el, "src") || attr(el, "href") || attr(el, "xlink:href");
-        checkLink(name, src);
-        if (
-          tag === "img" &&
-          (!el.hasAttribute("alt") ||
-            (!attr(el, "alt").trim() && attr(el, "role") !== "presentation"))
-        )
-          add(
-            "IMAGE_ALT",
-            "Image requires alt or explicit decoration role",
-            name,
-            A11Y,
-          );
-      }
-      if (tag === "link" && attr(el, "rel") === "stylesheet")
-        checkLink(name, attr(el, "href"));
-      if (tag === "table") {
-        if (
-          !elements(el, "caption").length ||
-          !elements(el, "th").length ||
-          elements(el, "th").some((th) => !attr(th, "scope"))
-        )
-          add(
-            "TABLE_SEMANTICS",
-            "Table needs caption and scoped headers",
-            name,
-            A11Y,
-          );
-      }
-      if (/^h[1-6]$/.test(tag)) {
-        const level = Number(tag[1]);
-        if (level > previous + 1)
-          add(
-            "HEADING_SEQUENCE",
-            `Heading skips from ${previous} to ${level}`,
-            name,
-            A11Y,
-          );
-        previous = level;
-      }
-      if (tag === "body") mainText = el.textContent ?? "";
-      if (attr(el, "epub:type").split(" ").includes("noteref")) {
-        const target = localTarget(name, attr(el, "href"));
-        const foot = documents.get(target.path);
-        const note = foot
-          ? elements(foot).find((n) => attr(n, "id") === target.fragment)
-          : undefined;
-        if (
-          !note ||
-          !elements(note, "a").some((a) => {
-            try {
-              const back = localTarget(target.path, attr(a, "href"));
-              return back.path === name && back.fragment === attr(el, "id");
-            } catch {
-              return false;
-            }
-          })
-        )
-          add("FOOTNOTE_BACKLINK", "Footnote has no return link", name, A11Y);
-      }
-    }
+    const state = { previous: 0, mainText: "" };
+    for (const el of elements(doc))
+      validateDocumentElement(name, el, {
+        documents,
+        diagnostics,
+        add,
+        checkLink,
+        state,
+      });
     if (
-      !mainText.trim() &&
+      !state.mainText.trim() &&
       !elements(doc, "img").length &&
       !elements(doc, "image", "http://www.w3.org/2000/svg").length
     )
@@ -282,46 +369,101 @@ export function validateInternal(input: Uint8Array | EpubInspection) {
     )
       add("MATHML_PROPERTY", "MathML manifest property required", name);
   }
-  for (const item of manifest)
-    if (item.mediaType === "image/svg+xml" && entries.has(item.path)) {
-      try {
-        passiveSvg(entries.get(item.path)!.bytes.toString(), item.path);
-      } catch (error) {
-        add("SVG_ACTIVE", String(error), item.path);
-      }
+}
+
+function validateCssEntry(
+  name: string,
+  source: string,
+  checkLink: LinkChecker,
+  diagnostics: Diagnostic[],
+  add: AddDiagnostic,
+) {
+  diagnostics.push(...lintCss(source, name).diagnostics);
+  try {
+    postcss.parse(source).walkDecls((decl) => {
+      valueParser(decl.value).walk((node) => {
+        if (node.type === "function" && node.value.toLowerCase() === "url")
+          checkLink(
+            name,
+            valueParser.stringify(node.nodes).replace(/^['"]|['"]$/g, ""),
+          );
+      });
+    });
+  } catch (error) {
+    add("CSS_INVALID", String(error), name);
+  }
+}
+
+function validateResourcesAndAccessibility(
+  inspection: EpubInspection,
+  checkLink: LinkChecker,
+  diagnostics: Diagnostic[],
+  add: AddDiagnostic,
+) {
+  const { manifest, entries, packageDocument, packagePath } = inspection;
+  for (const item of manifest) {
+    if (item.mediaType !== "image/svg+xml" || !entries.has(item.path)) continue;
+    try {
+      passiveSvg(entries.get(item.path)!.bytes.toString(), item.path);
+    } catch (error) {
+      add("SVG_ACTIVE", String(error), item.path);
     }
-  for (const entry of entries.values())
-    if (entry.name.endsWith(".css")) {
-      diagnostics.push(
-        ...lintCss(entry.bytes.toString(), entry.name).diagnostics,
+  }
+  for (const entry of entries.values()) {
+    if (entry.name.endsWith(".css"))
+      validateCssEntry(
+        entry.name,
+        entry.bytes.toString(),
+        checkLink,
+        diagnostics,
+        add,
       );
-      try {
-        postcss.parse(entry.bytes.toString()).walkDecls((decl) => {
-          valueParser(decl.value).walk((node) => {
-            if (node.type === "function" && node.value.toLowerCase() === "url")
-              checkLink(
-                entry.name,
-                valueParser.stringify(node.nodes).replace(/^['"]|['"]$/g, ""),
-              );
-          });
-        });
-      } catch (error) {
-        add("CSS_INVALID", String(error), entry.name);
-      }
-    }
-  for (const property of [
-    "schema:accessMode",
-    "schema:accessModeSufficient",
-    "schema:accessibilityFeature",
-    "schema:accessibilityHazard",
-    "schema:accessibilitySummary",
-  ])
+  }
+  for (const property of accessibilityMetaProperties) {
     if (
       !elements(packageDocument, "meta", NS.opf).some(
         (m) => attr(m, "property") === property && m.textContent?.trim(),
       )
     )
       add("ACCESSIBILITY_METADATA", `Missing ${property}`, packagePath, A11Y);
+  }
+}
+
+export function validateInternal(input: Uint8Array | EpubInspection) {
+  const diagnostics: Diagnostic[] = [];
+  let inspection: EpubInspection;
+  try {
+    if (input instanceof Uint8Array) inspection = inspectBytes(input, true);
+    else {
+      inspection = input;
+      validateOcf(inspection.entries);
+    }
+  } catch (error) {
+    const e = error as Error & { code?: string };
+    return result([
+      diagnostic(e.code ?? "EPUB_INVALID", e.message, undefined, EPUB),
+    ]);
+  }
+  const add: AddDiagnostic = (code, message, source, url = EPUB) => {
+    diagnostics.push(diagnostic(code, message, source, url));
+  };
+  validatePackageMetadata(inspection, add);
+  validateManifestAndSpine(inspection, add);
+  const ids = collectDocumentIds(inspection, add);
+  const checkLink: LinkChecker = (name, href, externalAllowed = false) => {
+    if (externalAllowed && externalHyperlink(href)) return;
+    try {
+      const target = localTarget(name, href);
+      if (!inspection.entries.has(target.path))
+        add("LINK_MISSING", `Missing target ${href}`, name);
+      else if (target.fragment && !ids.get(target.path)?.has(target.fragment))
+        add("FRAGMENT_MISSING", `Missing fragment ${href}`, name);
+    } catch (error) {
+      add("UNSAFE_URI", String(error), name);
+    }
+  };
+  validateDocuments(inspection, checkLink, diagnostics, add);
+  validateResourcesAndAccessibility(inspection, checkLink, diagnostics, add);
   return result(diagnostics);
 }
 export { compatibilityLint } from "./compatibility.js";

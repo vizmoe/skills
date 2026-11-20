@@ -40,7 +40,8 @@ const volume = (title: string): string | null => {
     if (open === -1) break;
     text = text.slice(0, open).trimEnd();
   }
-  if (text.length > 0 && volumeUnits.has(text[text.length - 1])) {
+  const trailingUnit = text.at(-1);
+  if (trailingUnit && volumeUnits.has(trailingUnit)) {
     text = text.slice(0, -1);
   }
   text = text.trimEnd();

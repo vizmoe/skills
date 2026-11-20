@@ -1205,11 +1205,13 @@ function removeEpubMetadataNode(
   removeNode(node);
 }
 
+type EpubVersion = "2.0" | "3.0" | undefined;
+
 function createEpubPerson(
   file: MetadataFile,
   entry: Person,
   before: Element,
-  version: "2.0" | "3.0" | undefined,
+  version: EpubVersion,
   reserveId: (base: string) => string,
 ) {
   const element = file.document.createElementNS(

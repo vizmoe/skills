@@ -183,8 +183,8 @@ function parseEnglishPrefix(value: string): [string, string] | undefined {
 }
 
 function parseBracketSuffix(value: string): [string, string] | undefined {
-  if (!value.length || !")）]］".includes(value[value.length - 1]))
-    return undefined;
+  const closing = value.at(-1);
+  if (!closing || !")）]］".includes(closing)) return undefined;
   const open = Math.max(
     value.lastIndexOf("("),
     value.lastIndexOf("（"),
@@ -223,13 +223,11 @@ function matchWeakCjkSuffix(
   for (const [marker, role] of weakMarkers) {
     if (!value.endsWith(marker)) continue;
     const before = value.slice(0, -marker.length);
-    if (!before.length || !/\s/.test(before[before.length - 1])) continue;
+    const beforeLast = before.at(-1);
+    if (!beforeLast || !/\s/.test(beforeLast)) continue;
     let base = before.trimEnd();
-    if (
-      base.length >= 2 &&
-      base.endsWith("等") &&
-      /\s/.test(base[base.length - 2])
-    )
+    const beforeEtAl = base.at(-2);
+    if (base.endsWith("等") && beforeEtAl && /\s/.test(beforeEtAl))
       base = base.slice(0, -1).trimEnd();
     return base ? { name: base, role } : undefined;
   }
@@ -498,15 +496,12 @@ function splitTitleSegments(title: string): string[] {
 
 function stripTrailingTitleSeparator(prefixText: string): string {
   const trimmed = prefixText.trimEnd();
-  if (!trimmed.length) return trimmed;
-  const last = trimmed[trimmed.length - 1];
+  const last = trimmed.at(-1);
+  if (!last) return trimmed;
   if (last === "|" || last === "｜" || last === "_")
     return trimmed.slice(0, -1).trimEnd();
-  if (
-    (last === "–" || last === "—" || last === "-") &&
-    trimmed.length >= 2 &&
-    /\s/.test(trimmed[trimmed.length - 2])
-  )
+  const prev = trimmed.at(-2);
+  if ((last === "–" || last === "—" || last === "-") && prev && /\s/.test(prev))
     return trimmed.slice(0, -1).trimEnd();
   return trimmed;
 }
@@ -556,7 +551,8 @@ function findLeadingBracket(title: string): EdgeBracket | undefined {
 }
 
 function findTrailingBracket(title: string): EdgeBracket | undefined {
-  if (title.length < 3 || !closeBrackets.includes(title[title.length - 1]))
+  const closing = title.at(-1);
+  if (title.length < 3 || !closing || !closeBrackets.includes(closing))
     return undefined;
   const minOpen = Math.max(0, title.length - 26);
   let openIdx = -1;
@@ -669,8 +665,8 @@ function isUiResidue(line: string): boolean {
   if (text.length > 0 && "(（[［".includes(text[0])) text = text.slice(1);
   text = text.trimStart();
   text = stripTrailingChars(text, " \t\r\n.…»>›");
-  if (text.length > 0 && ")）]］".includes(text[text.length - 1]))
-    text = text.slice(0, -1);
+  const closing = text.at(-1);
+  if (closing && ")）]］".includes(closing)) text = text.slice(0, -1);
   return uiResidueTerms.has(text.trimEnd().toLowerCase());
 }
 

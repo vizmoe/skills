@@ -8,6 +8,7 @@ import { repoRoot } from "../packages/core/src/runtime.js";
 import { json } from "../packages/core/src/json.js";
 import { sha256 } from "../packages/core/src/hash.js";
 import { fail } from "../packages/core/src/errors.js";
+
 if (process.env.CI || process.env.QUILLBIND_QA_ENV !== "linux-arm64-noble-v2")
   fail(
     "BASELINE_ENVIRONMENT",
@@ -15,9 +16,8 @@ if (process.env.CI || process.env.QUILLBIND_QA_ENV !== "linux-arm64-noble-v2")
   );
 const directory = path.join(repoRoot, "dist/baseline-review");
 await fs.mkdir(directory, { recursive: true });
-const themeHashes: Record<string, string> = {};
-let browserVersion = "";
-for (const theme of ["literature", "technical"]) {
+
+async function captureThemeCandidate(theme: string) {
   const info = inspectBytes(
     await fs.readFile(path.join(repoRoot, `examples/${theme}/dist/book.epub`)),
     true,
@@ -27,7 +27,7 @@ for (const theme of ["literature", "technical"]) {
     executablePath: await browserPath(),
   });
   try {
-    browserVersion = browser.version();
+    const browserVersion = browser.version();
     const context = await browser.newContext({
       viewport: { width: 390, height: 844 },
       deviceScaleFactor: 1,
@@ -53,24 +53,32 @@ for (const theme of ["literature", "technical"]) {
       fullPage: true,
       animations: "disabled",
     });
-    themeHashes[theme] = sha256(
+    const themeHash = sha256(
       Buffer.concat([
         await fs.readFile(path.join(repoRoot, "styles/base/epub.css")),
         await fs.readFile(path.join(repoRoot, `styles/themes/${theme}.css`)),
       ]),
     );
+    return { browserVersion, themeHash };
   } finally {
     await browser.close();
     await server.close();
   }
 }
+
+const literature = await captureThemeCandidate("literature");
+const technical = await captureThemeCandidate("technical");
+const themeHashes: Record<string, string> = {
+  literature: literature.themeHash,
+  technical: technical.themeHash,
+};
 await json(path.join(directory, "candidate.json"), {
   status: "review-candidate",
   environment: "linux-arm64-noble-v2",
   qaFontHash: sha256(
     await fs.readFile(path.join(repoRoot, "standards/qa-fonts.lock.json")),
   ),
-  browser: browserVersion,
+  browser: technical.browserVersion,
   themeHashes,
   reviewCriteria: [
     "literature chapter opening has no indentation",

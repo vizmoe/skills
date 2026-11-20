@@ -33,17 +33,21 @@ if (
 }
 const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "quillbind-codecs-"));
 try {
-  const files: string[] = [];
-  for (const entry of lock.packages) {
-    const bytes = await downloadMangaPackage(entry);
-    const file = path.join(temporary, `${entry.name}.deb`);
-    await fs.writeFile(file, bytes, { flag: "wx" });
-    files.push(file);
-  }
-  execFileSync("dpkg", ["-i", ...files], { stdio: "inherit", timeout: 120000 });
+  const files = await Promise.all(
+    lock.packages.map(async (entry) => {
+      const bytes = await downloadMangaPackage(entry);
+      const file = path.join(temporary, `${entry.name}.deb`);
+      await fs.writeFile(file, bytes, { flag: "wx" });
+      return file;
+    }),
+  );
+  execFileSync("/usr/bin/dpkg", ["-i", ...files], {
+    stdio: "inherit",
+    timeout: 120000,
+  });
   for (const entry of lock.packages) {
     const installed = execFileSync(
-      "dpkg-query",
+      "/usr/bin/dpkg-query",
       ["-W", "-f=${Version}", entry.name],
       { encoding: "utf8" },
     ).trim();
@@ -51,9 +55,9 @@ try {
       throw new Error(`Installed package version differs: ${entry.name}`);
     }
   }
-  execFileSync("cjxl", ["--version"], { stdio: "inherit" });
-  execFileSync("djxl", ["--version"], { stdio: "inherit" });
-  execFileSync("xmllint", ["--version"], { stdio: "inherit" });
+  execFileSync("/usr/bin/cjxl", ["--version"], { stdio: "inherit" });
+  execFileSync("/usr/bin/djxl", ["--version"], { stdio: "inherit" });
+  execFileSync("/usr/bin/xmllint", ["--version"], { stdio: "inherit" });
 } finally {
   await fs.rm(temporary, { recursive: true, force: true });
 }

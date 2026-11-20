@@ -42,5 +42,5 @@ await Promise.all(
     await fs.writeFile(path.join(directory, asset.file), bytes);
   }),
 );
-execFileSync("fc-cache", ["-f", directory], { stdio: "inherit" });
+execFileSync("/usr/bin/fc-cache", ["-f", directory], { stdio: "inherit" });
 console.log("Installed checksum-verified fonts for Linux browser QA");

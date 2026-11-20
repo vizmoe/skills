@@ -80,8 +80,36 @@ const fixtures = [
       "\n```\n\n::caption[Wide semantic data]\n\n| First field | Second field | Third field | Fourth field | Fifth field |\n| --- | --- | --- | --- | --- |\n| A long value | A second value | A third value | A fourth value | A fifth value |",
   },
 ];
-const results = [];
-for (const fixture of fixtures) {
+type FixtureSpec = (typeof fixtures)[number];
+const fullBuildFixtures = new Set([
+  "lossless-images",
+  "vertical",
+  "typography",
+  "blog",
+]);
+
+async function assertNoBlogPropertyLeak(directory: string) {
+  const output = inspectBytes(
+    await fs.readFile(path.join(directory, "dist/book.epub")),
+  );
+  const preflight = await fs.readFile(
+    path.join(directory, "dist/reports/preflight.json"),
+    "utf8",
+  );
+  if (
+    preflight.includes("DO_NOT_PUBLISH") ||
+    [...output.entries.values()].some((entry) =>
+      entry.bytes.toString().includes("DO_NOT_PUBLISH"),
+    )
+  ) {
+    fail(
+      "QA_PROPERTY_LEAK",
+      "Non-whitelisted blog properties reached publication output",
+    );
+  }
+}
+
+async function runQaFixture(fixture: FixtureSpec) {
   const directory = path.join(repoRoot, ".cache/qa-fixtures", fixture.id);
   await fs.mkdir(path.join(directory, "chapters"), { recursive: true });
   await json(path.join(directory, "book.yaml"), {
@@ -114,40 +142,19 @@ for (const fixture of fixtures) {
       .png({ compressionLevel: 0 })
       .toFile(path.join(directory, "large.png"));
   }
-  if (
-    ["lossless-images", "vertical", "typography", "blog"].includes(fixture.id)
-  ) {
+  if (fullBuildFixtures.has(fixture.id)) {
     const build = await buildBook(directory);
-    if (fixture.id === "blog") {
-      const output = inspectBytes(
-        await fs.readFile(path.join(directory, "dist/book.epub")),
-      );
-      const preflight = await fs.readFile(
-        path.join(directory, "dist/reports/preflight.json"),
-        "utf8",
-      );
-      if (
-        preflight.includes("DO_NOT_PUBLISH") ||
-        [...output.entries.values()].some((entry) =>
-          entry.bytes.toString().includes("DO_NOT_PUBLISH"),
-        )
-      )
-        fail(
-          "QA_PROPERTY_LEAK",
-          "Non-whitelisted blog properties reached publication output",
-        );
-    }
+    if (fixture.id === "blog") await assertNoBlogPropertyLeak(directory);
     await fs.cp(
       path.join(directory, "dist/reports"),
       path.join(repoRoot, "dist/qa-fixtures", fixture.id),
       { recursive: true },
     );
-    results.push({
+    return {
       fixture: fixture.id,
       status: build.status,
       diagnostics: build.gates.apple.diagnostics,
-    });
-    continue;
+    };
   }
   const bytes = await candidate(directory);
   const file = path.join(directory, "fixture.epub");
@@ -155,12 +162,21 @@ for (const fixture of fixtures) {
   const report = await runQa(file, {
     reports: path.join(repoRoot, "dist/qa-fixtures", fixture.id),
   });
-  results.push({
+  return {
     fixture: fixture.id,
     status: report.status,
     diagnostics: report.diagnostics,
+  };
+}
+
+const results: { fixture: string; status: string; diagnostics: unknown }[] = [];
+let fixtureChain = Promise.resolve();
+for (const fixture of fixtures) {
+  fixtureChain = fixtureChain.then(async () => {
+    results.push(await runQaFixture(fixture));
   });
 }
+await fixtureChain;
 const base = await fs.readFile(
   path.join(repoRoot, "examples/technical/dist/book.epub"),
 );

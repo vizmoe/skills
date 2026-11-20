@@ -1239,7 +1239,7 @@ function applySingleEpubFinding(
   finding: Finding,
   entry: Located,
   primary: string,
-  version: "2.0" | "3.0" | undefined,
+  version: EpubVersion,
   reserveId: (base: string) => string,
 ) {
   const { node, field } = entry;
@@ -1267,7 +1267,7 @@ function applyEpubFindings(
   applied: Finding[],
   located: Map<string, Located>,
   primary: string,
-  version: "2.0" | "3.0" | undefined,
+  version: EpubVersion,
   reserveId: (base: string) => string,
   changes: BibliographyChange[],
 ) {
@@ -1295,7 +1295,7 @@ function applyEpubIsbnAssignment(
   current: Located[],
   value: string,
   primary: string,
-  version: "2.0" | "3.0" | undefined,
+  version: EpubVersion,
   reserveId: (base: string) => string,
   changes: BibliographyChange[],
 ) {
@@ -1346,7 +1346,7 @@ function applyEpubAssignment(
   file: MetadataFile,
   assignment: BibliographyPlan["assignments"][number],
   primary: string,
-  version: "2.0" | "3.0" | undefined,
+  version: EpubVersion,
   reserveId: (base: string) => string,
   changes: BibliographyChange[],
 ) {

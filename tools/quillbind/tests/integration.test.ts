@@ -30,7 +30,7 @@ it.each(["literature", "technical"])(
     expect(sha256(first)).toBe(sha256(second));
     const info = inspectBytes(first, true);
     expect(info.version).toBe("3.0");
-    expect(info.spine.length).toBe(3);
+    expect(info.spine).toHaveLength(3);
     expect(info.manifest.find((item) => item.id === info.spine[0])!.path).toBe(
       "EPUB/contents.xhtml",
     );

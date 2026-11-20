@@ -70,17 +70,17 @@ assert.equal(
 
 const docker = await read("Dockerfile.qa");
 assert.equal(
-  docker.match(/^FROM node:([^-]+)/m)?.[1],
+  /^FROM node:([^-]+)/m.exec(docker)?.[1],
   tools.node,
   "Node container pin drifted",
 );
 assert.equal(
-  docker.match(/^FROM mcr\.microsoft\.com\/playwright:v([^-]+)/m)?.[1],
+  /^FROM mcr\.microsoft\.com\/playwright:v([^-]+)/m.exec(docker)?.[1],
   tools.playwright,
   "Playwright container pin drifted",
 );
 assert.equal(
-  docker.match(/npm install --global pnpm@([\d.]+)/)?.[1],
+  /npm install --global pnpm@([\d.]+)/.exec(docker)?.[1],
   tools.pnpm,
   "Container pnpm pin drifted",
 );

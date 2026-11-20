@@ -4,7 +4,12 @@ import assert from "node:assert/strict";
 import { collectBookWalker } from "../packages/core/src/bookwalker.js";
 import { openBook } from "../packages/core/src/config.js";
 import { inspectBytes } from "../packages/core/src/validate.js";
-import { elements, NS, serialize } from "../packages/core/src/xml.js";
+import {
+  elements,
+  NS,
+  removeNode,
+  serialize,
+} from "../packages/core/src/xml.js";
 import { pack } from "../packages/core/src/zip.js";
 import { selection, bookwalkerFetcher } from "../tests/bookwalker-fixture.js";
 import { enrichEpub } from "../packages/core/src/enrich-epub.js";
@@ -13,10 +18,14 @@ import { createRepairPlan, repairEpub } from "../packages/core/src/repair.js";
 import { repoRoot } from "../packages/core/src/runtime.js";
 import { json } from "../packages/core/src/json.js";
 const reports: unknown[] = [];
-for (const theme of ["literature", "technical"]) {
+const buildExampleTheme = async (theme: string) => {
   process.stderr.write(`Building ${theme}\n`);
-  reports.push(await buildBook(path.join(repoRoot, "examples", theme)));
-}
+  return buildBook(path.join(repoRoot, "examples", theme));
+};
+reports.push(
+  await buildExampleTheme("literature"),
+  await buildExampleTheme("technical"),
+);
 const enriched = path.join(repoRoot, "dist/verification/bookwalker");
 await fs.rm(enriched, { recursive: true, force: true });
 await fs.cp(path.join(repoRoot, "examples/literature"), enriched, {
@@ -62,7 +71,7 @@ const nativeEntries = new Map(
 );
 for (const field of ["date", "publisher"])
   for (const node of elements(enrichedInfo.packageDocument, field, NS.dc))
-    node.parentNode!.removeChild(node);
+    removeNode(node);
 nativeEntries.set(
   enrichedInfo.packagePath,
   Buffer.from(serialize(enrichedInfo.packageDocument)),

@@ -5,10 +5,7 @@ import { NS } from "../packages/core/src/xml.js";
 import { json } from "../packages/core/src/json.js";
 import { repoRoot } from "../packages/core/src/runtime.js";
 import { resolveMetadata } from "../packages/core/src/metadata.js";
-for (const [name, uuid] of [
-  ["literature", "11111111-1111-4111-8111-111111111111"],
-  ["technical", "22222222-2222-4222-8222-222222222222"],
-]) {
+async function prepareExampleFixture(name: string, uuid: string) {
   const directory = path.join(repoRoot, "examples", name);
   await json(path.join(directory, "metadata/identity.json"), {
     uuid: `urn:uuid:${uuid}`,
@@ -17,6 +14,11 @@ for (const [name, uuid] of [
   const resolved = await resolveMetadata(directory);
   if (resolved.status === "fail") throw new Error(JSON.stringify(resolved));
 }
+
+await Promise.all([
+  prepareExampleFixture("literature", "11111111-1111-4111-8111-111111111111"),
+  prepareExampleFixture("technical", "22222222-2222-4222-8222-222222222222"),
+]);
 const entries = new Map<string, Uint8Array>();
 const set = (name: string, value: string) =>
   entries.set(name, Buffer.from(value));

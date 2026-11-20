@@ -327,7 +327,7 @@ describe("chapters and rendering", () => {
       "bibliography",
     ])
       expect(kinds).toContain(kind);
-    expect(result.documents[0].footnotes.length).toBe(1);
+    expect(result.documents[0].footnotes).toHaveLength(1);
   });
   it.each([
     ["\n# Another title\n", "CHAPTER_H1"],
@@ -352,7 +352,7 @@ describe("chapters and rendering", () => {
   });
   it("keeps TeX semantic MathML and fails invalid macros", () => {
     const output = mathml("x^2", false);
-    expect(elements(xml(output), "math", NS.math).length).toBe(1);
+    expect(elements(xml(output), "math", NS.math)).toHaveLength(1);
     expect(() => mathml("\\notARealMacro{x}", false)).toThrow();
   });
   it("exports JSON Schema 2020-12 and separates taxonomy from themes", async () => {

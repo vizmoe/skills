@@ -49,11 +49,13 @@ if (!(await exists(archive))) {
 const bytes = await fs.readFile(archive);
 if (sha256(bytes) !== lock.epubcheck.sha256)
   fail("TOOL_INTEGRITY", "EPUBCheck download hash mismatch");
-for (const [name, entry] of unpack(bytes)) {
-  const target = path.join(directory, name);
-  await fs.mkdir(path.dirname(target), { recursive: true });
-  await fs.writeFile(target, entry.bytes);
-}
+await Promise.all(
+  [...unpack(bytes)].map(async ([name, entry]) => {
+    const target = path.join(directory, name);
+    await fs.mkdir(path.dirname(target), { recursive: true });
+    await fs.writeFile(target, entry.bytes);
+  }),
+);
 const browsers =
   process.env.PLAYWRIGHT_BROWSERS_PATH ??
   path.join(repoRoot, ".cache/ms-playwright");

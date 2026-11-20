@@ -131,8 +131,8 @@ it("distinguishes tight and loose lists and retains ordered starts and nesting",
   );
   const list = document.getElementsByTagName("ol")[0];
   expect(list.getAttribute("start")).toBe("3");
-  expect(list.getElementsByTagName("p").length).toBe(0);
-  expect(list.getElementsByTagName("ul").length).toBe(1);
+  expect(list.getElementsByTagName("p")).toHaveLength(0);
+  expect(list.getElementsByTagName("ul")).toHaveLength(1);
   expect(html).toContain("<li><p>Loose first</p></li>");
 });
 it("preserves reference links, autolinks, images and their titles", async () => {

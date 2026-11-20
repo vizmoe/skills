@@ -1,5 +1,6 @@
 .local/
 .cache/
+.scannerwork/
 .venv/
 node_modules/
 dist/

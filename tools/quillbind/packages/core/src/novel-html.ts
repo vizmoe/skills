@@ -6,7 +6,7 @@ import type { NovelCatalog } from "./novel-model.js";
 export const cleanText = (value: string) => value.replace(/\s+/g, " ").trim();
 // Escape all ASCII Markdown punctuation, including directives, math and raw HTML.
 export const markdownText = (value: string) =>
-  value.replace(/([!-/:-@[-`{-~])/g, "\\$1");
+  value.replace(/([!-/:-@[-`{-~])/g, String.raw`\$1`);
 export function imageUrl(
   $: CheerioAPI,
   image: ReturnType<CheerioAPI>,
@@ -67,6 +67,36 @@ export function checkCatalog(catalog: NovelCatalog) {
   return catalog;
 }
 
+function trimLineEndSpaces(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => {
+      let end = line.length;
+      while (end > 0 && (line[end - 1] === " " || line[end - 1] === "\t"))
+        end--;
+      return line.slice(0, end);
+    })
+    .join("\n");
+}
+
+async function resolveChapterImage(
+  $: CheerioAPI,
+  node: Parameters<CheerioAPI>[0],
+  index: number,
+  base: string,
+  saveImage: (url: string, alt: string) => Promise<string>,
+) {
+  const image = $(node),
+    url = imageUrl($, image, base);
+  if (!url)
+    fail(
+      "NOVEL_IMAGE_MISSING",
+      "A chapter illustration has no downloadable source",
+    );
+  const alt = cleanText(image.attr("alt") ?? "") || `插图 ${index + 1}`;
+  image.attr("src", await saveImage(url, alt)).attr("alt", alt);
+}
+
 /** Import prose and illustrations, never website scripts, styles, handlers or forms. */
 export async function novelMarkdown(
   html: string,
@@ -86,17 +116,12 @@ export async function novelMarkdown(
     )
       $(node).remove();
   });
-  for (const [index, node] of $("img").toArray().entries()) {
-    const image = $(node),
-      url = imageUrl($, image, base);
-    if (!url)
-      fail(
-        "NOVEL_IMAGE_MISSING",
-        "A chapter illustration has no downloadable source",
-      );
-    const alt = cleanText(image.attr("alt") ?? "") || `插图 ${index + 1}`;
-    image.attr("src", await saveImage(url, alt)).attr("alt", alt);
-  }
+  let imageChain = Promise.resolve();
+  for (const [index, node] of $("img").toArray().entries())
+    imageChain = imageChain.then(() =>
+      resolveChapterImage($, node, index, base, saveImage),
+    );
+  await imageChain;
   const walk = (nodes: ReturnType<CheerioAPI>, depth = 0): string => {
     if (depth > 100) fail("NOVEL_HTML", "Chapter HTML is nested too deeply");
     return nodes
@@ -125,7 +150,8 @@ export async function novelMarkdown(
             .split("\n")
             .map((line) => "> " + line)
             .join("\n")}\n\n`;
-        if (tag === "li") return `\n- ${body.trim().replace(/\n/g, "\n  ")}\n`;
+        if (tag === "li")
+          return `\n- ${body.trim().replaceAll("\n", "\n  ")}\n`;
         if (["ul", "ol"].includes(tag)) return `\n\n${body}\n\n`;
         if (["strong", "b"].includes(tag)) return `**${body}**`;
         if (["em", "i"].includes(tag)) return `*${body}*`;
@@ -134,8 +160,7 @@ export async function novelMarkdown(
       })
       .join("");
   };
-  const markdown = walk($("body").contents())
-    .replace(/[ \t]+\n/g, "\n")
+  const markdown = trimLineEndSpaces(walk($("body").contents()))
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   if (!markdown)

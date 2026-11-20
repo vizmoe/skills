@@ -46,6 +46,8 @@ export interface QaDocument {
   path: string;
   features: string[];
 }
+const sortStrings = (values: Iterable<string>) =>
+  [...values].toSorted((a, b) => a.localeCompare(b, "en"));
 const evenly = <T>(items: T[], count: number): T[] =>
   items.length <= count
     ? items
@@ -75,9 +77,9 @@ export function planQa(documents: QaDocument[], options: QaOptions = {}) {
     evenly(documents, 12).forEach((document) =>
       select(document, "evenly spaced reading order"),
     );
-    for (const feature of [
-      ...new Set(documents.flatMap((document) => document.features)),
-    ].sort())
+    for (const feature of sortStrings(
+      new Set(documents.flatMap((document) => document.features)),
+    ))
       evenly(
         documents.filter((document) => document.features.includes(feature)),
         3,
@@ -159,20 +161,20 @@ export function sourceQaDocuments(
     };
     document.blocks.forEach(block);
     document.footnotes.forEach((note) => note.blocks.forEach(block));
-    return { path: document.href, features: [...features].sort() };
+    return { path: document.href, features: sortStrings(features) };
   });
   const direction = documents[0]?.direction === "rtl" ? ["rtl"] : [];
-  const navigationFeatures = [
+  const navigationFeatures = sortStrings([
     "navigation",
     ...direction,
     ...(documents[0]?.writingMode === "vertical-rl" ? ["vertical"] : []),
-  ].sort();
+  ]);
   return [
     ...(cover
       ? [
           {
             path: "EPUB/cover.xhtml",
-            features: ["cover", "image", ...direction].sort(),
+            features: sortStrings(["cover", "image", ...direction]),
           },
         ]
       : []),
@@ -223,6 +225,6 @@ export function inspectedQaDocuments(info: EpubInspection): QaDocument[] {
       )
     )
       features.add("vertical");
-    return { path, features: [...features].sort() };
+    return { path, features: sortStrings(features) };
   });
 }

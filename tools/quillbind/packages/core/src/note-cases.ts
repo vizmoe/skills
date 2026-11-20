@@ -27,40 +27,39 @@ export const noteCasesSchema = z.strictObject({
   cases: z.array(noteCaseSchema).min(1),
 });
 export type NoteCase = z.infer<typeof noteCaseSchema>;
-export function noteCases(
-  notes: ReturnType<typeof inspectNotes>,
-  hash: string,
-  supplied?: unknown,
-) {
-  if (supplied !== undefined) {
-    const plan = noteCasesSchema.parse(supplied);
-    if (plan.inputSha256 !== hash)
-      fail(
-        "NOTE_CASES_STALE",
-        "Note cases belong to a different EPUB; review selectors against this input",
-      );
-    if (new Set(plan.cases.map((c) => c.id)).size !== plan.cases.length)
-      fail("NOTE_CASES_DUPLICATE", "Note case IDs must be unique");
-    for (const test of plan.cases) {
-      if (new Set(test.activations).size !== test.activations.length)
-        fail("NOTE_CASE_ACTIVATION", "Note activations must be unique");
-      if (
-        (test.activations.some((a) => a === "touch") &&
-          !("gesture" in test.dismiss)) ||
-        ("gesture" in test.dismiss &&
-          test.activations.some((a) => a !== "hover" && a !== "touch"))
-      )
-        fail(
-          "NOTE_CASE_ACTIVATION",
-          "Release dismissal is for hover/touch; touch checks require release dismissal",
-        );
-    }
-    return {
-      cases: plan.cases,
-      coverage: "explicit-cases" as const,
-      unassigned: [] as string[],
-    };
-  }
+function validateNoteCase(test: NoteCase) {
+  if (new Set(test.activations).size !== test.activations.length)
+    fail("NOTE_CASE_ACTIVATION", "Note activations must be unique");
+  const isGestureDismiss = "gesture" in test.dismiss;
+  if (
+    (test.activations.includes("touch") && !isGestureDismiss) ||
+    (isGestureDismiss &&
+      test.activations.some((a) => a !== "hover" && a !== "touch"))
+  )
+    fail(
+      "NOTE_CASE_ACTIVATION",
+      "Release dismissal is for hover/touch; touch checks require release dismissal",
+    );
+}
+
+function validateSuppliedCases(supplied: unknown, hash: string) {
+  const plan = noteCasesSchema.parse(supplied);
+  if (plan.inputSha256 !== hash)
+    fail(
+      "NOTE_CASES_STALE",
+      "Note cases belong to a different EPUB; review selectors against this input",
+    );
+  if (new Set(plan.cases.map((c) => c.id)).size !== plan.cases.length)
+    fail("NOTE_CASES_DUPLICATE", "Note case IDs must be unique");
+  for (const test of plan.cases) validateNoteCase(test);
+  return {
+    cases: plan.cases,
+    coverage: "explicit-cases" as const,
+    unassigned: [] as string[],
+  };
+}
+
+function deriveSemanticCases(notes: ReturnType<typeof inspectNotes>) {
   const cases: NoteCase[] = [],
     unassigned: string[] = [];
   for (const [index, ref] of notes.references.entries()) {
@@ -86,4 +85,13 @@ export function noteCases(
     });
   }
   return { cases, coverage: "semantic-note-candidates" as const, unassigned };
+}
+
+export function noteCases(
+  notes: ReturnType<typeof inspectNotes>,
+  hash: string,
+  supplied?: unknown,
+) {
+  if (supplied !== undefined) return validateSuppliedCases(supplied, hash);
+  return deriveSemanticCases(notes);
 }

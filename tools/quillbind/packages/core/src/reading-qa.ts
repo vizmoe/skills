@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { chromium } from "@playwright/test";
+import { chromium, type Page } from "@playwright/test";
 import type { EpubInspection } from "./epub.js";
 import { browserPath, serveEpub } from "./qa-environment.js";
 import { elements, NS } from "./xml.js";
@@ -8,12 +8,19 @@ import { checkAbort, fail } from "./errors.js";
 import { json } from "./json.js";
 import { sha256 } from "./hash.js";
 
-/** A bounded reading smoke test; deliberately does not claim the full publication QA gate. */
-export async function readingQa(
-  info: EpubInspection,
-  output: string,
-  signal?: AbortSignal,
-) {
+export interface ReadingIssue {
+  resource: string;
+  code: string;
+  message: string;
+}
+
+interface ReadingCheck {
+  resource: string;
+  expectedText: string;
+  mode: "default" | "large" | "dark";
+}
+
+function selectReadingDocuments(info: EpubInspection) {
   const all = [
     ...new Set(
       info.spine
@@ -22,7 +29,7 @@ export async function readingQa(
     ),
   ];
   if (!all.length) fail("SPINE_INVALID", "No readable spine documents");
-  const selected = new Set<string>([all[0], all[all.length - 1]]);
+  const selected = new Set<string>([all[0], all.at(-1)!]);
   const main = all.find(
     (p) =>
       (elements(info.documents.get(p)!, "body", NS.xhtml)[0]?.textContent
@@ -37,7 +44,85 @@ export async function readingQa(
     selected.add(all[Math.floor(((all.length - 1) * i) / 5)]);
   for (const item of info.manifest.filter((m) => m.properties.includes("nav")))
     selected.add(item.path);
-  const issues: { resource: string; code: string; message: string }[] = [];
+  return { all, selected };
+}
+
+function readingModeStyle(mode: ReadingCheck["mode"]): string | undefined {
+  if (mode === "large")
+    return "html {font-size:200%!important} body,p,li {font-family:serif!important;line-height:1.8!important}";
+  if (mode === "dark")
+    return "html,body {color:#eee!important;background:#111!important;color-scheme:dark}";
+  return undefined;
+}
+
+async function runReadingCheck(
+  page: Page,
+  check: ReadingCheck,
+  options: {
+    origin: string;
+    output: string;
+    signal?: AbortSignal;
+    issues: ReadingIssue[];
+    cases: unknown[];
+  },
+) {
+  checkAbort(options.signal);
+  const { resource, expectedText, mode } = check;
+  const width = mode === "large" ? 320 : 390;
+  await page.setViewportSize({ width, height: 844 });
+  await page.goto(`${options.origin}/${resource}`, {
+    waitUntil: "load",
+    timeout: 30000,
+  });
+  const style = readingModeStyle(mode);
+  if (style) await page.addStyleTag({ content: style });
+  await page.evaluate(() => document.fonts.ready);
+  const metrics = await page.evaluate((expected) => {
+    return {
+      textPreserved:
+        (document.body.textContent ?? "")
+          .normalize("NFC")
+          .replace(/\s+/g, " ")
+          .trim() === expected.normalize("NFC").replace(/\s+/g, " ").trim(),
+      missingImages: Array.from(document.images)
+        .filter((image) => !image.complete || image.naturalWidth === 0)
+        .map((image) => image.getAttribute("src")),
+      overflow: document.documentElement.scrollWidth > innerWidth + 2,
+      content: Boolean(
+        document.body.textContent?.trim() ||
+        document.querySelector("img,svg image"),
+      ),
+    };
+  }, expectedText);
+  const checks = [
+    ["TEXT_CHANGED", !metrics.textPreserved],
+    ["IMAGE_MISSING", metrics.missingImages.length > 0],
+    ["HORIZONTAL_OVERFLOW", metrics.overflow],
+    ["EMPTY_PAGE", !metrics.content],
+  ] as const;
+  for (const [code, failed] of checks) {
+    if (!failed) continue;
+    const suffix =
+      code === "IMAGE_MISSING" ? " " + metrics.missingImages.join(", ") : "";
+    options.issues.push({
+      resource,
+      code,
+      message: `${mode}: ${code}${suffix}`,
+    });
+  }
+  const screenshot = `${sha256(resource).slice(0, 12)}-${mode}.png`;
+  await page.screenshot({ path: path.join(options.output, screenshot) });
+  options.cases.push({ resource, mode, width, ...metrics, screenshot });
+}
+
+/** A bounded reading smoke test; deliberately does not claim the full publication QA gate. */
+export async function readingQa(
+  info: EpubInspection,
+  output: string,
+  signal?: AbortSignal,
+) {
+  const { all, selected } = selectReadingDocuments(info);
+  const issues: ReadingIssue[] = [];
   const cases: unknown[] = [];
   await fs.mkdir(output, { recursive: true });
   const browser = await chromium.launch({
@@ -62,62 +147,21 @@ export async function readingQa(
         : route.abort(),
     );
     const page = await context.newPage();
+    const checks: ReadingCheck[] = [];
     for (const resource of selected) {
-      checkAbort(signal);
       const packaged = info.documents.get(resource);
       if (!packaged) continue;
       const expectedText =
         elements(packaged, "body", NS.xhtml)[0]?.textContent ?? "";
-      for (const mode of ["default", "large", "dark"]) {
-        const width = mode === "large" ? 320 : 390;
-        await page.setViewportSize({ width, height: 844 });
-        await page.goto(`${origin}/${resource}`, {
-          waitUntil: "load",
-          timeout: 30000,
-        });
-        if (mode !== "default")
-          await page.addStyleTag({
-            content:
-              mode === "large"
-                ? "html {font-size:200%!important} body,p,li {font-family:serif!important;line-height:1.8!important}"
-                : "html,body {color:#eee!important;background:#111!important;color-scheme:dark}",
-          });
-        await page.evaluate(() => document.fonts.ready);
-        const metrics = await page.evaluate((expected) => {
-          return {
-            textPreserved:
-              (document.body.textContent ?? "")
-                .normalize("NFC")
-                .replace(/\s+/g, " ")
-                .trim() ===
-              expected.normalize("NFC").replace(/\s+/g, " ").trim(),
-            missingImages: Array.from(document.images)
-              .filter((image) => !image.complete || image.naturalWidth === 0)
-              .map((image) => image.getAttribute("src")),
-            overflow: document.documentElement.scrollWidth > innerWidth + 2,
-            content: Boolean(
-              document.body.textContent?.trim() ||
-              document.querySelector("img,svg image"),
-            ),
-          };
-        }, expectedText);
-        for (const [code, failed] of [
-          ["TEXT_CHANGED", !metrics.textPreserved],
-          ["IMAGE_MISSING", metrics.missingImages.length > 0],
-          ["HORIZONTAL_OVERFLOW", metrics.overflow],
-          ["EMPTY_PAGE", !metrics.content],
-        ] as const)
-          if (failed)
-            issues.push({
-              resource,
-              code,
-              message: `${mode}: ${code}${code === "IMAGE_MISSING" ? " " + metrics.missingImages.join(", ") : ""}`,
-            });
-        const screenshot = `${sha256(resource).slice(0, 12)}-${mode}.png`;
-        await page.screenshot({ path: path.join(output, screenshot) });
-        cases.push({ resource, mode, width, ...metrics, screenshot });
-      }
+      for (const mode of ["default", "large", "dark"] as const)
+        checks.push({ resource, expectedText, mode });
     }
+    let chain = Promise.resolve();
+    for (const check of checks)
+      chain = chain.then(() =>
+        runReadingCheck(page, check, { origin, output, signal, issues, cases }),
+      );
+    await chain;
     await context.close();
   } finally {
     signal?.removeEventListener("abort", onAbort);

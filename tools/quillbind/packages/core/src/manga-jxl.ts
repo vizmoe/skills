@@ -7,37 +7,42 @@ import { sha256 } from "./hash.js";
 import { stable } from "./json.js";
 import { boundedRead, mangaLimits, type Scan } from "./manga-sources.js";
 
+async function checkJxlTool(
+  name: string,
+  binary: string,
+  signal?: AbortSignal,
+): Promise<[string, string]> {
+  const result = await run(binary, ["--version"], {
+    signal,
+    timeout: 10000,
+  }).catch((error: unknown) => {
+    checkAbort(signal);
+    return fail(
+      "ENVIRONMENT_ERROR",
+      `Install libjxl cjxl and djxl for manga packaging: ${String(error)}`,
+    );
+  });
+  const version = /v(\d+)\.(\d+)\.(\d+)/.exec(result.stdout + result.stderr);
+  if (
+    result.exitCode !== 0 ||
+    !version ||
+    (Number(version[1]) === 0 && Number(version[2]) < 7)
+  )
+    fail(
+      "ENVIRONMENT_ERROR",
+      `Unsupported ${name}; libjxl 0.7 or newer is required`,
+    );
+  return [name, version[0]];
+}
+
 export async function jxlTools(signal?: AbortSignal) {
   const cjxl = process.env.QUILLBIND_CJXL || "cjxl",
     djxl = process.env.QUILLBIND_DJXL || "djxl";
-  const versions: Record<string, string> = {};
-  for (const [name, binary] of [
-    ["cjxl", cjxl],
-    ["djxl", djxl],
-  ]) {
-    const result = await run(binary, ["--version"], {
-      signal,
-      timeout: 10000,
-    }).catch((error: unknown) => {
-      checkAbort(signal);
-      return fail(
-        "ENVIRONMENT_ERROR",
-        `Install libjxl cjxl and djxl for manga packaging: ${String(error)}`,
-      );
-    });
-    const version = /v(\d+)\.(\d+)\.(\d+)/.exec(result.stdout + result.stderr);
-    if (
-      result.exitCode !== 0 ||
-      !version ||
-      (Number(version[1]) === 0 && Number(version[2]) < 7)
-    )
-      fail(
-        "ENVIRONMENT_ERROR",
-        `Unsupported ${name}; libjxl 0.7 or newer is required`,
-      );
-    versions[name] = version[0];
-  }
-  return { cjxl, djxl, versions };
+  const entries = await Promise.all([
+    checkJxlTool("cjxl", cjxl, signal),
+    checkJxlTool("djxl", djxl, signal),
+  ]);
+  return { cjxl, djxl, versions: Object.fromEntries(entries) };
 }
 type Codec = Awaited<ReturnType<typeof jxlTools>>;
 const image = (bytes: Buffer) =>
@@ -107,6 +112,48 @@ async function verifyPixels(original: Buffer, decoded: Buffer) {
     fail("MANGA_INTEGRITY", "Lossless conversion changed image orientation");
   return a;
 }
+const JXL_CONTAINER_SIGNATURE = Buffer.from([
+  0, 0, 0, 12, 0x4a, 0x58, 0x4c, 0x20, 13, 10, 0x87, 10,
+]);
+
+function isJxlBytes(bytes: Buffer): boolean {
+  return (
+    (bytes[0] === 0xff && bytes[1] === 0x0a) ||
+    bytes.subarray(0, 12).equals(JXL_CONTAINER_SIGNATURE)
+  );
+}
+
+async function prepareEncodeInput(
+  scan: Scan,
+  metadata: Awaited<ReturnType<typeof inspect>>,
+) {
+  const adapted = !["jpeg", "png"].includes(metadata.format!);
+  if (!adapted) return { input: scan.bytes, adapted: false };
+  const input = await image(scan.bytes)
+    .toColourspace(metadata.space)
+    .keepMetadata()
+    .png()
+    .toBuffer();
+  await verifyPixels(scan.bytes, input);
+  return { input, adapted: true };
+}
+
+async function verifyReconstructedScan(
+  scan: Scan,
+  jpeg: boolean,
+  reconstructed: Buffer,
+) {
+  if (jpeg) {
+    if (!scan.bytes.equals(reconstructed))
+      fail(
+        "MANGA_INTEGRITY",
+        "JPEG reconstruction is not byte-identical to the scan",
+      );
+    return undefined;
+  }
+  return verifyPixels(scan.bytes, reconstructed);
+}
+
 export async function encodePage(
   scan: Scan,
   directory: string,
@@ -116,16 +163,7 @@ export async function encodePage(
   checkAbort(signal);
   const metadata = await inspect(scan.bytes);
   const jpeg = metadata.format === "jpeg";
-  let input = scan.bytes;
-  const adapted = !["jpeg", "png"].includes(metadata.format!);
-  if (adapted) {
-    input = await image(scan.bytes)
-      .toColourspace(metadata.space)
-      .keepMetadata()
-      .png()
-      .toBuffer();
-    await verifyPixels(scan.bytes, input);
-  }
+  const { input, adapted } = await prepareEncodeInput(scan, metadata);
   const source = path.join(directory, jpeg ? "input.jpg" : "input.png"),
     output = path.join(directory, "page.jxl"),
     decoded = path.join(directory, jpeg ? "reconstructed.jpg" : "decoded.png");
@@ -149,14 +187,7 @@ export async function encodePage(
   if (encoding.exitCode !== 0)
     fail("MANGA_ENCODER", `cjxl failed for ${scan.name}: ${encoding.stderr}`);
   const bytes = await boundedRead(output, mangaLimits.pageBytes);
-  if (
-    !(bytes[0] === 0xff && bytes[1] === 0x0a) &&
-    !bytes
-      .subarray(0, 12)
-      .equals(
-        Buffer.from([0, 0, 0, 12, 0x4a, 0x58, 0x4c, 0x20, 13, 10, 0x87, 10]),
-      )
-  )
+  if (!isJxlBytes(bytes))
     fail("MANGA_ENCODER", "Encoder output is not JPEG XL");
   const decoding = await run(codec.djxl, [output, decoded, "--num_threads=1"], {
     signal,
@@ -166,14 +197,11 @@ export async function encodePage(
   if (decoding.exitCode !== 0)
     fail("MANGA_DECODER", `djxl failed for ${scan.name}: ${decoding.stderr}`);
   const reconstructed = await boundedRead(decoded, mangaLimits.pageBytes);
-  let decodedSamples: Awaited<ReturnType<typeof samples>> | undefined;
-  if (jpeg) {
-    if (!scan.bytes.equals(reconstructed))
-      fail(
-        "MANGA_INTEGRITY",
-        "JPEG reconstruction is not byte-identical to the scan",
-      );
-  } else decodedSamples = await verifyPixels(scan.bytes, reconstructed);
+  const decodedSamples = await verifyReconstructedScan(
+    scan,
+    jpeg,
+    reconstructed,
+  );
   return {
     bytes,
     evidence: {

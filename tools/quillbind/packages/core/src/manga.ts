@@ -3,12 +3,135 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { readBookWalkerLock } from "./bookwalker.js";
 import { comicInfo } from "./comicinfo.js";
-import { readScans, boundedRead, mangaLimits } from "./manga-sources.js";
+import {
+  readScans,
+  boundedRead,
+  mangaLimits,
+  type Scan,
+} from "./manga-sources.js";
 import { encodePage, jxlTools } from "./manga-jxl.js";
 import { packArchive, unpack } from "./zip.js";
 import { checkAbort, fail } from "./errors.js";
 import { sha256 } from "./hash.js";
 import { json, stable } from "./json.js";
+
+export type EncodedPageEvidence = Awaited<
+  ReturnType<typeof encodePage>
+>["evidence"] & {
+  page: string;
+};
+
+async function pathExists(target: string): Promise<boolean> {
+  return fs.lstat(target).then(
+    () => true,
+    (error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+      return false;
+    },
+  );
+}
+
+async function findExistingAncestor(dir: string): Promise<string> {
+  if (await pathExists(dir)) return dir;
+  const parent = path.dirname(dir);
+  if (parent === dir) return dir;
+  return findExistingAncestor(parent);
+}
+
+async function assertOutputOutsideSource(input: string, output: string) {
+  const root = await fs.realpath(input);
+  const sourceStat = await fs.lstat(input);
+  if (!sourceStat.isDirectory()) return;
+  const ancestor = await findExistingAncestor(path.dirname(output));
+  const parent = path.resolve(
+    await fs.realpath(ancestor),
+    path.relative(ancestor, path.dirname(output)),
+  );
+  if (parent === root || parent.startsWith(root + path.sep))
+    fail(
+      "OUTPUT_IN_SOURCE",
+      "Place CBZ output and reports outside the scan directory",
+    );
+}
+
+async function openMangaLock(lockfile: string) {
+  return fs.open(lockfile, "wx").catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "EEXIST")
+      fail("MANGA_BUSY", "Another manga operation owns the output lock");
+    throw error;
+  });
+}
+
+async function createReportDirectory(reports: string) {
+  await fs.mkdir(reports).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "EEXIST")
+      fail(
+        "MANGA_REPORT_EXISTS",
+        "Choose a new output path; its report directory already exists",
+      );
+    throw error;
+  });
+}
+
+interface EncodeState {
+  entries: Map<string, Uint8Array>;
+  pages: EncodedPageEvidence[];
+  encodedBytes: number;
+}
+
+async function encodeSingleMangaPage(
+  state: EncodeState,
+  scan: Scan,
+  index: number,
+  temporary: string,
+  codec: Awaited<ReturnType<typeof jxlTools>>,
+  signal?: AbortSignal,
+) {
+  checkAbort(signal);
+  const directory = path.join(temporary, String(index));
+  await fs.mkdir(directory);
+  const result = await encodePage(scan, directory, codec, signal);
+  state.encodedBytes += result.bytes.length;
+  if (state.encodedBytes > mangaLimits.totalBytes)
+    fail("MANGA_LIMIT", "Encoded pages exceed the CBZ byte limit");
+  const page = `${String(index + 1).padStart(5, "0")}.jxl`;
+  state.entries.set(page, result.bytes);
+  state.pages.push({ ...result.evidence, page });
+  await fs.rm(directory, { recursive: true });
+}
+
+async function encodeMangaPages(
+  scanPages: Scan[],
+  temporary: string,
+  codec: Awaited<ReturnType<typeof jxlTools>>,
+  signal?: AbortSignal,
+) {
+  const state: EncodeState = {
+    entries: new Map<string, Uint8Array>(),
+    pages: [],
+    encodedBytes: 0,
+  };
+  let chain = Promise.resolve();
+  for (const [index, scan] of scanPages.entries())
+    chain = chain.then(() =>
+      encodeSingleMangaPage(state, scan, index, temporary, codec, signal),
+    );
+  await chain;
+  return state;
+}
+
+function verifyMangaArchive(entries: Map<string, Uint8Array>, bytes: Buffer) {
+  const verified = unpack(bytes, {
+    maxEntries: mangaLimits.entries + 2,
+    maxEntryBytes: mangaLimits.pageBytes,
+    maxTotalBytes: mangaLimits.totalBytes + 16 * 1024 * 1024,
+  });
+  for (const [name, content] of entries)
+    if (!verified.get(name)?.bytes.equals(Buffer.from(content)))
+      fail("MANGA_INTEGRITY", `CBZ round trip changed ${name}`);
+  if (!packArchive(entries, 946684800, { store: true }).equals(bytes))
+    fail("NONDETERMINISTIC_BUILD", "Repeated CBZ packaging differs");
+}
 
 export async function packageManga(
   input: string,
@@ -29,43 +152,12 @@ export async function packageManga(
   const output = path.resolve(options.output);
   if (!/\.cbz$/i.test(output))
     fail("MANGA_OUTPUT", "Manga output must have a .cbz extension");
-  if (
-    await fs.lstat(output).then(
-      () => true,
-      (error: NodeJS.ErrnoException) => {
-        if (error.code !== "ENOENT") throw error;
-        return false;
-      },
-    )
-  )
+  if (await pathExists(output))
     fail(
       "OUTPUT_EXISTS",
       "CBZ output must be a new path; originals are protected",
     );
-  const root = await fs.realpath(input);
-  const sourceStat = await fs.lstat(input);
-  if (sourceStat.isDirectory()) {
-    let ancestor = path.dirname(output);
-    while (
-      !(await fs.lstat(ancestor).then(
-        () => true,
-        (error: NodeJS.ErrnoException) => {
-          if (error.code !== "ENOENT") throw error;
-          return false;
-        },
-      ))
-    )
-      ancestor = path.dirname(ancestor);
-    const parent = path.resolve(
-      await fs.realpath(ancestor),
-      path.relative(ancestor, path.dirname(output)),
-    );
-    if (parent === root || parent.startsWith(root + path.sep))
-      fail(
-        "OUTPUT_IN_SOURCE",
-        "Place CBZ output and reports outside the scan directory",
-      );
-  }
+  await assertOutputOutsideSource(input, output);
   const sources = readBookWalkerLock(
     (await boundedRead(options.bookwalker, 4 * 1024 * 1024)).toString(),
   );
@@ -78,48 +170,23 @@ export async function packageManga(
   const codec = await jxlTools(options.signal);
   await fs.mkdir(path.dirname(output), { recursive: true });
   const lockfile = output + ".manga.lock";
-  const handle = await fs
-    .open(lockfile, "wx")
-    .catch((error: NodeJS.ErrnoException) => {
-      if (error.code === "EEXIST")
-        fail("MANGA_BUSY", "Another manga operation owns the output lock");
-      throw error;
-    });
+  const handle = await openMangaLock(lockfile);
   const reports = output + ".reports",
     runId = randomUUID();
   let temporary: string | undefined;
   let ownsReports = false;
   try {
-    await fs.mkdir(reports).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === "EEXIST")
-        fail(
-          "MANGA_REPORT_EXISTS",
-          "Choose a new output path; its report directory already exists",
-        );
-      throw error;
-    });
+    await createReportDirectory(reports);
     ownsReports = true;
     temporary = await fs.mkdtemp(
       path.join(path.dirname(output), ".quillbind-manga-"),
     );
-    const entries = new Map<string, Uint8Array>();
-    const pages: (Awaited<ReturnType<typeof encodePage>>["evidence"] & {
-      page: string;
-    })[] = [];
-    let encodedBytes = 0;
-    for (const [index, scan] of scans.pages.entries()) {
-      checkAbort(options.signal);
-      const directory = path.join(temporary, String(index));
-      await fs.mkdir(directory);
-      const result = await encodePage(scan, directory, codec, options.signal);
-      encodedBytes += result.bytes.length;
-      if (encodedBytes > mangaLimits.totalBytes)
-        fail("MANGA_LIMIT", "Encoded pages exceed the CBZ byte limit");
-      const page = `${String(index + 1).padStart(5, "0")}.jxl`;
-      entries.set(page, result.bytes);
-      pages.push({ ...result.evidence, page });
-      await fs.rm(directory, { recursive: true });
-    }
+    const { entries, pages } = await encodeMangaPages(
+      scans.pages,
+      temporary,
+      codec,
+      options.signal,
+    );
     entries.set(
       "ComicInfo.xml",
       Buffer.from(comicInfo(sources.metadata, pages, options.direction)),
@@ -137,16 +204,7 @@ export async function packageManga(
     };
     entries.set("quillbind.json", Buffer.from(stable(provenance) + "\n"));
     const bytes = packArchive(entries, 946684800, { store: true });
-    const verified = unpack(bytes, {
-      maxEntries: mangaLimits.entries + 2,
-      maxEntryBytes: mangaLimits.pageBytes,
-      maxTotalBytes: mangaLimits.totalBytes + 16 * 1024 * 1024,
-    });
-    for (const [name, content] of entries)
-      if (!verified.get(name)?.bytes.equals(Buffer.from(content)))
-        fail("MANGA_INTEGRITY", `CBZ round trip changed ${name}`);
-    if (!packArchive(entries, 946684800, { store: true }).equals(bytes))
-      fail("NONDETERMINISTIC_BUILD", "Repeated CBZ packaging differs");
+    verifyMangaArchive(entries, bytes);
     const current = await readScans(input, options);
     if (
       current.sourceDigest !== scans.sourceDigest ||

@@ -45,6 +45,21 @@ export function remoteUrl(value: string, base?: string): URL {
   url.hash = "";
   return url;
 }
+function matchBookPath(
+  site: NovelAddress["site"],
+  pathname: string,
+): RegExpExecArray | null {
+  switch (site) {
+    case "bilinovel":
+      return /^\/novel\/(\d+)(?:\.html|\/catalog\/?|\/vol_\d+\.html)$/.exec(
+        pathname,
+      );
+    case "lightnovel-fun":
+      return /^\/(?:cn\/|tw\/)?book\/(\d+)\/?$/.exec(pathname);
+    case "lightnovel-app":
+      return /^\/book\/info\/(\d+)\/?$/.exec(pathname);
+  }
+}
 export function novelAddress(value: string): NovelAddress {
   const url = remoteUrl(value);
   const site = (Object.keys(sites) as NovelAddress["site"][]).find((site) =>
@@ -55,14 +70,7 @@ export function novelAddress(value: string): NovelAddress {
       "NOVEL_SITE_UNSUPPORTED",
       "Supported sites: bilinovel.com, lightnovel.fun and lightnovel.app",
     );
-  const match =
-    site === "bilinovel"
-      ? /^\/novel\/(\d+)(?:\.html|\/catalog\/?|\/vol_\d+\.html)$/.exec(
-          url.pathname,
-        )
-      : site === "lightnovel-fun"
-        ? /^\/(?:cn\/|tw\/)?book\/(\d+)\/?$/.exec(url.pathname)
-        : /^\/book\/info\/(\d+)\/?$/.exec(url.pathname);
+  const match = matchBookPath(site, url.pathname);
   if (!match)
     fail(
       "NOVEL_BOOK_URL",
@@ -177,6 +185,21 @@ export const fetchNovel: NovelFetcher = async (input) => {
   return requestAt(input, url, address.address, signal);
 };
 
+function decompressResponse(
+  bytes: Buffer,
+  encoding: string | undefined,
+  maxBytes: number,
+): Buffer {
+  if (!encoding || encoding === "identity") return bytes;
+  if (encoding === "gzip")
+    return gunzipSync(bytes, { maxOutputLength: maxBytes });
+  if (encoding === "br")
+    return brotliDecompressSync(bytes, { maxOutputLength: maxBytes });
+  if (encoding === "deflate")
+    return inflateSync(bytes, { maxOutputLength: maxBytes });
+  fail("NOVEL_ENCODING", "Unsupported HTTP content encoding");
+}
+
 function requestAt(
   input: NovelRequest,
   url: URL,
@@ -211,20 +234,11 @@ function requestAt(
         response.on("error", reject);
         response.on("end", () => {
           try {
-            let bytes = Buffer.concat(chunks);
-            const encoding = response.headers["content-encoding"];
-            const decompress =
-              encoding === "gzip"
-                ? gunzipSync
-                : encoding === "br"
-                  ? brotliDecompressSync
-                  : encoding === "deflate"
-                    ? inflateSync
-                    : undefined;
-            if (decompress)
-              bytes = decompress(bytes, { maxOutputLength: input.maxBytes });
-            else if (encoding && encoding !== "identity")
-              fail("NOVEL_ENCODING", "Unsupported HTTP content encoding");
+            const bytes = decompressResponse(
+              Buffer.concat(chunks),
+              response.headers["content-encoding"],
+              input.maxBytes,
+            );
             resolve({
               status: response.statusCode ?? 0,
               headers: Object.fromEntries(
@@ -244,6 +258,60 @@ function requestAt(
     req.on("error", reject);
     req.end(input.body);
   });
+}
+
+interface NovelReadOptions {
+  asset?: boolean;
+  referer?: string;
+  method?: NovelRequest["method"];
+  body?: string;
+  headers?: Record<string, string>;
+  signal?: AbortSignal;
+  timeout?: number;
+  protocol?: boolean;
+}
+
+function parseRetryDelay(retryAfter: string | undefined): number {
+  if (!retryAfter) return 0;
+  if (/^\d+$/.test(retryAfter)) return Number(retryAfter) * 1000;
+  return Date.parse(retryAfter) - Date.now();
+}
+
+function buildRequestHeaders(
+  address: NovelAddress,
+  options: NovelReadOptions,
+): Record<string, string> {
+  return {
+    "user-agent": novelUserAgent,
+    accept: options.asset
+      ? "image/*"
+      : "text/html,application/json;q=0.9,*/*;q=0.8",
+    "accept-encoding": "gzip, deflate, br",
+    "accept-language": "zh-CN,zh;q=0.9",
+    referer: options.referer ?? address.url,
+    ...(address.site === "bilinovel" && !options.asset
+      ? { cookie: "night=0" }
+      : {}),
+    ...options.headers,
+  };
+}
+
+function shouldRetryStatus(
+  options: NovelReadOptions,
+  status: number,
+  retries: number,
+): boolean {
+  return !options.protocol && (status === 429 || status >= 500) && retries < 2;
+}
+
+function assertSuccessStatus(status: number) {
+  if (status === 200) return;
+  if (status === 401 || status === 403)
+    fail(
+      "NOVEL_ACCESS",
+      `Source denied access (${status}); open the book in your browser to check access`,
+    );
+  fail("NOVEL_HTTP", `Novel source returned HTTP ${status}`);
 }
 
 export class NovelHttp {
@@ -287,109 +355,99 @@ export class NovelHttp {
     this.nextRequest = now + wait + this.delayMs;
     await pause(wait, undefined, { signal });
   }
+  private resolveRedirect(
+    current: URL,
+    response: NovelResponse,
+    options: NovelReadOptions,
+    redirects: number,
+  ): URL {
+    if (
+      options.protocol ||
+      options.method === "POST" ||
+      redirects > 5 ||
+      !response.headers.location
+    )
+      fail("NOVEL_REDIRECT", "Unexpected redirect from novel source");
+    const next = this.allowed(
+      remoteUrl(response.headers.location, current.href).href,
+      options.asset,
+    );
+    if (options.headers && next.origin !== current.origin)
+      fail("NOVEL_REDIRECT", "Cannot forward request headers across origins");
+    return next;
+  }
+  private async sendOnce(
+    current: URL,
+    options: NovelReadOptions,
+    signal: AbortSignal | undefined,
+  ): Promise<NovelResponse> {
+    checkAbort(signal);
+    if (!options.protocol) await this.throttle(signal);
+    const response = await (this.options.fetcher ?? fetchNovel)({
+      url: current.href,
+      method: options.method ?? "GET",
+      body: options.body,
+      signal,
+      timeout: options.timeout ?? 30000,
+      maxBytes: options.asset ? 32 * 1024 * 1024 : 16 * 1024 * 1024,
+      headers: buildRequestHeaders(this.address, options),
+    });
+    checkAbort(signal);
+    return response;
+  }
+  private async executeRead(
+    current: URL,
+    options: NovelReadOptions,
+    signal: AbortSignal | undefined,
+    redirects: number,
+    retries: number,
+  ): Promise<NovelResponse & { url: string }> {
+    const response = await this.sendOnce(current, options, signal);
+    if ([301, 302, 303, 307, 308].includes(response.status)) {
+      const next = this.resolveRedirect(
+        current,
+        response,
+        options,
+        redirects + 1,
+      );
+      return this.executeRead(next, options, signal, redirects + 1, retries);
+    }
+    if (shouldRetryStatus(options, response.status, retries)) {
+      const nextRetry = retries + 1;
+      const requestedDelay = parseRetryDelay(response.headers["retry-after"]);
+      if (requestedDelay > 60000)
+        fail(
+          "NOVEL_RATE_LIMIT",
+          "Source requests a longer pause; try again later",
+        );
+      await pause(
+        Math.max(1000 * 2 ** nextRetry, requestedDelay || 0),
+        undefined,
+        { signal },
+      );
+      return this.executeRead(current, options, signal, redirects, nextRetry);
+    }
+    if (!options.protocol) {
+      assertSuccessStatus(response.status);
+      this.evidence.push({
+        url: current.href,
+        method: options.method ?? "GET",
+        sha256: sha256(response.bytes),
+        size: response.bytes.length,
+      });
+    }
+    return { ...response, url: current.href };
+  }
   async read(
     url: string,
-    options: {
-      asset?: boolean;
-      referer?: string;
-      method?: NovelRequest["method"];
-      body?: string;
-      headers?: Record<string, string>;
-      signal?: AbortSignal;
-      timeout?: number;
-      protocol?: boolean;
-    } = {},
+    options: NovelReadOptions = {},
   ): Promise<NovelResponse & { url: string }> {
-    let current = this.allowed(url, options.asset);
+    const current = this.allowed(url, options.asset);
     const signal =
       options.signal && this.options.signal
         ? AbortSignal.any([options.signal, this.options.signal])
         : (options.signal ?? this.options.signal);
-    for (let redirects = 0, retries = 0; ;) {
-      checkAbort(signal);
-      if (!options.protocol) await this.throttle(signal);
-      const response = await (this.options.fetcher ?? fetchNovel)({
-        url: current.href,
-        method: options.method ?? "GET",
-        body: options.body,
-        signal,
-        timeout: options.timeout ?? 30000,
-        maxBytes: options.asset ? 32 * 1024 * 1024 : 16 * 1024 * 1024,
-        headers: {
-          "user-agent": novelUserAgent,
-          accept: options.asset
-            ? "image/*"
-            : "text/html,application/json;q=0.9,*/*;q=0.8",
-          "accept-encoding": "gzip, deflate, br",
-          "accept-language": "zh-CN,zh;q=0.9",
-          referer: options.referer ?? this.address.url,
-          ...(this.address.site === "bilinovel" && !options.asset
-            ? { cookie: "night=0" }
-            : {}),
-          ...options.headers,
-        },
-      });
-      checkAbort(signal);
-      if ([301, 302, 303, 307, 308].includes(response.status)) {
-        if (
-          options.protocol ||
-          options.method === "POST" ||
-          ++redirects > 5 ||
-          !response.headers.location
-        )
-          fail("NOVEL_REDIRECT", "Unexpected redirect from novel source");
-        const next = this.allowed(
-          remoteUrl(response.headers.location, current.href).href,
-          options.asset,
-        );
-        if (options.headers && next.origin !== current.origin)
-          fail(
-            "NOVEL_REDIRECT",
-            "Cannot forward request headers across origins",
-          );
-        current = next;
-        continue;
-      }
-      if (
-        !options.protocol &&
-        (response.status === 429 || response.status >= 500) &&
-        retries++ < 2
-      ) {
-        const retryAfter = response.headers["retry-after"];
-        const requestedDelay = retryAfter
-          ? /^\d+$/.test(retryAfter)
-            ? Number(retryAfter) * 1000
-            : Date.parse(retryAfter) - Date.now()
-          : 0;
-        if (requestedDelay > 60000)
-          fail(
-            "NOVEL_RATE_LIMIT",
-            "Source requests a longer pause; try again later",
-          );
-        await pause(
-          Math.max(1000 * 2 ** retries, requestedDelay || 0),
-          undefined,
-          { signal },
-        );
-        continue;
-      }
-      if (!options.protocol && response.status !== 200) {
-        if ([401, 403].includes(response.status))
-          fail(
-            "NOVEL_ACCESS",
-            `Source denied access (${response.status}); open the book in your browser to check access`,
-          );
-        fail("NOVEL_HTTP", `Novel source returned HTTP ${response.status}`);
-      }
-      if (!options.protocol)
-        this.evidence.push({
-          url: current.href,
-          method: options.method ?? "GET",
-          sha256: sha256(response.bytes),
-          size: response.bytes.length,
-        });
-      return { ...response, url: current.href };
-    }
+    return this.executeRead(current, options, signal, 0, 0);
   }
   async html(url: string) {
     const response = await this.read(url);

@@ -43,6 +43,45 @@ function integer(source: string): number {
   return value;
 }
 
+function compactOrderScript(script: string): string {
+  return script.replace(/\s+/g, " ").replace(/ ?([!(),;=]) ?/g, "$1");
+}
+
+function hasAssignment(prefix: string, name: string): boolean {
+  const target = `${name}=`;
+  let from = 0;
+  while (from <= prefix.length - target.length) {
+    const index = prefix.indexOf(target, from);
+    if (index === -1) return false;
+    if (index === 0 || !/[$\w]/.test(prefix[index - 1])) return true;
+    from = index + 1;
+  }
+  return false;
+}
+
+function findSeedMatch(segments: string[]): [string, string] | undefined {
+  for (const segment of segments) {
+    const decl = /var [$\w]+=/.exec(segment);
+    if (!decl) continue;
+    const match = /Number\([$\w]+\),([^,)]+)\),([^,)]+)\),/.exec(
+      segment.slice(decl.index + decl[0].length),
+    );
+    if (match) return [match[1], match[2]];
+  }
+  return undefined;
+}
+
+function findLcgMatch(
+  segments: string[],
+): [string, string, string] | undefined {
+  for (const segment of segments) {
+    const match = /\(([$\w]+),([^,)]+)\),([^,)]+)\),([^,)]+)\)$/.exec(segment);
+    if (match && hasAssignment(segment.slice(0, match.index), match[1]))
+      return [match[2], match[3], match[4]];
+  }
+  return undefined;
+}
+
 export function restoreBiliParagraphs(
   $: CheerioAPI,
   body: ReturnType<CheerioAPI>,
@@ -51,28 +90,21 @@ export function restoreBiliParagraphs(
 ) {
   // The observed chapterlog template fixes the first 20 paragraphs and shuffles
   // remaining paragraph slots with an LCG. See docs/novel-sources.md for evidence.
-  const fixed =
-    /if\s*\(\s*![_$\w]+\s*\)\s*return\s*;\s*var\s+[_$\w]+\s*=\s*([^;]+);\s*function/.exec(
-      script,
-    );
-  const seed =
-    /var\s+[_$\w]+\s*=\s*[^;]*?Number\s*\(\s*[_$\w]+\s*\)\s*,\s*([^,)]+?)\s*\)\s*,\s*([^,)]+?)\s*\)\s*,/.exec(
-      script,
-    );
-  const lcg =
-    /([_$\w]+)\s*=\s*[^;]*?\(\s*\1\s*,\s*([^,)]+?)\s*\)\s*,\s*([^,)]+?)\s*\)\s*,\s*([^;)]+?)\s*\)\s*;/.exec(
-      script,
-    );
+  const compact = compactOrderScript(script);
+  const segments = compact.split(";");
+  const fixed = /if\(![$\w]+\)return;var [$\w]+=([^;]+);function/.exec(compact);
+  const seed = findSeedMatch(segments);
+  const lcg = findLcgMatch(segments);
   if (!fixed || !seed || !lcg)
     fail(
       "NOVEL_ORDER",
       "Source paragraph-order script has changed; refusing to publish scrambled text",
     );
-  const multiplier = integer(seed[1]),
-    offset = integer(seed[2]);
-  const a = integer(lcg[2]),
-    c = integer(lcg[3]),
-    modulus = integer(lcg[4]);
+  const multiplier = integer(seed[0]),
+    offset = integer(seed[1]);
+  const a = integer(lcg[0]),
+    c = integer(lcg[1]),
+    modulus = integer(lcg[2]);
   if (
     integer(fixed[1]) !== 20 ||
     multiplier !== 126 ||

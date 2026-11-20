@@ -10,6 +10,67 @@ import { json } from "./json.js";
 import { sha256 } from "./hash.js";
 import { checkAbort, fail } from "./errors.js";
 
+function hasBlockingNoteError(
+  notes: ReturnType<typeof inspectNotes>,
+  selection: ReturnType<typeof noteCases>,
+): boolean {
+  return notes.issues.some(
+    (issue) =>
+      issue.severity === "error" &&
+      (selection.coverage !== "explicit-cases" ||
+        ["NOTE_SCRIPT_RESOURCE", "NOTE_ACTIVE_URI"].includes(issue.code)),
+  );
+}
+
+function assertExecutableNotes(
+  info: ReturnType<typeof inspectBytes>,
+  notes: ReturnType<typeof inspectNotes>,
+  selection: ReturnType<typeof noteCases>,
+) {
+  if (
+    info.unsupported.some((feature) => feature !== "interactive-content") ||
+    info.entries.has("META-INF/signatures.xml") ||
+    notes.active.length ||
+    hasBlockingNoteError(notes, selection)
+  )
+    fail(
+      "NOTES_UNSUPPORTED",
+      "Resolve unsafe or ambiguous publication/note resources before executing scripts",
+      {
+        unsupported: info.unsupported,
+        active: notes.active,
+        issues: notes.issues,
+      },
+    );
+  if (!selection.cases.length || selection.unassigned.length)
+    fail(
+      "NOTE_CASES_REQUIRED",
+      "Provide source-bound --cases for notes without a local popup target and return control",
+      { unassigned: selection.unassigned },
+    );
+}
+
+function noteReportStatus(
+  interactions: { status: "pass" | "fail" | "not-run" },
+  notes: ReturnType<typeof inspectNotes>,
+): "fail" | "pass" | "inspected" {
+  if (
+    interactions.status === "fail" ||
+    notes.issues.some((i) => i.severity === "error")
+  )
+    return "fail";
+  if (interactions.status === "pass") return "pass";
+  return "inspected";
+}
+
+function noteCoverageCompleteness(
+  selection: ReturnType<typeof noteCases>,
+): "not-assessed" | "partial" | "all-identified-references-selected" {
+  if (selection.coverage === "explicit-cases") return "not-assessed";
+  if (selection.unassigned.length) return "partial";
+  return "all-identified-references-selected";
+}
+
 export async function checkNotes(
   file: string,
   options: {
@@ -46,32 +107,7 @@ export async function checkNotes(
       "Book scripts are disabled; use --execute-scripts for explicit interaction checks",
   };
   if (options.executeScripts) {
-    if (
-      info.unsupported.some((feature) => feature !== "interactive-content") ||
-      info.entries.has("META-INF/signatures.xml") ||
-      notes.active.length ||
-      notes.issues.some(
-        (i) =>
-          i.severity === "error" &&
-          (selection.coverage !== "explicit-cases" ||
-            ["NOTE_SCRIPT_RESOURCE", "NOTE_ACTIVE_URI"].includes(i.code)),
-      )
-    )
-      fail(
-        "NOTES_UNSUPPORTED",
-        "Resolve unsafe or ambiguous publication/note resources before executing scripts",
-        {
-          unsupported: info.unsupported,
-          active: notes.active,
-          issues: notes.issues,
-        },
-      );
-    if (!selection.cases.length || selection.unassigned.length)
-      fail(
-        "NOTE_CASES_REQUIRED",
-        "Provide source-bound --cases for notes without a local popup target and return control",
-        { unassigned: selection.unassigned },
-      );
+    assertExecutableNotes(info, notes, selection);
     await fs.mkdir(reports!, { recursive: true });
     interactions = await runNoteCases(info, selection.cases, {
       reports: reports!,
@@ -85,13 +121,7 @@ export async function checkNotes(
   const report = {
     schemaVersion: 1,
     operation: "check-notes",
-    status:
-      interactions.status === "fail" ||
-      notes.issues.some((i) => i.severity === "error")
-        ? "fail"
-        : interactions.status === "pass"
-          ? "pass"
-          : "inspected",
+    status: noteReportStatus(interactions, notes),
     inputSha256: info.sha256,
     originalUnchanged: true,
     notes,
@@ -102,12 +132,7 @@ export async function checkNotes(
     },
     coverage: {
       selection: selection.coverage,
-      completeness:
-        selection.coverage === "explicit-cases"
-          ? "not-assessed"
-          : selection.unassigned.length
-            ? "partial"
-            : "all-identified-references-selected",
+      completeness: noteCoverageCompleteness(selection),
       identifiedReferences: notes.references.length,
       selectedCases: selection.cases.length,
       unassigned: selection.unassigned,

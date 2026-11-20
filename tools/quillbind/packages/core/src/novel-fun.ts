@@ -71,9 +71,7 @@ function record(value: unknown): Record<string, unknown> {
   return parsed.data;
 }
 function sourceString(value: unknown) {
-  const parsed = z
-    .union([z.string().min(1), z.number().finite()])
-    .safeParse(value);
+  const parsed = z.union([z.string().min(1), z.number()]).safeParse(value);
   if (!parsed.success)
     fail(
       "NOVEL_RESPONSE",
@@ -88,127 +86,198 @@ function optionalCount(value: unknown): number | undefined {
     fail("NOVEL_RESPONSE", "Source catalog API returned an invalid count");
   return count;
 }
+function parseCatalogPageItems(
+  data: Record<string, unknown>,
+  seen: Set<string>,
+  items: Record<string, unknown>[],
+) {
+  const parsedItems = z
+    .array(z.record(z.string(), z.unknown()))
+    .safeParse(data.items ?? data.list);
+  if (!parsedItems.success)
+    fail("NOVEL_RESPONSE", "Source catalog API returned an invalid item list");
+  for (const item of parsedItems.data) {
+    const key = sourceString(item.chapter_id ?? item.volume_id ?? item.id);
+    if (seen.has(key))
+      fail("NOVEL_PAGINATION", "Source catalog repeated an item across pages");
+    seen.add(key);
+    items.push(item);
+  }
+  return parsedItems.data;
+}
+function parseHasMore(
+  pagination: Record<string, unknown>,
+  data: Record<string, unknown>,
+): boolean | undefined {
+  const hasMore =
+    pagination.has_next ??
+    pagination.has_more ??
+    data.hasMore ??
+    data.has_more ??
+    data.has_next;
+  if (hasMore === undefined) return undefined;
+  if (
+    ![false, true, 0, 1, "0", "1"].includes(
+      hasMore as string | number | boolean,
+    )
+  )
+    fail(
+      "NOVEL_RESPONSE",
+      "Source catalog returned an invalid continuation flag",
+    );
+  return [true, 1, "1"].includes(hasMore as string | number | boolean);
+}
+function parseCatalogPagination(data: Record<string, unknown>, page: number) {
+  const pagination = record(data.pagination ?? data.page_info ?? {});
+  const count = optionalCount(
+    pagination.total ??
+      pagination.total_count ??
+      pagination.count ??
+      data.total,
+  );
+  const pageCount = optionalCount(
+    pagination.page_count ?? pagination.total_page ?? pagination.page_total,
+  );
+  const pageSize =
+    optionalCount(
+      pagination.page_size ??
+        pagination.per_page ??
+        pagination.pageSize ??
+        data.page_size ??
+        data.pageSize,
+    ) ?? 50;
+  const currentPage =
+    optionalCount(
+      pagination.page ??
+        pagination.current_page ??
+        pagination.cur_page ??
+        data.page,
+    ) ?? page;
+  if (!pageSize || currentPage !== page)
+    fail(
+      "NOVEL_PAGINATION",
+      "Source catalog returned the wrong page or an invalid page size",
+    );
+  const more = parseHasMore(pagination, data);
+  return { count, pageCount, pageSize, more };
+}
+function isCatalogPageComplete(
+  more: boolean | undefined,
+  page: number,
+  pageCount: number | undefined,
+  count: number | undefined,
+  totalItems: number,
+  pageItemsLength: number,
+  pageSize: number,
+): boolean {
+  if (more !== undefined) return !more;
+  if (pageCount !== undefined && pageCount > 0) return page >= pageCount;
+  if (count !== undefined) return totalItems >= count;
+  return pageItemsLength < pageSize;
+}
 
 export class FunSource implements NovelSource {
-  constructor(private http: NovelHttp) {}
-  private async catalogPages(
+  constructor(private readonly http: NovelHttp) {}
+  private async fetchCatalogPage(
+    endpoint: "get-book-volumes" | "get-volume-chapters",
+    volumeId: string | undefined,
+    page: number,
+    items: Record<string, unknown>[],
+    seen: Set<string>,
+  ): Promise<Record<string, unknown>[]> {
+    if (page > 1000)
+      fail(
+        "NOVEL_PAGINATION",
+        "Source catalog pagination exceeded the request limit",
+      );
+    const url = new URL(
+      `/api/pc-proxy/api/new-content-read/${endpoint}`,
+      this.http.address.url,
+    ).href;
+    const response = record(
+      await this.http.post(url, {
+        book_id: this.http.address.id,
+        ...(volumeId ? { volume_id: volumeId } : {}),
+        page,
+        pageSize: 50,
+        page_size: 50,
+      }),
+    );
+    if (![0, 200].includes(Number(response.code)))
+      fail("NOVEL_ACCESS", "Source catalog API denied access");
+    const data = record(response.data);
+    const pageItems = parseCatalogPageItems(data, seen, items);
+    const { count, pageCount, pageSize, more } = parseCatalogPagination(
+      data,
+      page,
+    );
+    if (
+      isCatalogPageComplete(
+        more,
+        page,
+        pageCount,
+        count,
+        items.length,
+        pageItems.length,
+        pageSize,
+      )
+    ) {
+      if (count !== undefined && items.length !== count)
+        fail(
+          "NOVEL_CATALOG",
+          "Source catalog count does not match its returned items",
+        );
+      return items;
+    }
+    if (!pageItems.length)
+      fail(
+        "NOVEL_PAGINATION",
+        "Source catalog ended before its declared total",
+      );
+    return this.fetchCatalogPage(endpoint, volumeId, page + 1, items, seen);
+  }
+  private catalogPages(
     endpoint: "get-book-volumes" | "get-volume-chapters",
     volumeId?: string,
   ) {
-    const items: Record<string, unknown>[] = [],
-      seen = new Set<string>();
-    for (let page = 1; page <= 1000; page++) {
-      const url = new URL(
-        `/api/pc-proxy/api/new-content-read/${endpoint}`,
-        this.http.address.url,
-      ).href;
-      const response = record(
-        await this.http.post(url, {
-          book_id: this.http.address.id,
-          ...(volumeId ? { volume_id: volumeId } : {}),
-          page,
-          pageSize: 50,
-          page_size: 50,
+    return this.fetchCatalogPage(endpoint, volumeId, 1, [], new Set());
+  }
+  private async appendVolume(
+    volumes: NovelVolume[],
+    raw: z.infer<typeof volumeSchema>,
+    pageUrl: string,
+    localePrefix: string,
+  ) {
+    const address = this.http.address;
+    let chapters = raw.chapters;
+    if (
+      !raw.chaptersLoaded ||
+      (raw.chapterCount !== undefined && chapters.length !== raw.chapterCount)
+    ) {
+      chapters = (await this.catalogPages("get-volume-chapters", raw.id)).map(
+        (item) => ({
+          id: sourceString(item.chapter_id ?? item.id),
+          title: sourceString(item.title ?? item.chapter_title ?? item.name),
+          locked: !!(item.locked ?? item.is_locked),
         }),
       );
-      if (![0, 200].includes(Number(response.code)))
-        fail("NOVEL_ACCESS", "Source catalog API denied access");
-      const data = record(response.data),
-        parsedItems = z
-          .array(z.record(z.string(), z.unknown()))
-          .safeParse(data.items ?? data.list);
-      if (!parsedItems.success)
-        fail(
-          "NOVEL_RESPONSE",
-          "Source catalog API returned an invalid item list",
-        );
-      const pageItems = parsedItems.data;
-      for (const item of pageItems) {
-        const key = sourceString(item.chapter_id ?? item.volume_id ?? item.id);
-        if (seen.has(key))
-          fail(
-            "NOVEL_PAGINATION",
-            "Source catalog repeated an item across pages",
-          );
-        seen.add(key);
-        items.push(item);
-      }
-      const pagination = record(data.pagination ?? data.page_info ?? {});
-      const count = optionalCount(
-        pagination.total ??
-          pagination.total_count ??
-          pagination.count ??
-          data.total,
-      );
-      const pageCount = optionalCount(
-        pagination.page_count ?? pagination.total_page ?? pagination.page_total,
-      );
-      const pageSize =
-        optionalCount(
-          pagination.page_size ??
-            pagination.per_page ??
-            pagination.pageSize ??
-            data.page_size ??
-            data.pageSize,
-        ) ?? 50;
-      const currentPage =
-        optionalCount(
-          pagination.page ??
-            pagination.current_page ??
-            pagination.cur_page ??
-            data.page,
-        ) ?? page;
-      if (!pageSize || currentPage !== page)
-        fail(
-          "NOVEL_PAGINATION",
-          "Source catalog returned the wrong page or an invalid page size",
-        );
-      const hasMore =
-        pagination.has_next ??
-        pagination.has_more ??
-        data.hasMore ??
-        data.has_more ??
-        data.has_next;
-      if (
-        hasMore !== undefined &&
-        ![false, true, 0, 1, "0", "1"].includes(
-          hasMore as string | number | boolean,
-        )
-      )
-        fail(
-          "NOVEL_RESPONSE",
-          "Source catalog returned an invalid continuation flag",
-        );
-      const more =
-        hasMore === undefined
-          ? undefined
-          : [true, 1, "1"].includes(hasMore as string | number | boolean);
-      const complete =
-        more === false ||
-        (more === undefined &&
-          (pageCount !== undefined && pageCount > 0
-            ? page >= pageCount
-            : count !== undefined
-              ? items.length >= count
-              : pageItems.length < pageSize));
-      if (complete) {
-        if (count !== undefined && items.length !== count)
-          fail(
-            "NOVEL_CATALOG",
-            "Source catalog count does not match its returned items",
-          );
-        return items;
-      }
-      if (!pageItems.length)
-        fail(
-          "NOVEL_PAGINATION",
-          "Source catalog ended before its declared total",
-        );
     }
-    fail(
-      "NOVEL_PAGINATION",
-      "Source catalog pagination exceeded the request limit",
-    );
+    if (raw.chapterCount !== undefined && chapters.length !== raw.chapterCount)
+      fail("NOVEL_CATALOG", "Source volume chapter count is incomplete");
+    volumes.push({
+      number: volumes.length + 1,
+      id: raw.id,
+      title: cleanText(raw.title),
+      ...(raw.cover ? { cover: remoteUrl(raw.cover, pageUrl).href } : {}),
+      chapters: chapters.map((chapter) => ({
+        id: chapter.id,
+        title: chapter.title,
+        url: new URL(
+          `${localePrefix}/reader/${address.id}/${chapter.id}`,
+          pageUrl,
+        ).href,
+      })),
+    });
   }
   async catalog(): Promise<NovelCatalog> {
     const address = this.http.address,
@@ -241,40 +310,12 @@ export class FunSource implements NovelSource {
       );
     }
     const volumes: NovelVolume[] = [];
-    for (const raw of rawVolumes) {
-      let chapters = raw.chapters;
-      if (
-        !raw.chaptersLoaded ||
-        (raw.chapterCount !== undefined && chapters.length !== raw.chapterCount)
-      ) {
-        chapters = (await this.catalogPages("get-volume-chapters", raw.id)).map(
-          (item) => ({
-            id: sourceString(item.chapter_id ?? item.id),
-            title: sourceString(item.title ?? item.chapter_title ?? item.name),
-            locked: !!(item.locked ?? item.is_locked),
-          }),
-        );
-      }
-      if (
-        raw.chapterCount !== undefined &&
-        chapters.length !== raw.chapterCount
-      )
-        fail("NOVEL_CATALOG", "Source volume chapter count is incomplete");
-      volumes.push({
-        number: volumes.length + 1,
-        id: raw.id,
-        title: cleanText(raw.title),
-        ...(raw.cover ? { cover: remoteUrl(raw.cover, page.url).href } : {}),
-        chapters: chapters.map((chapter) => ({
-          id: chapter.id,
-          title: chapter.title,
-          url: new URL(
-            `${localePrefix}/reader/${address.id}/${chapter.id}`,
-            page.url,
-          ).href,
-        })),
-      });
-    }
+    let chain = Promise.resolve();
+    for (const raw of rawVolumes)
+      chain = chain.then(() =>
+        this.appendVolume(volumes, raw, page.url, localePrefix),
+      );
+    await chain;
     return checkCatalog({
       ...address,
       title: bootstrap.book.title,
@@ -325,5 +366,7 @@ export class FunSource implements NovelSource {
     assertComplete(html);
     return [{ html, url: page.url }];
   }
-  async close() {}
+  close(): Promise<void> {
+    return Promise.resolve();
+  }
 }

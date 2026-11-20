@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { chromium } from "@playwright/test";
+import { chromium, type Browser } from "@playwright/test";
 import { runPageChecks } from "./qa-page.js";
 import {
   planQa,
@@ -77,6 +77,98 @@ export async function runQa(
   return runInspectedQa(file, info, options);
 }
 
+interface QaRunState {
+  diagnostics: Diagnostic[];
+  cases: unknown[];
+  screenshots: QaScreenshot[];
+  execution: {
+    document: string;
+    plannedCases: number;
+    executedCases: number;
+  }[];
+  axeFailures: number;
+  fontSet: string[];
+}
+
+async function runDocumentAssignment(
+  browser: Browser,
+  info: EpubInspection,
+  assignment: QaPlan["assignments"][number],
+  contextOptions: {
+    origin: string;
+    output: string;
+    plan: QaPlan;
+    signal?: AbortSignal;
+    state: QaRunState;
+  },
+) {
+  const { origin, output, plan, signal, state } = contextOptions;
+  const name = assignment.path;
+  checkAbort(signal);
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    deviceScaleFactor: 1,
+    locale: "en-US",
+    timezoneId: "UTC",
+    serviceWorkers: "block",
+    javaScriptEnabled: true,
+  });
+  await context.route("**/*", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.origin !== origin) {
+      state.diagnostics.push(
+        diagnostic("QA_NETWORK", "Blocked unexpected browser request", name),
+      );
+      await route.abort();
+    } else await route.continue();
+  });
+  const page = await context.newPage();
+  page.on("pageerror", (error) =>
+    state.diagnostics.push(diagnostic("QA_SCRIPT", error.message, name)),
+  );
+  page.on("response", (response) => {
+    if (response.status() >= 400)
+      state.diagnostics.push(
+        diagnostic(
+          "QA_RESOURCE",
+          `HTTP ${response.status()}: ${new URL(response.url()).pathname}`,
+          name,
+        ),
+      );
+  });
+  try {
+    const evidence = await runPageChecks(page, info.documents.get(name)!, {
+      name,
+      origin,
+      output,
+      signal,
+      assignment,
+      screenshotPolicy: plan.screenshots.policy,
+      observedErrors: () =>
+        state.diagnostics.filter((item) => item.source === name).length,
+    });
+    state.diagnostics.push(...evidence.diagnostics);
+    state.cases.push(...evidence.cases);
+    state.axeFailures += evidence.axeFailures;
+    state.fontSet = evidence.fontSet;
+    state.screenshots.push(...evidence.screenshots);
+    state.execution.push({
+      document: name,
+      plannedCases: assignment.modes.length * plan.viewports.length + 1,
+      executedCases: evidence.cases.length,
+    });
+  } catch (error) {
+    checkAbort(signal);
+    state.diagnostics.push(diagnostic("QA_EXECUTION", String(error), name));
+  } finally {
+    await context.close().catch((error: unknown) => {
+      state.diagnostics.push(
+        diagnostic("QA_CONTEXT_CLOSE", String(error), name),
+      );
+    });
+  }
+}
+
 /** Internal gate entry: validateInternal(info) must pass before opening a browser. */
 export async function runInspectedQa(
   file: string,
@@ -109,112 +201,50 @@ export async function runInspectedQa(
     void closeBrowser().catch(() => {});
   };
   options.signal?.addEventListener("abort", onAbort, { once: true });
-  const diagnostics: Diagnostic[] = [];
-  const cases: unknown[] = [];
-  const screenshots: {
-    file: string;
-    document: string;
-    reason: string;
-    bytes: number;
-  }[] = [];
-  const execution: {
-    document: string;
-    plannedCases: number;
-    executedCases: number;
-  }[] = [];
-  let axeFailures = 0;
+  const state: QaRunState = {
+    diagnostics: [],
+    cases: [],
+    screenshots: [],
+    execution: [],
+    axeFailures: 0,
+    fontSet: [],
+  };
   let browserVersion: string;
-  let fontSet: string[] = [];
   try {
     checkAbort(options.signal);
     server = await serveEpub(info);
     const origin = server.origin;
     browserVersion = browser.version();
-    for (const assignment of plan.assignments) {
-      const name = assignment.path;
-      checkAbort(options.signal);
-      const context = await browser.newContext({
-        viewport: { width: 390, height: 844 },
-        deviceScaleFactor: 1,
-        locale: "en-US",
-        timezoneId: "UTC",
-        serviceWorkers: "block",
-        javaScriptEnabled: true,
-      });
-      await context.route("**/*", async (route) => {
-        const url = new URL(route.request().url());
-        if (url.origin !== origin) {
-          diagnostics.push(
-            diagnostic(
-              "QA_NETWORK",
-              "Blocked unexpected browser request",
-              name,
-            ),
-          );
-          await route.abort();
-        } else await route.continue();
-      });
-      const page = await context.newPage();
-      page.on("pageerror", (error) =>
-        diagnostics.push(diagnostic("QA_SCRIPT", error.message, name)),
-      );
-      page.on("response", (response) => {
-        if (response.status() >= 400)
-          diagnostics.push(
-            diagnostic(
-              "QA_RESOURCE",
-              `HTTP ${response.status()}: ${new URL(response.url()).pathname}`,
-              name,
-            ),
-          );
-      });
-      try {
-        const evidence = await runPageChecks(page, info.documents.get(name)!, {
-          name,
+    let chain = Promise.resolve();
+    for (const assignment of plan.assignments)
+      chain = chain.then(() =>
+        runDocumentAssignment(browser, info, assignment, {
           origin,
           output,
+          plan,
           signal: options.signal,
-          assignment,
-          screenshotPolicy: plan.screenshots.policy,
-          observedErrors: () =>
-            diagnostics.filter((diagnostic) => diagnostic.source === name)
-              .length,
-        });
-        diagnostics.push(...evidence.diagnostics);
-        cases.push(...evidence.cases);
-        axeFailures += evidence.axeFailures;
-        fontSet = evidence.fontSet;
-        screenshots.push(...evidence.screenshots);
-        execution.push({
-          document: name,
-          plannedCases: assignment.modes.length * plan.viewports.length + 1,
-          executedCases: evidence.cases.length,
-        });
-      } catch (error) {
-        checkAbort(options.signal);
-        diagnostics.push(diagnostic("QA_EXECUTION", String(error), name));
-      } finally {
-        await context.close().catch((error: unknown) => {
-          diagnostics.push(diagnostic("QA_CONTEXT_CLOSE", String(error), name));
-        });
-      }
-    }
+          state,
+        }),
+      );
+    await chain;
   } catch (error) {
     checkAbort(options.signal);
     throw error;
   } finally {
     options.signal?.removeEventListener("abort", onAbort);
     const cleanup = await Promise.allSettled([closeBrowser(), server?.close()]);
-    for (const [index, result] of cleanup.entries())
-      if (result.status === "rejected")
-        diagnostics.push(
+    for (const [index, outcome] of cleanup.entries())
+      if (outcome.status === "rejected")
+        state.diagnostics.push(
           diagnostic(
             index === 0 ? "QA_BROWSER_CLOSE" : "QA_SERVER_CLOSE",
-            String(result.reason),
+            String(outcome.reason),
           ),
         );
   }
   checkAbort(options.signal);
+  const { diagnostics, cases, screenshots, execution, axeFailures, fontSet } =
+    state;
   if (cases.length !== plan.cases)
     diagnostics.push(
       diagnostic(

@@ -4,6 +4,97 @@ import type { Diagnostic } from "./model.js";
 import { ready } from "./qa-ready.js";
 import { externalHyperlink } from "./hyperlinks.js";
 
+async function checkInternalLink(
+  page: Page,
+  ref: { href: string },
+  name: string,
+  origin: string,
+  signal: AbortSignal | undefined,
+  diagnostics: Diagnostic[],
+) {
+  checkAbort(signal);
+  const destination = new URL(ref.href, `${origin}/${name}`);
+  await page.goto(destination.href, { waitUntil: "load" });
+  await ready(page);
+  if (!destination.hash) return;
+  const visible = await page.evaluate(
+    (id) => {
+      const element = document.getElementById(id);
+      return (
+        !!element &&
+        (element.getAttribute("epub:type") === "pagebreak" ||
+          (element.getBoundingClientRect().width > 0 &&
+            element.getBoundingClientRect().height > 0))
+      );
+    },
+    decodeURIComponent(destination.hash.slice(1)),
+  );
+  if (!visible)
+    diagnostics.push(
+      diagnostic("QA_LINK_TARGET", "Navigation target is not visible", name),
+    );
+}
+
+async function checkFootnoteLink(
+  page: Page,
+  ref: { id: string },
+  name: string,
+  origin: string,
+  signal: AbortSignal | undefined,
+  diagnostics: Diagnostic[],
+) {
+  checkAbort(signal);
+  const target = page.locator(`[id="${ref.id}"]`);
+  await target.click();
+  const targetId = decodeURIComponent(new URL(page.url()).hash.slice(1));
+  const note = page.locator(`[id="${targetId}"]`);
+  if (!(await note.isVisible()))
+    diagnostics.push(
+      diagnostic("QA_FOOTNOTE", "Footnote target is not visible", name),
+    );
+  const returns = note.locator("a[href]");
+  const returnIndex = await returns.evaluateAll(
+    (anchors, expected) =>
+      anchors.findIndex((anchor) => {
+        const url = new URL(anchor.getAttribute("href")!, window.location.href);
+        return (
+          url.origin === expected.origin &&
+          url.pathname === expected.pathname &&
+          decodeURIComponent(url.hash.slice(1)) === expected.reference
+        );
+      }),
+    {
+      origin,
+      pathname: new URL(`${origin}/${name}`).pathname,
+      reference: ref.id,
+    },
+  );
+  if (returnIndex < 0) {
+    diagnostics.push(
+      diagnostic(
+        "QA_FOOTNOTE_RETURN",
+        "Footnote has no link to its original reference",
+        name,
+      ),
+    );
+    return;
+  }
+  await returns.nth(returnIndex).click();
+  const returned = new URL(page.url());
+  if (
+    returned.pathname !== new URL(`${origin}/${name}`).pathname ||
+    decodeURIComponent(returned.hash.slice(1)) !== ref.id ||
+    !(await target.isVisible())
+  )
+    diagnostics.push(
+      diagnostic(
+        "QA_FOOTNOTE_RETURN",
+        "Footnote did not return to its original reference",
+        name,
+      ),
+    );
+}
+
 export async function checkPageLinks(
   page: Page,
   {
@@ -20,92 +111,21 @@ export async function checkPageLinks(
       footnote: anchor.getAttribute("epub:type") === "noteref",
     })),
   );
+  let linkChain = Promise.resolve();
   for (const ref of hrefs.filter(
     (h) => !h.footnote && !externalHyperlink(h.href),
-  )) {
-    checkAbort(signal);
-    const destination = new URL(ref.href, `${origin}/${name}`);
-    await page.goto(destination.href, { waitUntil: "load" });
-    await ready(page);
-    if (destination.hash) {
-      const visible = await page.evaluate(
-        (id) => {
-          const element = document.getElementById(id);
-          return (
-            !!element &&
-            (element.getAttribute("epub:type") === "pagebreak" ||
-              (element.getBoundingClientRect().width > 0 &&
-                element.getBoundingClientRect().height > 0))
-          );
-        },
-        decodeURIComponent(destination.hash.slice(1)),
-      );
-      if (!visible)
-        diagnostics.push(
-          diagnostic(
-            "QA_LINK_TARGET",
-            "Navigation target is not visible",
-            name,
-          ),
-        );
-    }
-  }
+  ))
+    linkChain = linkChain.then(() =>
+      checkInternalLink(page, ref, name, origin, signal, diagnostics),
+    );
+  await linkChain;
   await page.goto(`${origin}/${name}`, { waitUntil: "load" });
   await ready(page);
-  for (const ref of hrefs.filter((h) => h.footnote)) {
-    checkAbort(signal);
-    const target = page.locator(`[id="${ref.id}"]`);
-    await target.click();
-    const targetId = decodeURIComponent(new URL(page.url()).hash.slice(1));
-    const note = page.locator(`[id="${targetId}"]`);
-    if (!(await note.isVisible()))
-      diagnostics.push(
-        diagnostic("QA_FOOTNOTE", "Footnote target is not visible", name),
-      );
-    const returns = note.locator("a[href]");
-    const returnIndex = await returns.evaluateAll(
-      (anchors, expected) =>
-        anchors.findIndex((anchor) => {
-          const url = new URL(
-            anchor.getAttribute("href")!,
-            window.location.href,
-          );
-          return (
-            url.origin === expected.origin &&
-            url.pathname === expected.pathname &&
-            decodeURIComponent(url.hash.slice(1)) === expected.reference
-          );
-        }),
-      {
-        origin,
-        pathname: new URL(`${origin}/${name}`).pathname,
-        reference: ref.id,
-      },
+  let noteChain = Promise.resolve();
+  for (const ref of hrefs.filter((h) => h.footnote))
+    noteChain = noteChain.then(() =>
+      checkFootnoteLink(page, ref, name, origin, signal, diagnostics),
     );
-    if (returnIndex >= 0) {
-      const back = returns.nth(returnIndex);
-      await back.click();
-      const returned = new URL(page.url());
-      if (
-        returned.pathname !== new URL(`${origin}/${name}`).pathname ||
-        decodeURIComponent(returned.hash.slice(1)) !== ref.id ||
-        !(await target.isVisible())
-      )
-        diagnostics.push(
-          diagnostic(
-            "QA_FOOTNOTE_RETURN",
-            "Footnote did not return to its original reference",
-            name,
-          ),
-        );
-    } else
-      diagnostics.push(
-        diagnostic(
-          "QA_FOOTNOTE_RETURN",
-          "Footnote has no link to its original reference",
-          name,
-        ),
-      );
-  }
+  await noteChain;
   return diagnostics;
 }

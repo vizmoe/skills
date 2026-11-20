@@ -11,6 +11,7 @@ import { checkAbort, fail } from "./errors.js";
 import { NovelHttp, remoteUrl } from "./novel-http.js";
 import { assertComplete, checkCatalog, plainHtml } from "./novel-html.js";
 import type {
+  NovelAddress,
   NovelCatalog,
   NovelChapter,
   NovelSource,
@@ -25,7 +26,7 @@ export interface NovelHub {
   close(): Promise<void>;
 }
 class ShelfHttpClient extends HttpClient {
-  constructor(private http: NovelHttp) {
+  constructor(private readonly http: NovelHttp) {
     super();
   }
   async send(input: HttpRequest) {
@@ -53,9 +54,9 @@ class ShelfHttpClient extends HttpClient {
   }
 }
 export class ShelfHub implements NovelHub {
-  private connection;
+  private readonly connection;
   private started = false;
-  constructor(private http: NovelHttp) {
+  constructor(private readonly http: NovelHttp) {
     this.connection = new HubConnectionBuilder()
       .withUrl("https://api.lightnovel.life/hub/api", {
         transport: HttpTransportType.LongPolling,
@@ -144,8 +145,8 @@ const infoSchema = z.object({
 
 export class ShelfSource implements NovelSource {
   constructor(
-    private http: NovelHttp,
-    private hub: NovelHub = new ShelfHub(http),
+    private readonly http: NovelHttp,
+    private readonly hub: NovelHub = new ShelfHub(http),
   ) {}
   private async info(id: number) {
     const parsed = infoSchema.safeParse(
@@ -157,6 +158,40 @@ export class ShelfSource implements NovelSource {
         "lightnovel.app returned invalid or mismatched book data",
       );
     return parsed.data;
+  }
+  private async appendVolume(
+    volumes: NovelVolume[],
+    item: { Id: number; Title: string },
+    first: z.infer<typeof infoSchema>,
+    address: NovelAddress,
+  ) {
+    const info = item.Id === first.Book.Id ? first : await this.info(item.Id);
+    const book = info.Book;
+    const ordered = book.Chapters.toSorted((a, b) => a.SortNum - b.SortNum);
+    if (
+      new Set(ordered.map((chapter) => chapter.SortNum)).size !== ordered.length
+    )
+      fail(
+        "NOVEL_CATALOG",
+        "lightnovel.app returned duplicate chapter order numbers",
+      );
+    volumes.push({
+      number: volumes.length + 1,
+      id: String(book.Id),
+      title: book.Title,
+      ...(book.Cover
+        ? {
+            cover: remoteUrl(book.Cover, "https://api.lightnovel.life/").href,
+          }
+        : {}),
+      chapters: ordered.map((chapter) => ({
+        id: String(chapter.Id),
+        title: chapter.Title,
+        bookId: book.Id,
+        sortNum: chapter.SortNum,
+        url: new URL(`/read/${book.Id}/${chapter.SortNum}`, address.url).href,
+      })),
+    });
   }
   async catalog(): Promise<NovelCatalog> {
     const address = this.http.address,
@@ -170,36 +205,12 @@ export class ShelfSource implements NovelSource {
     )
       fail("NOVEL_CATALOG", "lightnovel.app returned an inconsistent series");
     const volumes: NovelVolume[] = [];
-    for (const item of series) {
-      const info = item.Id === first.Book.Id ? first : await this.info(item.Id);
-      const book = info.Book;
-      const ordered = [...book.Chapters].sort((a, b) => a.SortNum - b.SortNum);
-      if (
-        new Set(ordered.map((chapter) => chapter.SortNum)).size !==
-        ordered.length
-      )
-        fail(
-          "NOVEL_CATALOG",
-          "lightnovel.app returned duplicate chapter order numbers",
-        );
-      volumes.push({
-        number: volumes.length + 1,
-        id: String(book.Id),
-        title: book.Title,
-        ...(book.Cover
-          ? {
-              cover: remoteUrl(book.Cover, "https://api.lightnovel.life/").href,
-            }
-          : {}),
-        chapters: ordered.map((chapter) => ({
-          id: String(chapter.Id),
-          title: chapter.Title,
-          bookId: book.Id,
-          sortNum: chapter.SortNum,
-          url: new URL(`/read/${book.Id}/${chapter.SortNum}`, address.url).href,
-        })),
-      });
-    }
+    let chain = Promise.resolve();
+    for (const item of series)
+      chain = chain.then(() =>
+        this.appendVolume(volumes, item, first, address),
+      );
+    await chain;
     return checkCatalog({
       ...address,
       title: first.SeriesTitle || first.Book.Title,

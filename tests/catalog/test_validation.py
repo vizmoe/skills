@@ -173,12 +173,13 @@ class DistributionBoundaryTests(unittest.TestCase):
             skill = root / "skills/example"
             skill.mkdir(parents=True)
             (skill / "SKILL.md").write_text("---\nname: example\ndescription: Do one task.\n---\n")
-            validate_distribution(root, [skill], list(walk(root)))
+            validate_distribution([skill], list(walk(root)))
             nested = skill / "references/nested"
             nested.mkdir(parents=True)
             (nested / "SKILL.md").write_text("---\nname: nested\ndescription: Shadow unit.\n---\n")
+            files = list(walk(root))
             with self.assertRaisesRegex(ValueError, "Installable SKILL.md"):
-                validate_distribution(root, [skill], list(walk(root)))
+                validate_distribution([skill], files)
 
     def test_dependency_and_build_trees_are_not_scanned(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -189,7 +190,7 @@ class DistributionBoundaryTests(unittest.TestCase):
             vendored = root / "tools/example/node_modules/other"
             vendored.mkdir(parents=True)
             (vendored / "SKILL.md").write_text("---\nname: other\ndescription: Vendored.\n---\n")
-            validate_distribution(root, [skill], list(walk(root)))
+            validate_distribution([skill], list(walk(root)))
 
 
 class DependencyTests(unittest.TestCase):

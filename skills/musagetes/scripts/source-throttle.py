@@ -30,59 +30,59 @@ def integer(value, name, *, positive=False):
     return value
 
 
-def read_policy(path=None):
-    """Read service floors, response classes and tuning from the shipped reference."""
-    path = path or Path(__file__).resolve().parent.parent / 'references/requests.md'
-    hosts, outcomes, settings = {}, {}, {}
-    headings = {'来源间隔': '主机（逗号分隔别名，首项为状态键）',
-                '响应分类': '响应码或传输错误', '调度参数': '参数'}
-    section = None
-    for line in path.read_text(encoding='utf-8').splitlines():
-        if line.startswith('## '):
-            section = line[3:].strip()
-        if not line.startswith('|') or section not in headings:
-            continue
-        cells = [cell.strip() for cell in line.strip('|').split('|')]
-        if len(cells) != 3:
-            raise ValueError('Malformed request policy table row.')
-        if cells[0] == headings[section] or re.fullmatch(r':?-+:?', cells[0]):
-            continue
-        if not re.fullmatch(r'`[^`]+`', cells[0]):
-            raise ValueError('Request policy row keys must be backtick-delimited.')
-        cells[0] = cells[0][1:-1]
-        keys, value, _ = cells
-        if section == '来源间隔':
-            aliases = [key.strip() for key in keys.split(',')]
-            floor = number(float(value), 'source interval', positive=True)
-            for host in aliases:
-                if not host or host in hosts:
-                    raise ValueError('Duplicate or empty source in request policy.')
-                hosts[host] = (aliases[0], floor)
-        elif section == '响应分类':
-            if not re.fullmatch(r'`[^`]+`', value):
-                raise ValueError('Response categories must be backtick-delimited.')
-            value = value[1:-1]
-            if value not in {'success', 'throttle', 'transient', 'block', 'stop'}:
-                raise ValueError('Unknown response category in request policy.')
-            for item in keys.split(','):
-                item = item.strip()
-                if re.fullmatch(r'\d{3}-\d{3}', item):
-                    start, end = map(int, item.split('-'))
-                    if not 100 <= start <= end <= 599:
-                        raise ValueError('Invalid HTTP status range in request policy.')
-                    expanded = [str(code) for code in range(start, end + 1)]
-                else:
-                    if not re.fullmatch(r'[1-5]\d{2}|timeout|connection|tls|unknown', item):
-                        raise ValueError('Invalid response in request policy.')
-                    expanded = [item]
-                for key in expanded:
-                    if key in outcomes:
-                        raise ValueError('Duplicate response in request policy.')
-                    outcomes[key] = value
-        else:
-            if keys in settings:
-                raise ValueError('Duplicate setting in request policy.')
-            settings[keys] = float(value)
+def _parse_host_row(keys, value, hosts):
+    aliases = [key.strip() for key in keys.split(',')]
+    floor = number(float(value), 'source interval', positive=True)
+    for host in aliases:
+        if not host or host in hosts:
+            raise ValueError('Duplicate or empty source in request policy.')
+        hosts[host] = (aliases[0], floor)
+
+
+def _expand_response_keys(item):
+    if re.fullmatch(r'\d{3}-\d{3}', item):
+        start, end = map(int, item.split('-'))
+        if not 100 <= start <= end <= 599:
+            raise ValueError('Invalid HTTP status range in request policy.')
+        return [str(code) for code in range(start, end + 1)]
+    if not re.fullmatch(r'[1-5]\d{2}|timeout|connection|tls|unknown', item):
+        raise ValueError('Invalid response in request policy.')
+    return [item]
+
+
+def _parse_outcome_row(keys, value, outcomes):
+    if not re.fullmatch(r'`[^`]+`', value):
+        raise ValueError('Response categories must be backtick-delimited.')
+    category = value[1:-1]
+    if category not in {'success', 'throttle', 'transient', 'block', 'stop'}:
+        raise ValueError('Unknown response category in request policy.')
+    for item in keys.split(','):
+        for key in _expand_response_keys(item.strip()):
+            if key in outcomes:
+                raise ValueError('Duplicate response in request policy.')
+            outcomes[key] = category
+
+
+def _parse_policy_row(section, line, headings, hosts, outcomes, settings):
+    cells = [cell.strip() for cell in line.strip('|').split('|')]
+    if len(cells) != 3:
+        raise ValueError('Malformed request policy table row.')
+    if cells[0] == headings[section] or re.fullmatch(r':?-+:?', cells[0]):
+        return
+    if not re.fullmatch(r'`[^`]+`', cells[0]):
+        raise ValueError('Request policy row keys must be backtick-delimited.')
+    keys, value = cells[0][1:-1], cells[1]
+    if section == '来源间隔':
+        _parse_host_row(keys, value, hosts)
+    elif section == '响应分类':
+        _parse_outcome_row(keys, value, outcomes)
+    else:
+        if keys in settings:
+            raise ValueError('Duplicate setting in request policy.')
+        settings[keys] = float(value)
+
+
+def _validate_policy_settings(hosts, outcomes, settings):
     counts = {'max_attempts', 'recovery_successes', 'circuit_failures'}
     expected = counts | {'backoff_factor', 'max_interval', 'jitter_ratio',
                          'recovery_factor', 'circuit_seconds', 'max_inline_wait'}
@@ -96,6 +96,21 @@ def read_policy(path=None):
             settings[key] = int(value)
     if settings['backoff_factor'] <= 1 or settings['recovery_factor'] <= 1 or settings['jitter_ratio'] > 1:
         raise ValueError('Invalid backoff/recovery factor or jitter ratio.')
+
+
+def read_policy(path=None):
+    """Read service floors, response classes and tuning from the shipped reference."""
+    path = path or Path(__file__).resolve().parent.parent / 'references/requests.md'
+    hosts, outcomes, settings = {}, {}, {}
+    headings = {'来源间隔': '主机（逗号分隔别名，首项为状态键）',
+                '响应分类': '响应码或传输错误', '调度参数': '参数'}
+    section = None
+    for line in path.read_text(encoding='utf-8').splitlines():
+        if line.startswith('## '):
+            section = line[3:].strip()
+        if line.startswith('|') and section in headings:
+            _parse_policy_row(section, line, headings, hosts, outcomes, settings)
+    _validate_policy_settings(hosts, outcomes, settings)
     return {'hosts': hosts, 'outcomes': outcomes, 'settings': settings}
 
 
@@ -128,9 +143,17 @@ def http_date(value):
         return None
 
 
+class _ScheduleContext:
+    def __init__(self, source_key: str, source: dict, now: float, state: dict):
+        self.source_key = source_key
+        self.source = source
+        self.now = now
+        self.state = state
+
+
 def retry_after(headers, now):
     value = headers.get('retry-after', '').strip()
-    if re.fullmatch(r'[0-9]+', value):
+    if re.fullmatch(r'\d+', value, re.ASCII):
         return number(float(value), 'Retry-After')
     date = http_date(value)
     if date is None:
@@ -139,7 +162,31 @@ def retry_after(headers, now):
     return max(0, date - (now if server_date is None else server_date))
 
 
-def evaluate(data, *, policy=None, jitter=random.random):
+def _parse_headers(raw_headers):
+    if not isinstance(raw_headers, dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in raw_headers.items()):
+        raise ValueError('headers must map response header names to strings.')
+    lowered = {key.lower(): value for key, value in raw_headers.items()}
+    if len(lowered) != len(raw_headers):
+        raise ValueError('Duplicate response header names.')
+    return lowered
+
+
+def _validate_operation_payload(operation, data):
+    if operation == 'check':
+        if 'status' in data or 'error' in data:
+            raise ValueError('check cannot include a response.')
+        return
+    if ('status' in data) == ('error' in data):
+        raise ValueError('observe requires exactly one of status or error.')
+    if 'status' in data:
+        status = integer(data['status'], 'status')
+        if not 100 <= status <= 599:
+            raise ValueError('status must be an HTTP status code.')
+    elif not isinstance(data['error'], str) or data['error'] not in {'timeout', 'connection', 'tls', 'unknown'}:
+        raise ValueError('Unknown transport error.')
+
+
+def _parse_evaluate_input(data):
     allowed = {'operation', 'url', 'now', 'attempt', 'state', 'minimum_interval',
                'status', 'error', 'headers', 'cache_available'}
     if not isinstance(data, dict) or set(data) - allowed:
@@ -157,26 +204,72 @@ def evaluate(data, *, policy=None, jitter=random.random):
     now = number(data.get('now', time.time()), 'now')
     attempt = integer(data.get('attempt'), 'attempt', positive=True)
     minimum = number(data.get('minimum_interval', 0), 'minimum_interval')
-    headers = data.get('headers', {})
-    if not isinstance(headers, dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in headers.items()):
-        raise ValueError('headers must map response header names to strings.')
-    lowered = {key.lower(): value for key, value in headers.items()}
-    if len(lowered) != len(headers):
-        raise ValueError('Duplicate response header names.')
+    lowered = _parse_headers(data.get('headers', {}))
     if type(data.get('cache_available', False)) is not bool:
         raise ValueError('cache_available must be a boolean.')
-    if operation == 'check' and ('status' in data or 'error' in data):
-        raise ValueError('check cannot include a response.')
-    if operation == 'observe':
-        if ('status' in data) == ('error' in data):
-            raise ValueError('observe requires exactly one of status or error.')
-        if 'status' in data:
-            status = integer(data['status'], 'status')
-            if not 100 <= status <= 599:
-                raise ValueError('status must be an HTTP status code.')
-        elif not isinstance(data['error'], str) or data['error'] not in {'timeout', 'connection', 'tls', 'unknown'}:
-            raise ValueError('Unknown transport error.')
+    _validate_operation_payload(operation, data)
+    return operation, host, now, attempt, minimum, lowered
 
+
+def _build_decision(ctx, action, reason, **details):
+    number(ctx.source['not_before'], 'not_before')
+    return {'scope': 'request_scheduling_only', 'action': action, 'reason': reason,
+            'source': ctx.source_key, 'wait_seconds': max(0, ctx.source['not_before'] - ctx.now),
+            'not_before': ctx.source['not_before'], 'state': ctx.state, **details}
+
+
+def _decide_check(ctx, attempt, config):
+    if attempt > config['max_attempts']:
+        return _build_decision(ctx, 'stop', 'attempts_exhausted')
+    wait = ctx.source['not_before'] - ctx.now
+    if wait > config['max_inline_wait']:
+        return _build_decision(ctx, 'defer', 'source_cooldown')
+    action, reason = ('wait', 'source_pacing') if wait > 0 else ('ready', 'source_available')
+    return _build_decision(ctx, action, reason)
+
+
+def _update_source_on_observe(source, category, config, jitter):
+    if category == 'success':
+        source['failures'] = 0
+        source['successes'] += 1
+        if source['successes'] >= config['recovery_successes']:
+            source['interval'] = max(source['minimum_interval'], source['interval'] / config['recovery_factor'])
+            source['successes'] = 0
+        return source['interval']
+    source['successes'] = 0
+    if category in {'throttle', 'transient'}:
+        source['failures'] += 1
+        source['interval'] = max(source['minimum_interval'], min(config['max_interval'],
+                                 source['interval'] * config['backoff_factor']))
+        noise = number(jitter(), 'jitter')
+        if noise > 1:
+            raise ValueError('jitter must be between 0 and 1.')
+        delay = source['interval'] * (1 + config['jitter_ratio'] * noise)
+        if source['failures'] >= config['circuit_failures']:
+            return max(delay, config['circuit_seconds'])
+        return delay
+    if category == 'block':
+        source['blocked'] = True
+    return source['interval']
+
+
+def _decide_observe(ctx, attempt, category, retry_seconds, config):
+    details = {'category': category, 'retry_after_seconds': retry_seconds}
+    if category == 'success':
+        return _build_decision(ctx, 'complete', 'transport_success', **details)
+    if category == 'block':
+        return _build_decision(ctx, 'blocked', 'source_access_blocked', **details)
+    if category in {'throttle', 'transient'}:
+        if attempt >= config['max_attempts']:
+            return _build_decision(ctx, 'stop', 'attempts_exhausted', **details)
+        if ctx.source['not_before'] - ctx.now > config['max_inline_wait']:
+            return _build_decision(ctx, 'defer', 'source_cooldown', **details)
+        return _build_decision(ctx, 'retry', category, **details)
+    return _build_decision(ctx, 'stop', 'response_requires_review', **details)
+
+
+def evaluate(data, *, policy=None, jitter=random.random):
+    operation, host, now, attempt, minimum, lowered = _parse_evaluate_input(data)
     policy = policy or read_policy()
     config = policy['settings']
     source_key, floor = policy['hosts'].get(host, (host, policy['hosts']['*'][1]))
@@ -190,62 +283,19 @@ def evaluate(data, *, policy=None, jitter=random.random):
     source['interval'] = max(source['interval'], source['minimum_interval'])
     if source['not_before']:
         source['not_before'] = max(source['not_before'], source['updated_at'] + source['interval'])
-
-    def result(action, reason, **details):
-        number(source['not_before'], 'not_before')
-        return {'scope': 'request_scheduling_only', 'action': action, 'reason': reason,
-                'source': source_key, 'wait_seconds': max(0, source['not_before'] - now),
-                'not_before': source['not_before'], 'state': state, **details}
-
+    ctx = _ScheduleContext(source_key, source, now, state)
     if source['blocked']:
-        return result('blocked', 'source_access_blocked')
+        return _build_decision(ctx, 'blocked', 'source_access_blocked')
     if operation == 'check':
-        if attempt > config['max_attempts']:
-            return result('stop', 'attempts_exhausted')
-        wait = source['not_before'] - now
-        if wait > config['max_inline_wait']:
-            return result('defer', 'source_cooldown')
-        return result('wait', 'source_pacing') if wait > 0 else result('ready', 'source_available')
-
+        return _decide_check(ctx, attempt, config)
     category = policy['outcomes'].get(str(data.get('status', data.get('error'))), 'stop')
     if data.get('status') == 304 and not data.get('cache_available', False):
         category = 'stop'
     retry_seconds = retry_after(lowered, now)
     source['updated_at'] = now
-    if category == 'success':
-        source['failures'] = 0
-        source['successes'] += 1
-        if source['successes'] >= config['recovery_successes']:
-            source['interval'] = max(source['minimum_interval'], source['interval'] / config['recovery_factor'])
-            source['successes'] = 0
-    else:
-        source['successes'] = 0
-    delay = source['interval']
-    if category in {'throttle', 'transient'}:
-        source['failures'] += 1
-        source['interval'] = max(source['minimum_interval'], min(config['max_interval'],
-                                 source['interval'] * config['backoff_factor']))
-        noise = number(jitter(), 'jitter')
-        if noise > 1:
-            raise ValueError('jitter must be between 0 and 1.')
-        delay = source['interval'] * (1 + config['jitter_ratio'] * noise)
-        if source['failures'] >= config['circuit_failures']:
-            delay = max(delay, config['circuit_seconds'])
-    if category == 'block':
-        source['blocked'] = True
+    delay = _update_source_on_observe(source, category, config, jitter)
     source['not_before'] = max(source['not_before'], now + delay, now + (retry_seconds or 0))
-    details = {'category': category, 'retry_after_seconds': retry_seconds}
-    if category == 'success':
-        return result('complete', 'transport_success', **details)
-    if category == 'block':
-        return result('blocked', 'source_access_blocked', **details)
-    if category in {'throttle', 'transient'}:
-        if attempt >= config['max_attempts']:
-            return result('stop', 'attempts_exhausted', **details)
-        if source['not_before'] - now > config['max_inline_wait']:
-            return result('defer', 'source_cooldown', **details)
-        return result('retry', category, **details)
-    return result('stop', 'response_requires_review', **details)
+    return _decide_observe(ctx, attempt, category, retry_seconds, config)
 
 
 def main():

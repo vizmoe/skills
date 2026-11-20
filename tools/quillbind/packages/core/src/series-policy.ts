@@ -54,10 +54,9 @@ export function resolveSeriesDecision(value: unknown) {
     );
   if (decision.series === null) return decision;
   // This strips only explicit trailing quantity marketing, never intrinsic trilogy names.
-  const quantity =
-    "(?:套[装裝]\\s*)?(?:全|共)\\s*[0-9０-９一二三四五六七八九十百零〇两兩]+\\s*[册冊卷巻]";
+  const quantity = String.raw`(?:套[装裝]\s*)?[全共]\s*[0-9０-９一二三四五六七八九十百零〇两兩]+\s*[册冊卷巻]`;
   const suffix = new RegExp(
-    `(?:\\s*[（(【]\\s*${quantity}\\s*[）)】]|\\s*${quantity})$`,
+    String.raw`(?:\s*[（(【]\s*${quantity}\s*[）)】]|\s*${quantity})$`,
   );
   let series = decision.series.normalize("NFC").trim();
   while (suffix.test(series)) series = series.replace(suffix, "").trim();

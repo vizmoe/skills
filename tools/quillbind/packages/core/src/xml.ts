@@ -4,6 +4,7 @@ import {
   XMLSerializer,
   type Document,
   type Element,
+  type Node,
 } from "@xmldom/xmldom";
 import { fail } from "./errors.js";
 import { xhtmlEntities } from "./xhtml-entities.js";
@@ -15,7 +16,17 @@ export const NS = {
   epub: "http://www.idpf.org/2007/ops",
   container: "urn:oasis:names:tc:opendocument:xmlns:container",
   math: "http://www.w3.org/1998/Math/MathML",
+  ncx: "http://www.daisy.org/z3986/2005/ncx/",
+  dcndl: "http://ndl.go.jp/dcndl/terms/",
+  dcterms: "http://purl.org/dc/terms/",
+  mods: "http://www.loc.gov/mods/v3",
+  srw: "http://www.loc.gov/zing/srw/",
+  epubEmbedding: "http://www.idpf.org/2008/embedding",
+  adobeEncryption: "http://ns.adobe.com/pdf/enc#RC",
 };
+export function removeNode(node: Node | null | undefined): void {
+  node?.parentNode?.removeChild(node);
+}
 export function xml(source: string, label = "XML"): Document {
   const sax = new SaxesParser({ xmlns: true });
   let depth = 0;
@@ -80,6 +91,56 @@ export function contentXml(source: string, label: string) {
   }
   return xml(source, label);
 }
+const forbiddenSvgElements = new Set([
+  "script",
+  "foreignobject",
+  "animate",
+  "animatemotion",
+  "animatetransform",
+  "set",
+]);
+
+function checkSvgStylesheetPi(nodes: ArrayLike<Node>, label: string) {
+  for (const node of Array.from(nodes)) {
+    if (node.nodeType === 7 && node.nodeName === "xml-stylesheet")
+      fail("SVG_ACTIVE", `${label}: external SVG stylesheets are forbidden`);
+  }
+}
+
+function checkSvgAttribute(
+  attribute: { name: string; value: string },
+  label: string,
+) {
+  const name = attribute.name.toLowerCase();
+  const value = attribute.value;
+  if (name === "style") {
+    passiveSvgCss(value, label, true);
+    return;
+  }
+  const externalHref =
+    (name === "href" || name === "xlink:href") && !value.startsWith("#");
+  if (
+    name.startsWith("on") ||
+    externalHref ||
+    /url\s*\(/i.test(value) ||
+    value.includes("\\")
+  )
+    fail(
+      "SVG_ACTIVE",
+      `${label}: SVG resource reference or active attribute is forbidden`,
+    );
+}
+
+function checkSvgElement(el: Element, label: string) {
+  const localName = (el.localName ?? "").toLowerCase();
+  if (forbiddenSvgElements.has(localName))
+    fail("SVG_ACTIVE", `${label}: active SVG content is forbidden`);
+  if (localName === "style") passiveSvgCss(el.textContent ?? "", label);
+  checkSvgStylesheetPi(el.childNodes, label);
+  for (const attribute of Array.from(el.attributes))
+    checkSvgAttribute(attribute, label);
+}
+
 export function passiveSvg(source: string, label: string) {
   const document = xml(source, label);
   if (
@@ -87,45 +148,8 @@ export function passiveSvg(source: string, label: string) {
     document.documentElement.localName !== "svg"
   )
     fail("SVG_INVALID", `${label}: SVG namespace is required`);
-  for (const el of elements(document)) {
-    if (
-      [
-        "script",
-        "foreignobject",
-        "animate",
-        "animatemotion",
-        "animatetransform",
-        "set",
-      ].includes((el.localName ?? "").toLowerCase())
-    )
-      fail("SVG_ACTIVE", `${label}: active SVG content is forbidden`);
-    if ((el.localName ?? "").toLowerCase() === "style")
-      passiveSvgCss(el.textContent ?? "", label);
-    for (const node of Array.from(el.childNodes))
-      if (node.nodeType === 7 && node.nodeName === "xml-stylesheet")
-        fail("SVG_ACTIVE", `${label}: external SVG stylesheets are forbidden`);
-    for (const attribute of Array.from(el.attributes)) {
-      const name = attribute.name.toLowerCase();
-      const value = attribute.value;
-      if (name === "style") {
-        passiveSvgCss(value, label, true);
-        continue;
-      }
-      if (
-        /^on/.test(name) ||
-        (["href", "xlink:href"].includes(name) && !value.startsWith("#")) ||
-        /url\s*\(/i.test(value) ||
-        value.includes("\\")
-      )
-        fail(
-          "SVG_ACTIVE",
-          `${label}: SVG resource reference or active attribute is forbidden`,
-        );
-    }
-  }
-  for (const node of Array.from(document.childNodes))
-    if (node.nodeType === 7 && node.nodeName === "xml-stylesheet")
-      fail("SVG_ACTIVE", `${label}: external SVG stylesheets are forbidden`);
+  for (const el of elements(document)) checkSvgElement(el, label);
+  checkSvgStylesheetPi(document.childNodes, label);
   return document;
 }
 

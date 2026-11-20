@@ -32,7 +32,13 @@ export function comicInfo(
     ...metadata.contributors.map((person) => `${person.role}: ${person.name}.`),
     `Sources: ${metadata.sourceUrls.join(" ")}`,
   ].join("\n");
-  const content = `<?xml version="1.0" encoding="utf-8"?>\n<ComicInfo>${field("Title", metadata.title)}${field("Series", metadata.series)}${field("Number", metadata.number)}${field("Summary", metadata.description)}${field("Notes", notes)}${field("Year", year)}${field("Month", month)}${field("Day", day)}${field("Writer", names(["aut", "ant", "adp"]))}${field("Penciller", names(["art"]))}${field("Publisher", metadata.publisher)}${field("Imprint", metadata.imprint)}${field("Web", metadata.url)}${field("PageCount", pages.length)}${field("LanguageISO", metadata.language.split("-")[0])}${field("Manga", direction === "rtl" ? "YesAndRightToLeft" : "Yes")}<Pages>${pages.map((page, index) => `<Page Image="${index}" ImageSize="${page.size}" ImageWidth="${page.width}" ImageHeight="${page.height}"/>`).join("")}</Pages></ComicInfo>\n`;
+  const pageXml = pages
+    .map(
+      (page, index) =>
+        `<Page Image="${index}" ImageSize="${page.size}" ImageWidth="${page.width}" ImageHeight="${page.height}"/>`,
+    )
+    .join("");
+  const content = `<?xml version="1.0" encoding="utf-8"?>\n<ComicInfo>${field("Title", metadata.title)}${field("Series", metadata.series)}${field("Number", metadata.number)}${field("Summary", metadata.description)}${field("Notes", notes)}${field("Year", year)}${field("Month", month)}${field("Day", day)}${field("Writer", names(["aut", "ant", "adp"]))}${field("Penciller", names(["art"]))}${field("Publisher", metadata.publisher)}${field("Imprint", metadata.imprint)}${field("Web", metadata.url)}${field("PageCount", pages.length)}${field("LanguageISO", metadata.language.split("-")[0])}${field("Manga", direction === "rtl" ? "YesAndRightToLeft" : "Yes")}<Pages>${pageXml}</Pages></ComicInfo>\n`;
   xml(content, "ComicInfo.xml");
   return content;
 }

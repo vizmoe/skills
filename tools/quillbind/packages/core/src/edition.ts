@@ -149,6 +149,249 @@ const conflict = (
     });
 };
 
+function addEditionPerson(
+  contributors: Contributor[],
+  roles: Map<string, EditionCandidate["source"]>,
+  person: Contributor,
+  source: EditionCandidate["source"],
+) {
+  const existingSource = roles.get(person.role);
+  if (existingSource !== undefined && existingSource !== source) return;
+  roles.set(person.role, source);
+  if (
+    !contributors.some(
+      (entry) => entry.name === person.name && entry.role === person.role,
+    )
+  )
+    contributors.push(person);
+}
+
+function deriveEditionContributors(
+  items: EditionCandidate[],
+  provenance: Record<string, string>,
+  diagnostics: EditionDiagnostic[],
+) {
+  const contributors: Contributor[] = [];
+  const removedPeople: string[] = [];
+  const roles = new Map<string, EditionCandidate["source"]>();
+  for (const item of items) {
+    const parsed = parseContributors(item.value, item.role ?? "aut");
+    removedPeople.push(...parsed.removed);
+    for (const person of parsed.contributors)
+      addEditionPerson(contributors, roles, person, item.source);
+  }
+  for (const [role, source] of roles)
+    provenance[`contributor:${role}`] = source;
+  if (removedPeople.length)
+    diagnostics.push({
+      code: "EDITION_CLEANED",
+      severity: "warning",
+      field: "contributor",
+      message: "Removed prefixes, et al. markers or placeholders from credits",
+      values: [...new Set(removedPeople)],
+    });
+  return contributors;
+}
+
+function deriveEditionDate(
+  items: EditionCandidate[],
+  provenance: Record<string, string>,
+  diagnostics: EditionDiagnostic[],
+) {
+  const dates: { item: EditionCandidate; value: string }[] = [];
+  for (const item of items) {
+    const normalized = normalizeDate(item.value);
+    if (normalized) dates.push({ item, value: normalized });
+    else
+      diagnostics.push({
+        code: "EDITION_DATE_INVALID",
+        severity: "warning",
+        field: "date",
+        message: "Ignored an unrecognized or impossible publication date",
+        values: [item.value],
+      });
+  }
+  let date = dates[0];
+  for (const entry of dates.slice(1)) {
+    if (
+      date &&
+      entry.value.length > date.value.length &&
+      entry.value.startsWith(date.value)
+    )
+      date = entry;
+  }
+  if (!date) return undefined;
+  provenance.date = date.item.source;
+  const incompatible = dates.filter(
+    (entry) =>
+      !date.value.startsWith(entry.value) &&
+      !entry.value.startsWith(date.value),
+  );
+  if (incompatible.length)
+    diagnostics.push({
+      code: "EDITION_CONFLICT",
+      severity: "warning",
+      field: "date",
+      message:
+        "Sources disagree on date; the highest-priority value was adopted",
+      values: [date.value, ...new Set(incompatible.map((e) => e.value))],
+    });
+  return date.value;
+}
+
+function chooseEditionIsbn(
+  set: Set<string>,
+  field: string,
+  expected: string | undefined,
+  diagnostics: EditionDiagnostic[],
+) {
+  if (expected && set.has(expected)) return expected;
+  if (set.size === 1) return [...set][0];
+  if (set.size > 1)
+    diagnostics.push({
+      code: "EDITION_ISBN_AMBIGUOUS",
+      severity: "warning",
+      field,
+      message:
+        "Several ISBNs appear on the page; none was adopted without an expected ISBN",
+      values: [...set],
+    });
+  return undefined;
+}
+
+function deriveEditionIsbns(
+  items: EditionCandidate[],
+  selection: EditionSelection,
+  provenance: Record<string, string>,
+  diagnostics: EditionDiagnostic[],
+) {
+  const print: string[] = [];
+  const electronic: string[] = [];
+  const invalid: string[] = [];
+  for (const item of items) {
+    const found = findIsbns(item.value);
+    invalid.push(...found.invalid);
+    const bucket = item.format === "electronic" ? electronic : print;
+    bucket.push(...found.valid);
+  }
+  const electronicSet = new Set(electronic);
+  const printSet = new Set(print.filter((isbn) => !electronicSet.has(isbn)));
+  if (invalid.length)
+    diagnostics.push({
+      code: "EDITION_ISBN_INVALID",
+      severity: "warning",
+      field: "isbn",
+      message:
+        "Ignored ISBN-like values that fail syntax or checksum validation",
+      values: [...new Set(invalid)],
+    });
+  if (
+    selection.isbn &&
+    !printSet.has(selection.isbn) &&
+    !electronicSet.has(selection.isbn)
+  )
+    fail(
+      "EDITION_MATCH",
+      "The selected page does not list the expected ISBN; select the matching edition page",
+      { expected: selection.isbn, found: [...printSet, ...electronicSet] },
+    );
+  const printIsbn = chooseEditionIsbn(
+    printSet,
+    "printIsbn",
+    selection.isbn,
+    diagnostics,
+  );
+  const electronicIsbn = chooseEditionIsbn(
+    electronicSet,
+    "electronicIsbn",
+    selection.isbn,
+    diagnostics,
+  );
+  for (const [key, isbn] of [
+    ["printIsbn", printIsbn],
+    ["electronicIsbn", electronicIsbn],
+  ] as const) {
+    if (isbn)
+      provenance[key] = items.find((item) =>
+        findIsbns(item.value).valid.includes(isbn),
+      )!.source;
+  }
+  return { printIsbn, electronicIsbn };
+}
+
+function isTruncatedMetaDescription(entry: {
+  item: EditionCandidate;
+  value: string;
+}) {
+  return (
+    ["meta", "open-graph"].includes(entry.item.source) &&
+    /(?:\.\.\.|…)$/u.test(entry.value) &&
+    !entry.value.endsWith("……")
+  );
+}
+
+function deriveEditionDescription(
+  items: EditionCandidate[],
+  provenance: Record<string, string>,
+  diagnostics: EditionDiagnostic[],
+) {
+  const removedDescription: string[] = [];
+  const descriptions = items
+    .map((item) => {
+      const cleaned = cleanDescription(item.value);
+      removedDescription.push(...cleaned.removed);
+      return { item, value: cleaned.value };
+    })
+    .filter((entry) => entry.value);
+  const description = descriptions.find(
+    (entry) => !isTruncatedMetaDescription(entry),
+  );
+  if (description) provenance.description = description.item.source;
+  else if (descriptions.length)
+    diagnostics.push({
+      code: "EDITION_DESCRIPTION_TRUNCATED",
+      severity: "warning",
+      field: "description",
+      message:
+        "Only truncated meta descriptions were found; no synopsis was adopted",
+    });
+  if (removedDescription.length)
+    diagnostics.push({
+      code: "EDITION_CLEANED",
+      severity: "warning",
+      field: "description",
+      message:
+        "Removed reader interface text, section labels or watermarks from the synopsis",
+      values: [...new Set(removedDescription)],
+    });
+  return description?.value;
+}
+
+function deriveEditionCover(
+  items: EditionCandidate[],
+  finalUrl: string,
+  provenance: Record<string, string>,
+) {
+  for (const item of items) {
+    try {
+      const resolved = new URL(item.value, finalUrl);
+      if (
+        resolved.protocol !== "https:" ||
+        resolved.username ||
+        resolved.password ||
+        resolved.port
+      )
+        continue;
+      resolved.hash = "";
+      provenance.coverUrl = item.source;
+      return resolved.href;
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
+
 /** Clean and merge candidates by source priority; the result is evidence for review, not a write. */
 export function deriveEdition(
   selection: EditionSelection,
@@ -204,182 +447,28 @@ export function deriveEdition(
       values: [...new Set(removedTitle)],
     });
 
-  const contributors: Contributor[] = [];
-  const removedPeople: string[] = [];
-  const roles = new Map<string, EditionCandidate["source"]>();
-  for (const item of of("contributor")) {
-    const parsed = parseContributors(item.value, item.role ?? "aut");
-    removedPeople.push(...parsed.removed);
-    for (const person of parsed.contributors) {
-      const source = roles.get(person.role);
-      if (source !== undefined && source !== item.source) continue;
-      roles.set(person.role, item.source);
-      if (
-        !contributors.some(
-          (entry) => entry.name === person.name && entry.role === person.role,
-        )
-      )
-        contributors.push(person);
-    }
-  }
-  for (const [role, source] of roles)
-    provenance[`contributor:${role}`] = source;
-  if (removedPeople.length)
-    diagnostics.push({
-      code: "EDITION_CLEANED",
-      severity: "warning",
-      field: "contributor",
-      message: "Removed prefixes, et al. markers or placeholders from credits",
-      values: [...new Set(removedPeople)],
-    });
-
-  const dates = of("date")
-    .map((item) => ({ item, value: normalizeDate(item.value) }))
-    .filter((entry): entry is { item: EditionCandidate; value: string } =>
-      Boolean(entry.value),
-    );
-  for (const item of of("date"))
-    if (!normalizeDate(item.value))
-      diagnostics.push({
-        code: "EDITION_DATE_INVALID",
-        severity: "warning",
-        field: "date",
-        message: "Ignored an unrecognized or impossible publication date",
-        values: [item.value],
-      });
-  let date = dates[0];
-  for (const entry of dates.slice(1))
-    if (
-      date &&
-      entry.value.length > date.value.length &&
-      entry.value.startsWith(date.value)
-    )
-      date = entry;
-  if (date) {
-    provenance.date = date.item.source;
-    const incompatible = dates.filter(
-      (entry) =>
-        !date.value.startsWith(entry.value) &&
-        !entry.value.startsWith(date.value),
-    );
-    if (incompatible.length)
-      diagnostics.push({
-        code: "EDITION_CONFLICT",
-        severity: "warning",
-        field: "date",
-        message:
-          "Sources disagree on date; the highest-priority value was adopted",
-        values: [date.value, ...new Set(incompatible.map((e) => e.value))],
-      });
-  }
-
-  const print: string[] = [];
-  const electronic: string[] = [];
-  const invalid: string[] = [];
-  for (const item of of("isbn")) {
-    const found = findIsbns(item.value);
-    invalid.push(...found.invalid);
-    for (const isbn of found.valid)
-      (item.format === "electronic" ? electronic : print).push(isbn);
-  }
-  const electronicSet = new Set(electronic);
-  const printSet = new Set(print.filter((isbn) => !electronicSet.has(isbn)));
-  if (invalid.length)
-    diagnostics.push({
-      code: "EDITION_ISBN_INVALID",
-      severity: "warning",
-      field: "isbn",
-      message:
-        "Ignored ISBN-like values that fail syntax or checksum validation",
-      values: [...new Set(invalid)],
-    });
-  if (
-    selection.isbn &&
-    !printSet.has(selection.isbn) &&
-    !electronicSet.has(selection.isbn)
-  )
-    fail(
-      "EDITION_MATCH",
-      "The selected page does not list the expected ISBN; select the matching edition page",
-      { expected: selection.isbn, found: [...printSet, ...electronicSet] },
-    );
-  const choose = (set: Set<string>, field: string) => {
-    if (selection.isbn && set.has(selection.isbn)) return selection.isbn;
-    if (set.size === 1) return [...set][0];
-    if (set.size > 1)
-      diagnostics.push({
-        code: "EDITION_ISBN_AMBIGUOUS",
-        severity: "warning",
-        field,
-        message:
-          "Several ISBNs appear on the page; none was adopted without an expected ISBN",
-        values: [...set],
-      });
-    return undefined;
-  };
-  const printIsbn = choose(printSet, "printIsbn");
-  const electronicIsbn = choose(electronicSet, "electronicIsbn");
-  for (const [key, isbn] of [
-    ["printIsbn", printIsbn],
-    ["electronicIsbn", electronicIsbn],
-  ] as const)
-    if (isbn)
-      provenance[key] = of("isbn").find((item) =>
-        findIsbns(item.value).valid.includes(isbn),
-      )!.source;
-
-  const removedDescription: string[] = [];
-  const descriptions = of("description")
-    .map((item) => {
-      const cleaned = cleanDescription(item.value);
-      removedDescription.push(...cleaned.removed);
-      return { item, value: cleaned.value };
-    })
-    .filter((entry) => entry.value);
-  const truncated = (entry: (typeof descriptions)[number]) =>
-    ["meta", "open-graph"].includes(entry.item.source) &&
-    /(?:\.\.\.|…)$/u.test(entry.value) &&
-    !/……$/u.test(entry.value);
-  const complete = descriptions.filter((entry) => !truncated(entry));
-  const description = complete[0];
-  if (description) provenance.description = description.item.source;
-  else if (descriptions.length)
-    diagnostics.push({
-      code: "EDITION_DESCRIPTION_TRUNCATED",
-      severity: "warning",
-      field: "description",
-      message:
-        "Only truncated meta descriptions were found; no synopsis was adopted",
-    });
-  if (removedDescription.length)
-    diagnostics.push({
-      code: "EDITION_CLEANED",
-      severity: "warning",
-      field: "description",
-      message:
-        "Removed reader interface text, section labels or watermarks from the synopsis",
-      values: [...new Set(removedDescription)],
-    });
-
-  const coverCandidate = of("coverUrl")
-    .map((item) => {
-      try {
-        const resolved = new URL(item.value, record.finalUrl);
-        if (
-          resolved.protocol !== "https:" ||
-          resolved.username ||
-          resolved.password ||
-          resolved.port
-        )
-          return undefined;
-        resolved.hash = "";
-        return { item, value: resolved.href };
-      } catch {
-        return undefined;
-      }
-    })
-    .find(Boolean);
-  if (coverCandidate) provenance.coverUrl = coverCandidate.item.source;
+  const contributors = deriveEditionContributors(
+    of("contributor"),
+    provenance,
+    diagnostics,
+  );
+  const date = deriveEditionDate(of("date"), provenance, diagnostics);
+  const { printIsbn, electronicIsbn } = deriveEditionIsbns(
+    of("isbn"),
+    selection,
+    provenance,
+    diagnostics,
+  );
+  const description = deriveEditionDescription(
+    of("description"),
+    provenance,
+    diagnostics,
+  );
+  const coverUrl = deriveEditionCover(
+    of("coverUrl"),
+    record.finalUrl,
+    provenance,
+  );
 
   const line = (pattern?: RegExp) => (value: string) =>
     cleanText(value, pattern) || undefined;
@@ -394,7 +483,7 @@ export function deriveEdition(
     originalTitle: pick("originalTitle", line()),
     publisher: pick("publisher", line(/^(?:出版社|publisher)\s*[:：]\s*/i)),
     imprint: pick("imprint", line()),
-    date: date?.value,
+    date,
     printIsbn,
     electronicIsbn,
     series: pick(
@@ -403,8 +492,8 @@ export function deriveEdition(
     ),
     position: pick("position", seriesPosition),
     language: pick("language", normalizeLanguage),
-    description: description?.value,
-    coverUrl: coverCandidate?.value,
+    description,
+    coverUrl,
   };
   for (const [key, value] of Object.entries(optional))
     if (value !== undefined) Object.assign(metadata, { [key]: value });

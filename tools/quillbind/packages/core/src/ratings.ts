@@ -9,9 +9,11 @@ import {
   setModified,
   metadataFormat,
   deliverMetadata,
+  type MetadataFile,
   type MetadataFormat,
 } from "./metadata-file.js";
-import { attr, elements, NS, serialize, xml } from "./xml.js";
+import { attr, elements, NS, removeNode, serialize, xml } from "./xml.js";
+import type { Element } from "@xmldom/xmldom";
 import { sha256 } from "./hash.js";
 import { fail } from "./errors.js";
 import { readSourceFile } from "./files.js";
@@ -143,7 +145,7 @@ export function auditRatings(
   };
 }
 
-export function applyRatings(bytes: Buffer, value: unknown) {
+function validateRatingsPlan(bytes: Buffer, value: unknown) {
   const parsed = planSchema.safeParse(value);
   if (!parsed.success)
     fail("RATINGS_PLAN", "Invalid rating cleanup plan", parsed.error.issues);
@@ -161,26 +163,49 @@ export function applyRatings(bytes: Buffer, value: unknown) {
     stable(actual.inventory) !== stable(plan.inventory)
   )
     fail("RATINGS_INVENTORY", "The source inventory must not be edited");
+  return { plan, actual };
+}
+
+function applyRatingDecisionGroup(
+  kind: "remove" | "retain",
+  decisions: RatingsPlan["customScores"],
+  inventory: RatingsPlan["inventory"],
+  selected: Set<string>,
+  disposed: Set<string>,
+) {
+  for (const item of decisions) {
+    const row = inventory.find((entry) => entry.key === item.key);
+    if (!row || disposed.has(item.key))
+      fail("RATINGS_DECISION", "Missing or duplicate field decision");
+    disposed.add(item.key);
+    if (row.protected || (kind === "retain" && row.knownScore))
+      fail(
+        "RATINGS_PROTECTED",
+        `Protected field or known score cannot receive this decision: ${row.label}`,
+      );
+    if (kind === "remove") selected.add(item.key);
+  }
+}
+
+function resolveSelectedRatings(plan: RatingsPlan, actual: RatingsPlan) {
   const selected = new Set(
     actual.inventory.filter((row) => row.knownScore).map((row) => row.key),
   );
   const disposed = new Set<string>();
-  for (const [kind, decisions] of [
-    ["remove", plan.customScores],
-    ["retain", plan.retain],
-  ] as const)
-    for (const item of decisions) {
-      const row = actual.inventory.find((row) => row.key === item.key);
-      if (!row || disposed.has(item.key))
-        fail("RATINGS_DECISION", "Missing or duplicate field decision");
-      disposed.add(item.key);
-      if (row.protected || (kind === "retain" && row.knownScore))
-        fail(
-          "RATINGS_PROTECTED",
-          `Protected field or known score cannot receive this decision: ${row.label}`,
-        );
-      if (kind === "remove") selected.add(item.key);
-    }
+  applyRatingDecisionGroup(
+    "remove",
+    plan.customScores,
+    actual.inventory,
+    selected,
+    disposed,
+  );
+  applyRatingDecisionGroup(
+    "retain",
+    plan.retain,
+    actual.inventory,
+    selected,
+    disposed,
+  );
   const unresolved = actual.inventory.filter(
     (row) =>
       row.suspectedScore && !selected.has(row.key) && !disposed.has(row.key),
@@ -191,9 +216,24 @@ export function applyRatings(bytes: Buffer, value: unknown) {
       "Unresolved custom score candidates require a score or non-score decision",
       unresolved,
     );
-  const file = openMetadata(bytes, plan.format, { preserveContent: true }),
-    nodes = children(file.metadata);
-  const removed = actual.inventory.filter((row) => selected.has(row.key));
+  return selected;
+}
+
+function assertRemovableRatingRefinement(file: MetadataFile, node: Element) {
+  if (/age.?rating/i.test(attr(node, "name") || attr(node, "property")))
+    fail(
+      "RATINGS_PROTECTED",
+      "Score has an age-classification refinement; explicit repair is required",
+    );
+  if (node.parentNode !== file.metadata)
+    fail("RATINGS_REFERENCE", "Score is referenced outside the metadata block");
+}
+
+function collectRatingRemovals(
+  file: MetadataFile,
+  nodes: Element[],
+  selected: Set<string>,
+) {
   const removals = new Set(
     nodes.filter((_, index) => selected.has(`metadata/${index}`)),
   );
@@ -204,28 +244,27 @@ export function applyRatings(bytes: Buffer, value: unknown) {
     const ids = new Set(
       [...removals].map((node) => attr(node, "id")).filter(Boolean),
     );
-    for (const node of elements(file.document))
-      if (
-        ids.has(attr(node, "refines").slice(1)) &&
-        attr(node, "refines").startsWith("#")
-      ) {
-        if (/age.?rating/i.test(attr(node, "name") || attr(node, "property")))
-          fail(
-            "RATINGS_PROTECTED",
-            "Score has an age-classification refinement; explicit repair is required",
-          );
-        if (node.parentNode !== file.metadata)
-          fail(
-            "RATINGS_REFERENCE",
-            "Score is referenced outside the metadata block",
-          );
-        removals.add(node);
-      }
+    for (const node of elements(file.document)) {
+      const refines = attr(node, "refines");
+      if (!refines.startsWith("#") || !ids.has(refines.slice(1))) continue;
+      assertRemovableRatingRefinement(file, node);
+      removals.add(node);
+    }
   }
+  return removals;
+}
+
+export function applyRatings(bytes: Buffer, value: unknown) {
+  const { plan, actual } = validateRatingsPlan(bytes, value);
+  const selected = resolveSelectedRatings(plan, actual);
+  const file = openMetadata(bytes, plan.format, { preserveContent: true });
+  const nodes = children(file.metadata);
+  const removed = actual.inventory.filter((row) => selected.has(row.key));
+  const removals = collectRatingRemovals(file, nodes, selected);
   const refinements = [...removals]
     .filter((node) => !selected.has(`metadata/${nodes.indexOf(node)}`))
     .map(serialize);
-  for (const node of removals) file.metadata.removeChild(node);
+  for (const node of removals) removeNode(node);
   if (removals.size) setModified(file, plan.modified);
   const output = removals.size
     ? writeMetadata(bytes, file)

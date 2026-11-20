@@ -144,90 +144,111 @@ export async function resolveMetadata(
 ) {
   return (await resolveMetadataWithLock(input, options)).resolution;
 }
-export async function resolveMetadataWithLock(
-  input: string | BookProject,
-  options: {
-    online?: boolean;
-    signal?: AbortSignal;
-    fetcher?: typeof fetchBibliography;
-    catalogFetcher?: NovelFetcher;
-  } = {},
-) {
-  const project = typeof input === "string" ? await openBook(input) : input;
-  const { root, config } = project;
-  checkAbort(options.signal);
-  if (
-    options.online &&
-    process.env.CI &&
-    !options.fetcher &&
-    !options.catalogFetcher
-  )
-    fail("CI_NETWORK_DISABLED", "CI metadata resolution is offline");
-  const directory = await bookOutput(root, "metadata");
-  const decisionsFile = path.join(directory, "decisions.json");
-  if (!(await exists(decisionsFile))) await json(decisionsFile, { fields: {} });
-  const decisions = await readJson<Decisions>(decisionsFile);
-  const diagnostics: Diagnostic[] = [];
-  const fields: Record<string, FieldState> = {};
-  const candidates: Candidate[] = [];
-  const subjectList = await taxonomy();
-  const book = structuredClone(config.book);
-  let bibliography: BookWalkerLock | undefined;
-  let bookwalkerHash: string | undefined;
-  if (config.bookwalker) {
-    const bytes = await safeRead(root, config.bookwalker);
-    bookwalkerHash = sha256(bytes);
-    bibliography = readBookWalkerLock(bytes.toString("utf8"));
-    const selected = bibliography.records.at(-1)!;
-    const offered = {
-      title: bibliography.metadata.title,
-      authors: bibliography.metadata.contributors
-        .filter((item) => item.role === "aut")
-        .map((item) => item.name),
-      description: bibliography.metadata.description,
-      language: bibliography.metadata.language,
-    };
-    for (const field of [
-      "title",
-      "authors",
-      "description",
-      "language",
-    ] as const) {
-      const current = book[field],
-        value = offered[field];
-      const present = Array.isArray(current)
-        ? current.length > 0
-        : !!current.trim();
-      const conflict = present && stable(current) !== stable(value);
-      if (!present) {
-        if (field === "authors") book.authors = offered.authors;
-        else book[field] = offered[field];
-        fields[field] = "resolved";
-      }
-      if (conflict)
-        diagnostics.push(
-          diagnostic(
-            "BOOKWALKER_CONFLICT",
-            `Preserved supplied book.${field}; BookWalker differs`,
-            config.bookwalker,
-            selected.url,
-            "warning",
-          ),
-        );
-      candidates.push({
-        field,
-        candidateValue: value,
-        sourceName: "BookWalker",
-        sourceUrl: selected.url,
-        recordId: bibliography.digest,
-        retrievedAt: selected.retrievedAt,
-        matchEvidence: bibliography.selection.matchEvidence,
-        confidence: 1,
-        conflicts: conflict ? [`book.${field} differs`] : [],
-        approved: !conflict,
-      });
-    }
+interface ResolveMetadataOptions {
+  online?: boolean;
+  signal?: AbortSignal;
+  fetcher?: typeof fetchBibliography;
+  catalogFetcher?: NovelFetcher;
+}
+
+type BookMetadataFields = BookProject["config"]["book"];
+type SubjectList = Awaited<ReturnType<typeof taxonomy>>;
+
+const hasFieldValue = (value: string | string[]) =>
+  Array.isArray(value) ? value.length > 0 : Boolean(value.trim());
+
+function firstMarkdownHeading(source: string): string | undefined {
+  for (const rawLine of source.split("\n")) {
+    const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+    if (!line.startsWith("#")) continue;
+    const rest = line.slice(1);
+    if (rest.length === 0 || (rest[0] !== " " && rest[0] !== "\t")) continue;
+    const heading = rest.trimStart();
+    if (heading) return heading;
   }
+  return undefined;
+}
+
+function pickEntryAuthors(
+  contributors: { name: string; role: string }[],
+): string[] | undefined {
+  const authors = contributors
+    .filter((item) => item.role === "aut")
+    .map((item) => item.name);
+  if (authors.length) return authors;
+  const all = contributors.map((item) => item.name);
+  return all.length ? all : undefined;
+}
+
+async function applyBookWalkerFields(
+  root: string,
+  bookwalkerPath: string | undefined,
+  book: BookMetadataFields,
+  fields: Record<string, FieldState>,
+  candidates: Candidate[],
+  diagnostics: Diagnostic[],
+): Promise<{ bibliography?: BookWalkerLock; bookwalkerHash?: string }> {
+  if (!bookwalkerPath) return {};
+  const bytes = await safeRead(root, bookwalkerPath);
+  const bookwalkerHash = sha256(bytes);
+  const bibliography = readBookWalkerLock(bytes.toString("utf8"));
+  const selected = bibliography.records.at(-1)!;
+  const offered = {
+    title: bibliography.metadata.title,
+    authors: bibliography.metadata.contributors
+      .filter((item) => item.role === "aut")
+      .map((item) => item.name),
+    description: bibliography.metadata.description,
+    language: bibliography.metadata.language,
+  };
+  for (const field of [
+    "title",
+    "authors",
+    "description",
+    "language",
+  ] as const) {
+    const current = book[field];
+    const value = offered[field];
+    const present = hasFieldValue(current);
+    const conflict = present && stable(current) !== stable(value);
+    if (!present) {
+      if (field === "authors") book.authors = offered.authors;
+      else book[field] = offered[field];
+      fields[field] = "resolved";
+    }
+    if (conflict)
+      diagnostics.push(
+        diagnostic(
+          "BOOKWALKER_CONFLICT",
+          `Preserved supplied book.${field}; BookWalker differs`,
+          bookwalkerPath,
+          selected.url,
+          "warning",
+        ),
+      );
+    candidates.push({
+      field,
+      candidateValue: value,
+      sourceName: "BookWalker",
+      sourceUrl: selected.url,
+      recordId: bibliography.digest,
+      retrievedAt: selected.retrievedAt,
+      matchEvidence: bibliography.selection.matchEvidence,
+      confidence: 1,
+      conflicts: conflict ? [`book.${field} differs`] : [],
+      approved: !conflict,
+    });
+  }
+  return { bibliography, bookwalkerHash };
+}
+
+function validateBookFields(
+  book: BookMetadataFields,
+  subjectList: SubjectList,
+  decisions: Decisions,
+  fields: Record<string, FieldState>,
+  diagnostics: Diagnostic[],
+) {
   for (const field of [
     "title",
     "authors",
@@ -235,8 +256,7 @@ export async function resolveMetadataWithLock(
     "language",
     "tags",
   ] as const) {
-    const value = book[field];
-    fields[field] = (Array.isArray(value) ? value.length > 0 : !!value.trim())
+    fields[field] = hasFieldValue(book[field])
       ? (fields[field] ?? "supplied")
       : "missing";
     if (fields[field] === "missing")
@@ -257,7 +277,7 @@ export async function resolveMetadataWithLock(
         "https://www.rfc-editor.org/rfc/rfc5646",
       ),
     );
-  for (const tag of book.tags)
+  for (const tag of book.tags) {
     if (!subjectList.subjects.some((t) => t.id === tag && !t.deprecated))
       diagnostics.push(
         diagnostic(
@@ -266,7 +286,21 @@ export async function resolveMetadataWithLock(
           "book.yaml",
         ),
       );
-  if (book.publication.isbn !== null && !validIsbn(book.publication.isbn))
+  }
+  validateBookIsbn(book, decisions, fields, diagnostics);
+}
+
+function validateBookIsbn(
+  book: BookMetadataFields,
+  decisions: Decisions,
+  fields: Record<string, FieldState>,
+  diagnostics: Diagnostic[],
+) {
+  if (book.publication.isbn === null) {
+    fields.isbn = "supplied";
+    return;
+  }
+  if (!validIsbn(book.publication.isbn))
     diagnostics.push(
       diagnostic(
         "ISBN_CHECKSUM",
@@ -275,201 +309,309 @@ export async function resolveMetadataWithLock(
         "https://www.isbn-international.org/",
       ),
     );
-  if (book.publication.isbn !== null)
-    book.publication.isbn = book.publication.isbn.replace(/[- ]/g, "");
-  if (book.publication.isbn !== null) {
-    const decision = decisions.isbn;
-    if (
-      !decision?.approved ||
-      decision.value !== book.publication.isbn ||
-      decision.edition !== "epub"
-    ) {
-      fields.isbn = "needs-confirmation";
-      diagnostics.push(
-        diagnostic(
-          "ISBN_EDITION_CONFIRMATION",
-          'Confirm metadata/decisions.json isbn {value, edition: "epub", approved: true}; print ISBN is not evidence of an EPUB ISBN',
-          "metadata/decisions.json",
-        ),
-      );
-    } else fields.isbn = "resolved";
-  } else fields.isbn = "supplied";
+  book.publication.isbn = book.publication.isbn.replace(/[- ]/g, "");
+  const decision = decisions.isbn;
   if (
-    options.online &&
-    book.publication.isbn !== null &&
-    validIsbn(book.publication.isbn)
+    !decision?.approved ||
+    decision.value !== book.publication.isbn ||
+    decision.edition !== "epub"
   ) {
-    const query = book.publication.isbn;
-    const beforeOnline = candidates.length;
-    try {
-      if (options.fetcher) {
-        const response = (await options.fetcher(
-          `https://www.loc.gov/books/?fo=json&c=20&q=${encodeURIComponent(query)}`,
-          options.signal,
-        )) as {
-          results?: {
-            id?: string;
-            title?: string;
-            contributor?: string[];
-            language?: string[];
-            description?: string[];
-          }[];
-        };
-        for (const record of response.results ?? []) {
-          for (const [field, value] of Object.entries({
-            title: record.title,
-            authors: record.contributor,
-            description: record.description?.join(" "),
-          })) {
-            if (!value) continue;
-            const current = book[field as "title" | "authors" | "description"];
-            const exact =
-              stable(current).trim().toLowerCase() ===
-              stable(value).trim().toLowerCase();
-            candidates.push({
-              field,
-              candidateValue: value,
-              sourceName: "Library of Congress digital collections",
-              sourceUrl: record.id ?? "https://www.loc.gov/books/",
-              recordId: record.id ?? sha256(stable(record)),
-              retrievedAt: new Date().toISOString(),
-              matchEvidence: [
-                `Query: ${query}`,
-                "Discovery record; electronic edition identity is not established",
-              ],
-              confidence: exact ? 0.95 : 0.5,
-              conflicts: exact ? [] : [`book.${field} differs`],
-              approved: exact,
-            });
-          }
-        }
-      } else {
-        const catalogLock = await collectCatalog(
-          {
-            isbn: query,
-            ...(book.language && validLanguage(book.language)
-              ? { language: book.language }
-              : {}),
-            matchEvidence: [`ISBN lookup: ${query}`],
-          },
-          {
-            online: true,
-            signal: options.signal,
-            fetcher: options.catalogFetcher,
-          },
-        );
-        const retrievedByProvider = new Map(
-          catalogLock.requests.map((req) => [req.provider, req.retrievedAt]),
-        );
-        for (const entry of catalogLock.records) {
-          const authorList = entry.contributors
-            .filter((item) => item.role === "aut")
-            .map((item) => item.name);
-          const allContributors = entry.contributors.map((item) => item.name);
-          for (const [field, value] of Object.entries({
-            title: entry.title,
-            authors: authorList.length
-              ? authorList
-              : allContributors.length
-                ? allContributors
-                : undefined,
-            description: entry.description,
-          })) {
-            if (!value) continue;
-            const current = book[field as "title" | "authors" | "description"];
-            const exact =
-              stable(current).trim().toLowerCase() ===
-              stable(value).trim().toLowerCase();
-            candidates.push({
-              field,
-              candidateValue: value,
-              sourceName: catalogProviderNames[entry.provider],
-              sourceUrl: entry.recordUrl,
-              recordId: entry.recordId,
-              retrievedAt:
-                retrievedByProvider.get(entry.provider) ??
-                new Date().toISOString(),
-              matchEvidence: [
-                `Query: ${query}`,
-                "Discovery record; electronic edition identity is not established",
-              ],
-              confidence: exact ? 0.95 : 0.5,
-              conflicts: exact ? [] : [`book.${field} differs`],
-              approved: exact,
-            });
-          }
-        }
-      }
-      if (candidates.length === beforeOnline)
-        diagnostics.push(
-          diagnostic(
-            "METADATA_NO_MATCH",
-            "No matching catalog record found across the selected online providers",
-            undefined,
-            undefined,
-            "warning",
-          ),
-        );
-    } catch (error) {
+    fields.isbn = "needs-confirmation";
+    diagnostics.push(
+      diagnostic(
+        "ISBN_EDITION_CONFIRMATION",
+        'Confirm metadata/decisions.json isbn {value, edition: "epub", approved: true}; print ISBN is not evidence of an EPUB ISBN',
+        "metadata/decisions.json",
+      ),
+    );
+  } else {
+    fields.isbn = "resolved";
+  }
+}
+
+function appendOnlineFieldCandidates(
+  book: BookMetadataFields,
+  candidates: Candidate[],
+  query: string,
+  values: Partial<Record<"title" | "authors" | "description", unknown>>,
+  source: {
+    sourceName: string;
+    sourceUrl: string;
+    recordId: string;
+    retrievedAt: string;
+  },
+) {
+  for (const [field, value] of Object.entries(values)) {
+    if (!value) continue;
+    const current = book[field as "title" | "authors" | "description"];
+    const exact =
+      stable(current).trim().toLowerCase() ===
+      stable(value).trim().toLowerCase();
+    candidates.push({
+      field,
+      candidateValue: value,
+      ...source,
+      matchEvidence: [
+        `Query: ${query}`,
+        "Discovery record; electronic edition identity is not established",
+      ],
+      confidence: exact ? 0.95 : 0.5,
+      conflicts: exact ? [] : [`book.${field} differs`],
+      approved: exact,
+    });
+  }
+}
+
+async function fetchLocCandidates(
+  query: string,
+  book: BookMetadataFields,
+  fetcher: typeof fetchBibliography,
+  signal: AbortSignal | undefined,
+  candidates: Candidate[],
+) {
+  const response = (await fetcher(
+    `https://www.loc.gov/books/?fo=json&c=20&q=${encodeURIComponent(query)}`,
+    signal,
+  )) as {
+    results?: {
+      id?: string;
+      title?: string;
+      contributor?: string[];
+      language?: string[];
+      description?: string[];
+    }[];
+  };
+  for (const record of response.results ?? []) {
+    appendOnlineFieldCandidates(
+      book,
+      candidates,
+      query,
+      {
+        title: record.title,
+        authors: record.contributor,
+        description: record.description?.join(" "),
+      },
+      {
+        sourceName: "Library of Congress digital collections",
+        sourceUrl: record.id ?? "https://www.loc.gov/books/",
+        recordId: record.id ?? sha256(stable(record)),
+        retrievedAt: new Date().toISOString(),
+      },
+    );
+  }
+}
+
+async function fetchCatalogCandidates(
+  query: string,
+  book: BookMetadataFields,
+  options: ResolveMetadataOptions,
+  candidates: Candidate[],
+) {
+  const catalogLock = await collectCatalog(
+    {
+      isbn: query,
+      ...(book.language && validLanguage(book.language)
+        ? { language: book.language }
+        : {}),
+      matchEvidence: [`ISBN lookup: ${query}`],
+    },
+    {
+      online: true,
+      signal: options.signal,
+      fetcher: options.catalogFetcher,
+    },
+  );
+  const retrievedByProvider = new Map(
+    catalogLock.requests.map((req) => [req.provider, req.retrievedAt]),
+  );
+  for (const entry of catalogLock.records) {
+    appendOnlineFieldCandidates(
+      book,
+      candidates,
+      query,
+      {
+        title: entry.title,
+        authors: pickEntryAuthors(entry.contributors),
+        description: entry.description,
+      },
+      {
+        sourceName: catalogProviderNames[entry.provider],
+        sourceUrl: entry.recordUrl,
+        recordId: entry.recordId,
+        retrievedAt:
+          retrievedByProvider.get(entry.provider) ?? new Date().toISOString(),
+      },
+    );
+  }
+}
+
+async function collectOnlineCandidates(
+  book: BookMetadataFields,
+  options: ResolveMetadataOptions,
+  candidates: Candidate[],
+  diagnostics: Diagnostic[],
+) {
+  if (
+    !options.online ||
+    book.publication.isbn === null ||
+    !validIsbn(book.publication.isbn)
+  )
+    return;
+  const query = book.publication.isbn;
+  const beforeOnline = candidates.length;
+  try {
+    if (options.fetcher)
+      await fetchLocCandidates(
+        query,
+        book,
+        options.fetcher,
+        options.signal,
+        candidates,
+      );
+    else await fetchCatalogCandidates(query, book, options, candidates);
+    if (candidates.length === beforeOnline)
       diagnostics.push(
         diagnostic(
-          "METADATA_NETWORK",
-          String(error),
+          "METADATA_NO_MATCH",
+          "No matching catalog record found across the selected online providers",
           undefined,
           undefined,
           "warning",
         ),
       );
-    }
+  } catch (error) {
+    diagnostics.push(
+      diagnostic(
+        "METADATA_NETWORK",
+        String(error),
+        undefined,
+        undefined,
+        "warning",
+      ),
+    );
   }
-  if (!book.tags.length || !book.title) {
-    const source = (await safeRead(root, config.chapters[0])).toString("utf8");
-    const heading = /^#\s+(.+)$/m.exec(source)?.[1];
-    const inferredTag =
-      subjectList.subjects.some(
-        (tag) => tag.id === "Science.Software Engineering",
-      ) &&
-      /\b(code|typescript|software|api|programming)\b/i.test(
-        [book.title, book.description, source].join(" "),
-      )
-        ? "Science.Software Engineering"
-        : undefined;
-    for (const [field, value] of [
-      ["title", !book.title ? heading : undefined],
-      ["tags", !book.tags.length && inferredTag ? [inferredTag] : undefined],
-    ] as const)
-      if (value)
-        candidates.push({
-          field,
-          candidateValue: value,
-          sourceName: "Content inference",
-          sourceUrl: config.chapters[0],
-          recordId: sha256(source),
-          retrievedAt: new Date().toISOString(),
-          matchEvidence: ["First chapter and supplied metadata"],
-          confidence: 0.6,
-          conflicts: [],
-          approved: false,
-        });
+}
+
+async function inferContentCandidates(
+  root: string,
+  firstChapter: string,
+  book: BookMetadataFields,
+  subjectList: SubjectList,
+  candidates: Candidate[],
+) {
+  if (book.tags.length && book.title) return;
+  const source = (await safeRead(root, firstChapter)).toString("utf8");
+  const heading = firstMarkdownHeading(source);
+  const inferredTag =
+    subjectList.subjects.some(
+      (tag) => tag.id === "Science.Software Engineering",
+    ) &&
+    /\b(code|typescript|software|api|programming)\b/i.test(
+      [book.title, book.description, source].join(" "),
+    )
+      ? "Science.Software Engineering"
+      : undefined;
+  for (const [field, value] of [
+    ["title", !book.title ? heading : undefined],
+    ["tags", !book.tags.length && inferredTag ? [inferredTag] : undefined],
+  ] as const) {
+    if (!value) continue;
+    candidates.push({
+      field,
+      candidateValue: value,
+      sourceName: "Content inference",
+      sourceUrl: firstChapter,
+      recordId: sha256(source),
+      retrievedAt: new Date().toISOString(),
+      matchEvidence: ["First chapter and supplied metadata"],
+      confidence: 0.6,
+      conflicts: [],
+      approved: false,
+    });
   }
-  await json(path.join(directory, "candidates.json"), {
-    schemaVersion: 1,
-    candidates,
-  });
+}
+
+async function ensurePersistentUuid(directory: string) {
   const identityFile = path.join(directory, "identity.json");
-  let uuid: string;
   if (await exists(identityFile)) {
-    uuid = (await readJson<{ uuid: string }>(identityFile)).uuid;
+    const uuid = (await readJson<{ uuid: string }>(identityFile)).uuid;
     if (
       !/^urn:uuid:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
         uuid,
       )
     )
       fail("IDENTIFIER_INVALID", "Invalid persistent UUID");
-  } else {
-    uuid = `urn:uuid:${randomUUID()}`;
-    await fs.writeFile(identityFile, stable({ uuid }), { flag: "wx" });
+    return uuid;
   }
+  const uuid = `urn:uuid:${randomUUID()}`;
+  await fs.writeFile(identityFile, stable({ uuid }), { flag: "wx" });
+  return uuid;
+}
+
+async function persistMetadataLock(
+  directory: string,
+  lock: MetadataLock,
+  diagnostics: Diagnostic[],
+  online: boolean | undefined,
+) {
+  if (diagnostics.some((d) => d.severity === "error")) return;
+  const lockFile = path.join(directory, "sources.lock.json");
+  if (!online && (await exists(lockFile))) {
+    const previous = await readJson<MetadataLock>(lockFile);
+    if (
+      previous.configHash === lock.configHash &&
+      previous.bookwalkerHash === lock.bookwalkerHash
+    )
+      lock.sources = previous.sources;
+  }
+  await json(lockFile, lock);
+}
+
+export async function resolveMetadataWithLock(
+  input: string | BookProject,
+  options: ResolveMetadataOptions = {},
+) {
+  const project = typeof input === "string" ? await openBook(input) : input;
+  const { root, config } = project;
+  checkAbort(options.signal);
+  if (
+    options.online &&
+    process.env.CI &&
+    !options.fetcher &&
+    !options.catalogFetcher
+  )
+    fail("CI_NETWORK_DISABLED", "CI metadata resolution is offline");
+  const directory = await bookOutput(root, "metadata");
+  const decisionsFile = path.join(directory, "decisions.json");
+  if (!(await exists(decisionsFile))) await json(decisionsFile, { fields: {} });
+  const decisions = await readJson<Decisions>(decisionsFile);
+  const diagnostics: Diagnostic[] = [];
+  const fields: Record<string, FieldState> = {};
+  const candidates: Candidate[] = [];
+  const subjectList = await taxonomy();
+  const book = structuredClone(config.book);
+  const { bibliography, bookwalkerHash } = await applyBookWalkerFields(
+    root,
+    config.bookwalker,
+    book,
+    fields,
+    candidates,
+    diagnostics,
+  );
+  validateBookFields(book, subjectList, decisions, fields, diagnostics);
+  await collectOnlineCandidates(book, options, candidates, diagnostics);
+  await inferContentCandidates(
+    root,
+    config.chapters[0],
+    book,
+    subjectList,
+    candidates,
+  );
+  await json(path.join(directory, "candidates.json"), {
+    schemaVersion: 1,
+    candidates,
+  });
+  const uuid = await ensurePersistentUuid(directory);
   const metadata: PublicationMetadata = {
     title: book.title.normalize("NFC").trim(),
     authors: book.authors.map((name) => ({ name: name.normalize("NFC") })),
@@ -498,18 +640,7 @@ export async function resolveMetadataWithLock(
     sources: candidates.filter((c) => c.approved),
     ...(bookwalkerHash ? { bookwalkerHash } : {}),
   };
-  if (!diagnostics.some((d) => d.severity === "error")) {
-    const lockFile = path.join(directory, "sources.lock.json");
-    if (!options.online && (await exists(lockFile))) {
-      const previous = await readJson<MetadataLock>(lockFile);
-      if (
-        previous.configHash === lock.configHash &&
-        previous.bookwalkerHash === lock.bookwalkerHash
-      )
-        lock.sources = previous.sources;
-    }
-    await json(lockFile, lock);
-  }
+  await persistMetadataLock(directory, lock, diagnostics, options.online);
   return {
     resolution: { ...result(diagnostics), metadata, fields, candidates },
     lock,

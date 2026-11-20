@@ -7,6 +7,24 @@ export interface BookWalkerOptions {
   signal?: AbortSignal;
   fetcher?: NovelFetcher;
 }
+const redirectStatuses = new Set([301, 302, 303, 307, 308]);
+
+function resolveBookWalkerRedirect(
+  location: string | undefined,
+  current: string,
+  originalUrl: string,
+): string {
+  if (!location) fail("BOOKWALKER_REDIRECT", "Missing redirect location");
+  const resolved = new URL(location, current).href;
+  const next = bookWalkerAddress(resolved);
+  if (next.url !== originalUrl)
+    fail(
+      "BOOKWALKER_REDIRECT",
+      "Redirect points to a different product or provider",
+    );
+  return resolved;
+}
+
 export async function fetchBookWalker(url: string, options: BookWalkerOptions) {
   if (!options.online)
     fail(
@@ -35,18 +53,12 @@ export async function fetchBookWalker(url: string, options: BookWalkerOptions) {
     checkAbort(options.signal);
     if (response.bytes.length > maxBytes)
       fail("BOOKWALKER_LIMIT", "BookWalker response exceeds 4 MiB");
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      if (!response.headers.location)
-        fail("BOOKWALKER_REDIRECT", "Missing redirect location");
-      const next = bookWalkerAddress(
-        new URL(response.headers.location, current).href,
+    if (redirectStatuses.has(response.status)) {
+      current = resolveBookWalkerRedirect(
+        response.headers.location,
+        current,
+        original.url,
       );
-      if (next.url !== original.url)
-        fail(
-          "BOOKWALKER_REDIRECT",
-          "Redirect points to a different product or provider",
-        );
-      current = new URL(response.headers.location, current).href;
       continue;
     }
     if (response.status !== 200)

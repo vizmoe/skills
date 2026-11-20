@@ -141,178 +141,207 @@ const parseJsonBody = (provider: CatalogProvider, bytes: Buffer): unknown => {
   }
 };
 
-const cqlQuote = (value: string) =>
-  `"${value.replace(/[\\"]/g, (ch) => `\\${ch}`)}"`;
+const cqlQuote = (value: string) => {
+  const escaped = value.replace(/[\\"]/g, (ch) => `\\${ch}`);
+  return `"${escaped}"`;
+};
 
-async function queryProvider(
-  provider: CatalogProvider,
+async function queryOpenBd(
   query: CatalogQuery,
   options: CatalogOptions,
   requests: CatalogRequestRecord[],
 ): Promise<CatalogEntry[]> {
-  if (provider === "openbd") {
-    if (!query.isbn) return [];
-    const url = new URL("https://api.openbd.jp/v1/get");
+  if (!query.isbn) return [];
+  const url = new URL("https://api.openbd.jp/v1/get");
+  url.searchParams.set("isbn", query.isbn);
+  const res = await requestCatalog(
+    "openbd",
+    url.href,
+    "application/json",
+    options,
+    requests,
+  );
+  if (res.status !== 200)
+    fail("CATALOG_HTTP", `openBD returned HTTP ${res.status}`);
+  return parseOpenBd(parseJsonBody("openbd", res.bytes));
+}
+
+async function queryNdl(
+  query: CatalogQuery,
+  options: CatalogOptions,
+  requests: CatalogRequestRecord[],
+): Promise<CatalogEntry[]> {
+  const url = new URL("https://ndlsearch.ndl.go.jp/api/opensearch");
+  if (query.isbn) {
     url.searchParams.set("isbn", query.isbn);
-    const res = await requestCatalog(
-      provider,
-      url.href,
-      "application/json",
-      options,
-      requests,
-    );
-    if (res.status !== 200)
-      fail("CATALOG_HTTP", `openBD returned HTTP ${res.status}`);
-    return parseOpenBd(parseJsonBody(provider, res.bytes));
+  } else {
+    if (query.title) url.searchParams.set("title", query.title);
+    if (query.author) url.searchParams.set("creator", query.author);
+    if (query.publisher) url.searchParams.set("publisher", query.publisher);
+    url.searchParams.set("mediatype", "books");
   }
+  url.searchParams.set("cnt", "10");
+  const res = await requestCatalog(
+    "ndl",
+    url.href,
+    "application/xml,text/xml",
+    options,
+    requests,
+  );
+  if (res.status !== 200)
+    fail("CATALOG_HTTP", `NDL Search returned HTTP ${res.status}`);
+  return parseNdlOpenSearch(res.bytes.toString("utf8"));
+}
 
-  if (provider === "ndl") {
-    const url = new URL("https://ndlsearch.ndl.go.jp/api/opensearch");
-    if (query.isbn) url.searchParams.set("isbn", query.isbn);
-    else {
-      if (query.title) url.searchParams.set("title", query.title);
-      if (query.author) url.searchParams.set("creator", query.author);
-      if (query.publisher) url.searchParams.set("publisher", query.publisher);
-      url.searchParams.set("mediatype", "books");
-    }
-    url.searchParams.set("cnt", "10");
-    const res = await requestCatalog(
-      provider,
-      url.href,
-      "application/xml,text/xml",
-      options,
-      requests,
-    );
-    if (res.status !== 200)
-      fail("CATALOG_HTTP", `NDL Search returned HTTP ${res.status}`);
-    return parseNdlOpenSearch(res.bytes.toString("utf8"));
+async function queryCinii(
+  query: CatalogQuery,
+  options: CatalogOptions,
+  requests: CatalogRequestRecord[],
+): Promise<CatalogEntry[]> {
+  const url = new URL("https://ci.nii.ac.jp/books/opensearch/search");
+  if (query.isbn) {
+    url.searchParams.set("isbn", query.isbn);
+  } else {
+    if (query.title) url.searchParams.set("title", query.title);
+    if (query.author) url.searchParams.set("author", query.author);
+    if (query.publisher) url.searchParams.set("publisher", query.publisher);
   }
+  url.searchParams.set("format", "json");
+  url.searchParams.set("count", "10");
+  const res = await requestCatalog(
+    "cinii",
+    url.href,
+    "application/json",
+    options,
+    requests,
+  );
+  if (res.status !== 200)
+    fail("CATALOG_HTTP", `CiNii Books returned HTTP ${res.status}`);
+  return parseCiniiJson(parseJsonBody("cinii", res.bytes));
+}
 
-  if (provider === "cinii") {
-    const url = new URL("https://ci.nii.ac.jp/books/opensearch/search");
-    if (query.isbn) url.searchParams.set("isbn", query.isbn);
-    else {
-      if (query.title) url.searchParams.set("title", query.title);
-      if (query.author) url.searchParams.set("author", query.author);
-      if (query.publisher) url.searchParams.set("publisher", query.publisher);
-    }
-    url.searchParams.set("format", "json");
-    url.searchParams.set("count", "10");
-    const res = await requestCatalog(
-      provider,
-      url.href,
-      "application/json",
-      options,
-      requests,
-    );
-    if (res.status !== 200)
-      fail("CATALOG_HTTP", `CiNii Books returned HTTP ${res.status}`);
-    return parseCiniiJson(parseJsonBody(provider, res.bytes));
+async function queryLoc(
+  query: CatalogQuery,
+  options: CatalogOptions,
+  requests: CatalogRequestRecord[],
+): Promise<CatalogEntry[]> {
+  const url = new URL("https://lx2.loc.gov/sru/lcdb");
+  url.searchParams.set("version", "1.1");
+  url.searchParams.set("operation", "searchRetrieve");
+  url.searchParams.set("recordSchema", "mods");
+  url.searchParams.set("maximumRecords", query.isbn ? "5" : "10");
+  const clauses: string[] = [];
+  if (query.isbn) {
+    clauses.push(`bath.isbn=${query.isbn}`);
+  } else {
+    if (query.title) clauses.push(`dc.title=${cqlQuote(query.title)}`);
+    if (query.author)
+      clauses.push(`bath.personalName=${cqlQuote(query.author)}`);
   }
+  url.searchParams.set("query", clauses.join(" and "));
+  const res = await requestCatalog(
+    "loc",
+    url.href,
+    "application/xml,text/xml",
+    options,
+    requests,
+  );
+  if (res.status !== 200)
+    fail("CATALOG_HTTP", `LoC SRU returned HTTP ${res.status}`);
+  return parseLocSruMods(res.bytes.toString("utf8"));
+}
 
-  if (provider === "loc") {
-    const url = new URL("https://lx2.loc.gov/sru/lcdb");
-    url.searchParams.set("version", "1.1");
-    url.searchParams.set("operation", "searchRetrieve");
-    url.searchParams.set("recordSchema", "mods");
-    url.searchParams.set("maximumRecords", query.isbn ? "5" : "10");
-    const clauses: string[] = [];
-    if (query.isbn) clauses.push(`bath.isbn=${query.isbn}`);
-    else {
-      if (query.title) clauses.push(`dc.title=${cqlQuote(query.title)}`);
-      if (query.author)
-        clauses.push(`bath.personalName=${cqlQuote(query.author)}`);
-    }
-    url.searchParams.set("query", clauses.join(" and "));
-    const res = await requestCatalog(
-      provider,
-      url.href,
-      "application/xml,text/xml",
-      options,
-      requests,
-    );
-    if (res.status !== 200)
-      fail("CATALOG_HTTP", `LoC SRU returned HTTP ${res.status}`);
-    return parseLocSruMods(res.bytes.toString("utf8"));
-  }
+function extractOpenLibraryWorkKey(editionJson: unknown): string | undefined {
+  if (!editionJson || typeof editionJson !== "object") return undefined;
+  const works = (editionJson as { works?: unknown }).works;
+  if (!Array.isArray(works)) return undefined;
+  const key = (works[0] as { key?: unknown } | undefined)?.key;
+  return typeof key === "string" && /^\/works\/OL\w+W$/.test(key)
+    ? key
+    : undefined;
+}
 
-  if (provider === "openlibrary") {
-    if (query.isbn) {
-      const booksUrl = new URL("https://openlibrary.org/api/books");
-      booksUrl.searchParams.set("bibkeys", `ISBN:${query.isbn}`);
-      booksUrl.searchParams.set("jscmd", "data");
-      booksUrl.searchParams.set("format", "json");
-      const booksRes = await requestCatalog(
-        provider,
-        booksUrl.href,
+async function queryOpenLibraryIsbn(
+  isbn: string,
+  options: CatalogOptions,
+  requests: CatalogRequestRecord[],
+): Promise<CatalogEntry[]> {
+  const booksUrl = new URL("https://openlibrary.org/api/books");
+  booksUrl.searchParams.set("bibkeys", `ISBN:${isbn}`);
+  booksUrl.searchParams.set("jscmd", "data");
+  booksUrl.searchParams.set("format", "json");
+  const booksRes = await requestCatalog(
+    "openlibrary",
+    booksUrl.href,
+    "application/json",
+    options,
+    requests,
+  );
+  if (booksRes.status !== 200)
+    fail("CATALOG_HTTP", `Open Library returned HTTP ${booksRes.status}`);
+  const booksJson = parseJsonBody("openlibrary", booksRes.bytes);
+
+  let editionJson: unknown;
+  let workJson: unknown;
+  const editionRes = await requestCatalog(
+    "openlibrary",
+    `https://openlibrary.org/isbn/${isbn}.json`,
+    "application/json",
+    options,
+    requests,
+  );
+  if (editionRes.status === 200) {
+    editionJson = parseJsonBody("openlibrary", editionRes.bytes);
+    const workKey = extractOpenLibraryWorkKey(editionJson);
+    if (workKey) {
+      const workRes = await requestCatalog(
+        "openlibrary",
+        `https://openlibrary.org${workKey}.json`,
         "application/json",
         options,
         requests,
       );
-      if (booksRes.status !== 200)
-        fail("CATALOG_HTTP", `Open Library returned HTTP ${booksRes.status}`);
-      const booksJson = parseJsonBody(provider, booksRes.bytes);
-
-      let editionJson: unknown;
-      let workJson: unknown;
-      const editionRes = await requestCatalog(
-        provider,
-        `https://openlibrary.org/isbn/${query.isbn}.json`,
-        "application/json",
-        options,
-        requests,
-      );
-      if (editionRes.status === 200) {
-        editionJson = parseJsonBody(provider, editionRes.bytes);
-        const workKey =
-          editionJson &&
-          typeof editionJson === "object" &&
-          Array.isArray((editionJson as { works?: unknown[] }).works)
-            ? ((editionJson as { works: { key?: unknown }[] }).works[0]?.key as
-                string | undefined)
-            : undefined;
-        if (workKey && /^\/works\/OL\w+W$/.test(workKey)) {
-          const workRes = await requestCatalog(
-            provider,
-            `https://openlibrary.org${workKey}.json`,
-            "application/json",
-            options,
-            requests,
-          );
-          if (workRes.status === 200)
-            workJson = parseJsonBody(provider, workRes.bytes);
-        }
-      } else if (editionRes.status !== 404) {
-        fail("CATALOG_HTTP", `Open Library returned HTTP ${editionRes.status}`);
-      }
-      return parseOpenLibraryBooks(
-        query.isbn,
-        booksJson,
-        editionJson,
-        workJson,
-      );
+      if (workRes.status === 200)
+        workJson = parseJsonBody("openlibrary", workRes.bytes);
     }
-
-    const searchUrl = new URL("https://openlibrary.org/search.json");
-    if (query.title) searchUrl.searchParams.set("title", query.title);
-    if (query.author) searchUrl.searchParams.set("author", query.author);
-    searchUrl.searchParams.set("limit", "10");
-    const searchRes = await requestCatalog(
-      provider,
-      searchUrl.href,
-      "application/json",
-      options,
-      requests,
-    );
-    if (searchRes.status !== 200)
-      fail("CATALOG_HTTP", `Open Library returned HTTP ${searchRes.status}`);
-    return parseOpenLibrarySearch(parseJsonBody(provider, searchRes.bytes));
+  } else if (editionRes.status !== 404) {
+    fail("CATALOG_HTTP", `Open Library returned HTTP ${editionRes.status}`);
   }
+  return parseOpenLibraryBooks(isbn, booksJson, editionJson, workJson);
+}
 
+async function queryOpenLibrary(
+  query: CatalogQuery,
+  options: CatalogOptions,
+  requests: CatalogRequestRecord[],
+): Promise<CatalogEntry[]> {
+  if (query.isbn) return queryOpenLibraryIsbn(query.isbn, options, requests);
+  const searchUrl = new URL("https://openlibrary.org/search.json");
+  if (query.title) searchUrl.searchParams.set("title", query.title);
+  if (query.author) searchUrl.searchParams.set("author", query.author);
+  searchUrl.searchParams.set("limit", "10");
+  const searchRes = await requestCatalog(
+    "openlibrary",
+    searchUrl.href,
+    "application/json",
+    options,
+    requests,
+  );
+  if (searchRes.status !== 200)
+    fail("CATALOG_HTTP", `Open Library returned HTTP ${searchRes.status}`);
+  return parseOpenLibrarySearch(parseJsonBody("openlibrary", searchRes.bytes));
+}
+
+async function queryGoogleBooks(
+  query: CatalogQuery,
+  options: CatalogOptions,
+  requests: CatalogRequestRecord[],
+): Promise<CatalogEntry[]> {
   const url = new URL("https://www.googleapis.com/books/v1/volumes");
   const terms: string[] = [];
-  if (query.isbn) terms.push(`isbn:${query.isbn}`);
-  else {
+  if (query.isbn) {
+    terms.push(`isbn:${query.isbn}`);
+  } else {
     if (query.title) terms.push(`intitle:${query.title}`);
     if (query.author) terms.push(`inauthor:${query.author}`);
     if (query.publisher) terms.push(`inpublisher:${query.publisher}`);
@@ -323,7 +352,7 @@ async function queryProvider(
     options.googleBooksApiKey ?? process.env.GOOGLE_BOOKS_API_KEY?.trim();
   if (apiKey) url.searchParams.set("key", apiKey);
   const res = await requestCatalog(
-    provider,
+    "google-books",
     url.href,
     "application/json",
     options,
@@ -331,7 +360,29 @@ async function queryProvider(
   );
   if (res.status !== 200)
     fail("CATALOG_HTTP", `Google Books returned HTTP ${res.status}`);
-  return parseGoogleBooks(parseJsonBody(provider, res.bytes));
+  return parseGoogleBooks(parseJsonBody("google-books", res.bytes));
+}
+
+async function queryProvider(
+  provider: CatalogProvider,
+  query: CatalogQuery,
+  options: CatalogOptions,
+  requests: CatalogRequestRecord[],
+): Promise<CatalogEntry[]> {
+  switch (provider) {
+    case "openbd":
+      return queryOpenBd(query, options, requests);
+    case "ndl":
+      return queryNdl(query, options, requests);
+    case "cinii":
+      return queryCinii(query, options, requests);
+    case "loc":
+      return queryLoc(query, options, requests);
+    case "openlibrary":
+      return queryOpenLibrary(query, options, requests);
+    case "google-books":
+      return queryGoogleBooks(query, options, requests);
+  }
 }
 
 function matchesQuery(entry: CatalogEntry, query: CatalogQuery): boolean {
@@ -376,6 +427,169 @@ function matchesQuery(entry: CatalogEntry, query: CatalogQuery): boolean {
   return true;
 }
 
+type CatalogTextField =
+  | "title"
+  | "subtitle"
+  | "originalTitle"
+  | "publisher"
+  | "imprint"
+  | "series"
+  | "position"
+  | "language"
+  | "description";
+
+function pickCatalogTextField(
+  ordered: CatalogEntry[],
+  field: CatalogTextField,
+  provenance: Record<string, CatalogProvider>,
+  diagnostics: CatalogDiagnostic[],
+) {
+  const entries = ordered
+    .map((record) => ({ provider: record.provider, value: record[field] }))
+    .filter((item): item is { provider: CatalogProvider; value: string } =>
+      Boolean(item.value),
+    );
+  if (!entries.length) return undefined;
+  if (field !== "description") {
+    const distinct = [
+      ...new Map(
+        entries.map((item) => [comparable(item.value), item.value]),
+      ).values(),
+    ];
+    if (distinct.length > 1)
+      diagnostics.push({
+        code: "CATALOG_CONFLICT",
+        severity: "warning",
+        field,
+        message: `Catalog providers disagree on ${field}; the highest-priority value was adopted`,
+        values: distinct,
+      });
+  }
+  provenance[field] = entries[0].provider;
+  return entries[0].value;
+}
+
+function mergeCatalogContributors(
+  ordered: CatalogEntry[],
+  provenance: Record<string, CatalogProvider>,
+) {
+  const contributors: Contributor[] = [];
+  const roleOwners = new Map<string, CatalogProvider>();
+  for (const record of ordered) {
+    for (const person of record.contributors) {
+      const owner = roleOwners.get(person.role);
+      if (owner !== undefined && owner !== record.provider) continue;
+      roleOwners.set(person.role, record.provider);
+      if (
+        !contributors.some(
+          (item) => item.name === person.name && item.role === person.role,
+        )
+      )
+        contributors.push(person);
+    }
+  }
+  for (const [role, provider] of roleOwners)
+    provenance[`contributor:${role}`] = provider;
+  return contributors;
+}
+
+function chooseCatalogDate(
+  ordered: CatalogEntry[],
+  provenance: Record<string, CatalogProvider>,
+  diagnostics: CatalogDiagnostic[],
+) {
+  const dateEntries = ordered
+    .filter((record): record is CatalogEntry & { date: string } =>
+      Boolean(record.date),
+    )
+    .map((record) => ({ provider: record.provider, value: record.date }));
+  let chosenDate = dateEntries[0];
+  for (const entry of dateEntries.slice(1)) {
+    if (
+      chosenDate &&
+      entry.value.length > chosenDate.value.length &&
+      entry.value.startsWith(chosenDate.value)
+    )
+      chosenDate = entry;
+  }
+  if (!chosenDate) return undefined;
+  provenance.date = chosenDate.provider;
+  const incompatible = dateEntries.filter(
+    (entry) =>
+      !chosenDate.value.startsWith(entry.value) &&
+      !entry.value.startsWith(chosenDate.value),
+  );
+  if (incompatible.length)
+    diagnostics.push({
+      code: "CATALOG_CONFLICT",
+      severity: "warning",
+      field: "date",
+      message:
+        "Catalog providers disagree on date; the highest-priority value was adopted",
+      values: [
+        chosenDate.value,
+        ...new Set(incompatible.map((item) => item.value)),
+      ],
+    });
+  return chosenDate.value;
+}
+
+function chooseSingleCatalogIsbn(
+  set: Set<string>,
+  field: "printIsbn" | "electronicIsbn",
+  expected: string | undefined,
+  diagnostics: CatalogDiagnostic[],
+) {
+  if (expected && set.has(expected)) return expected;
+  if (set.size === 1) return [...set][0];
+  if (set.size > 1)
+    diagnostics.push({
+      code: "CATALOG_ISBN_AMBIGUOUS",
+      severity: "warning",
+      field,
+      message:
+        "Matched catalog records list multiple ISBNs; supply an expected isbn or edition publisher to disambiguate",
+      values: [...set],
+    });
+  return undefined;
+}
+
+function chooseCatalogIsbns(
+  ordered: CatalogEntry[],
+  query: CatalogQuery,
+  provenance: Record<string, CatalogProvider>,
+  diagnostics: CatalogDiagnostic[],
+) {
+  const allPrint = new Set(ordered.flatMap((record) => record.printIsbns));
+  const allElectronic = new Set(
+    ordered.flatMap((record) => record.electronicIsbns),
+  );
+  for (const e of allElectronic) allPrint.delete(e);
+  const printIsbn = chooseSingleCatalogIsbn(
+    allPrint,
+    "printIsbn",
+    query.isbn,
+    diagnostics,
+  );
+  const electronicIsbn = chooseSingleCatalogIsbn(
+    allElectronic,
+    "electronicIsbn",
+    query.isbn,
+    diagnostics,
+  );
+  if (printIsbn)
+    provenance.printIsbn = ordered.find(
+      (r) =>
+        r.printIsbns.includes(printIsbn) ||
+        r.electronicIsbns.includes(printIsbn),
+    )!.provider;
+  if (electronicIsbn)
+    provenance.electronicIsbn = ordered.find((r) =>
+      r.electronicIsbns.includes(electronicIsbn),
+    )!.provider;
+  return { printIsbn, electronicIsbn };
+}
+
 export function deriveCatalog(
   query: CatalogQuery,
   providers: CatalogProvider[],
@@ -403,133 +617,14 @@ export function deriveCatalog(
   }
 
   const provenance: Record<string, CatalogProvider> = {};
-  const addConflict = (field: string, values: string[]) => {
-    const distinct = [
-      ...new Map(values.map((v) => [comparable(v), v])).values(),
-    ];
-    if (distinct.length > 1)
-      diagnostics.push({
-        code: "CATALOG_CONFLICT",
-        severity: "warning",
-        field,
-        message: `Catalog providers disagree on ${field}; the highest-priority value was adopted`,
-        values: distinct,
-      });
-  };
-  const pick = (
-    field:
-      | "title"
-      | "subtitle"
-      | "originalTitle"
-      | "publisher"
-      | "imprint"
-      | "series"
-      | "position"
-      | "language"
-      | "description",
-  ) => {
-    const entries = ordered
-      .map((record) => ({ provider: record.provider, value: record[field] }))
-      .filter((item): item is { provider: CatalogProvider; value: string } =>
-        Boolean(item.value),
-      );
-    if (!entries.length) return undefined;
-    if (field !== "description")
-      addConflict(
-        field,
-        entries.map((item) => item.value),
-      );
-    provenance[field] = entries[0].provider;
-    return entries[0].value;
-  };
-
-  const contributors: Contributor[] = [];
-  const roleOwners = new Map<string, CatalogProvider>();
-  for (const record of ordered) {
-    for (const person of record.contributors) {
-      const owner = roleOwners.get(person.role);
-      if (owner !== undefined && owner !== record.provider) continue;
-      roleOwners.set(person.role, record.provider);
-      if (
-        !contributors.some(
-          (item) => item.name === person.name && item.role === person.role,
-        )
-      )
-        contributors.push(person);
-    }
-  }
-  for (const [role, provider] of roleOwners)
-    provenance[`contributor:${role}`] = provider;
-
-  const dateEntries = ordered
-    .filter((record): record is CatalogEntry & { date: string } =>
-      Boolean(record.date),
-    )
-    .map((record) => ({ provider: record.provider, value: record.date }));
-  let chosenDate = dateEntries[0];
-  for (const entry of dateEntries.slice(1))
-    if (
-      chosenDate &&
-      entry.value.length > chosenDate.value.length &&
-      entry.value.startsWith(chosenDate.value)
-    )
-      chosenDate = entry;
-  if (chosenDate) {
-    provenance.date = chosenDate.provider;
-    const incompatible = dateEntries.filter(
-      (entry) =>
-        !chosenDate.value.startsWith(entry.value) &&
-        !entry.value.startsWith(chosenDate.value),
-    );
-    if (incompatible.length)
-      diagnostics.push({
-        code: "CATALOG_CONFLICT",
-        severity: "warning",
-        field: "date",
-        message:
-          "Catalog providers disagree on date; the highest-priority value was adopted",
-        values: [
-          chosenDate.value,
-          ...new Set(incompatible.map((item) => item.value)),
-        ],
-      });
-  }
-
-  const allPrint = new Set(ordered.flatMap((record) => record.printIsbns));
-  const allElectronic = new Set(
-    ordered.flatMap((record) => record.electronicIsbns),
+  const contributors = mergeCatalogContributors(ordered, provenance);
+  const date = chooseCatalogDate(ordered, provenance, diagnostics);
+  const { printIsbn, electronicIsbn } = chooseCatalogIsbns(
+    ordered,
+    query,
+    provenance,
+    diagnostics,
   );
-  for (const e of allElectronic) allPrint.delete(e);
-  const chooseIsbn = (
-    set: Set<string>,
-    field: "printIsbn" | "electronicIsbn",
-  ) => {
-    if (query.isbn && set.has(query.isbn)) return query.isbn;
-    if (set.size === 1) return [...set][0];
-    if (set.size > 1)
-      diagnostics.push({
-        code: "CATALOG_ISBN_AMBIGUOUS",
-        severity: "warning",
-        field,
-        message:
-          "Matched catalog records list multiple ISBNs; supply an expected isbn or edition publisher to disambiguate",
-        values: [...set],
-      });
-    return undefined;
-  };
-  const printIsbn = chooseIsbn(allPrint, "printIsbn");
-  const electronicIsbn = chooseIsbn(allElectronic, "electronicIsbn");
-  if (printIsbn)
-    provenance.printIsbn = ordered.find(
-      (r) =>
-        r.printIsbns.includes(printIsbn) ||
-        r.electronicIsbns.includes(printIsbn),
-    )!.provider;
-  if (electronicIsbn)
-    provenance.electronicIsbn = ordered.find((r) =>
-      r.electronicIsbns.includes(electronicIsbn),
-    )!.provider;
-
   const coverRecord = ordered.find((r) => Boolean(r.coverUrl));
   if (coverRecord?.coverUrl) provenance.coverUrl = coverRecord.provider;
 
@@ -538,7 +633,8 @@ export function deriveCatalog(
     recordId: record.recordId,
     recordUrl: record.recordUrl,
   }));
-
+  const pick = (field: CatalogTextField) =>
+    pickCatalogTextField(ordered, field, provenance, diagnostics);
   const metadata: CatalogMetadata = {
     contributors,
     sources,
@@ -550,7 +646,7 @@ export function deriveCatalog(
     originalTitle: pick("originalTitle"),
     publisher: pick("publisher"),
     imprint: pick("imprint"),
-    date: chosenDate?.value,
+    date,
     printIsbn,
     electronicIsbn,
     series: pick("series"),
@@ -590,6 +686,46 @@ function lockFrom(
   return { ...content, digest: sha256(stable(content)) };
 }
 
+interface CatalogCollectState {
+  requests: CatalogRequestRecord[];
+  records: CatalogEntry[];
+  providerDiagnostics: CatalogDiagnostic[];
+  succeeded: number;
+}
+
+async function collectSingleProvider(
+  provider: CatalogProvider,
+  query: CatalogQuery,
+  options: CatalogOptions,
+  state: CatalogCollectState,
+) {
+  checkAbort(options.signal);
+  try {
+    const fetched = await queryProvider(
+      provider,
+      query,
+      options,
+      state.requests,
+    );
+    state.succeeded += 1;
+    for (const entry of fetched) {
+      if (matchesQuery(entry, query)) state.records.push(entry);
+    }
+  } catch (error) {
+    checkAbort(options.signal);
+    const code = (error as { code?: string }).code;
+    if (code === "SSRF_BLOCKED" || code === "CANCELLED") throw error;
+    const rawMessage = error instanceof Error ? error.message : String(error);
+    const safeMessage = rawMessage.replace(/([?&]key=)[^&\s]+/gi, "$1REDACTED");
+    state.providerDiagnostics.push({
+      code: "CATALOG_PROVIDER_FAILED",
+      severity: "warning",
+      provider,
+      message: safeMessage,
+    });
+  }
+}
+
 export async function collectCatalog(
   input: unknown,
   options: CatalogOptions = {},
@@ -613,44 +749,34 @@ export async function collectCatalog(
       "No selected catalog provider supports the supplied query",
     );
 
-  const requests: CatalogRequestRecord[] = [];
-  const records: CatalogEntry[] = [];
-  const providerDiagnostics: CatalogDiagnostic[] = [];
-  let succeeded = 0;
-
+  const state: CatalogCollectState = {
+    requests: [],
+    records: [],
+    providerDiagnostics: [],
+    succeeded: 0,
+  };
+  let chain = Promise.resolve();
   for (const provider of providers) {
-    checkAbort(options.signal);
-    try {
-      const fetched = await queryProvider(provider, query, options, requests);
-      succeeded++;
-      for (const entry of fetched)
-        if (matchesQuery(entry, query)) records.push(entry);
-    } catch (error) {
-      checkAbort(options.signal);
-      const code = (error as { code?: string }).code;
-      if (code === "SSRF_BLOCKED" || code === "CANCELLED") throw error;
-      const rawMessage = error instanceof Error ? error.message : String(error);
-      const safeMessage = rawMessage.replace(
-        /([?&]key=)[^&\s]+/gi,
-        "$1REDACTED",
-      );
-      providerDiagnostics.push({
-        code: "CATALOG_PROVIDER_FAILED",
-        severity: "warning",
-        provider,
-        message: safeMessage,
-      });
-    }
+    chain = chain.then(() =>
+      collectSingleProvider(provider, query, options, state),
+    );
   }
+  await chain;
 
-  if (succeeded === 0)
+  if (state.succeeded === 0)
     fail(
       "CATALOG_UNAVAILABLE",
       "Every selected catalog provider failed",
-      providerDiagnostics,
+      state.providerDiagnostics,
     );
 
-  return lockFrom(query, providers, requests, records, providerDiagnostics);
+  return lockFrom(
+    query,
+    providers,
+    state.requests,
+    state.records,
+    state.providerDiagnostics,
+  );
 }
 
 const providerFailureSchema = z.strictObject({

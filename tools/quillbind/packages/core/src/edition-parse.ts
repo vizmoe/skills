@@ -16,8 +16,11 @@ const object = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-const list = (value: unknown): unknown[] =>
-  Array.isArray(value) ? value : value === undefined ? [] : [value];
+function list(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (value === undefined) return [];
+  return [value];
+}
 const scalar = (value: unknown) =>
   typeof value === "string" || typeof value === "number"
     ? String(value).normalize("NFC").trim()
@@ -199,10 +202,95 @@ const labels = new Map(
 const excluded =
   "script, style, noscript, template, iframe, svg, form, nav, header, footer, aside, [hidden], [aria-hidden=true]";
 /** Whole class/id tokens, optionally prefixed (`book-reviews`), that hold other books or site chrome. */
-const decoy =
-  /^(?:[a-z0-9]+[-_])?(recommend\w*|related(?:[-_]?(?:books?|products?|items?|titles?|works?))?|similar\w*|also[-_]?(?:bought|viewed|liked)|comments?|reviews?|ratings?|footer|header|navbar|nav|breadcrumbs?|sidebar|advert\w*|ads?|banner|carousel|ranking|hot[-_]?list|guess\w*)$/i;
+const decoyExact = new Set([
+  "related",
+  "comment",
+  "comments",
+  "review",
+  "reviews",
+  "rating",
+  "ratings",
+  "footer",
+  "header",
+  "navbar",
+  "nav",
+  "breadcrumb",
+  "breadcrumbs",
+  "sidebar",
+  "ad",
+  "ads",
+  "banner",
+  "carousel",
+  "ranking",
+  "hotlist",
+  "hot-list",
+  "hot_list",
+]);
+const decoyWordPrefixes = ["recommend", "similar", "advert", "guess"];
+const relatedNouns = new Set([
+  "book",
+  "books",
+  "product",
+  "products",
+  "item",
+  "items",
+  "title",
+  "titles",
+  "work",
+  "works",
+]);
+const alsoVerbs = new Set(["bought", "viewed", "liked"]);
+
+function stripSingleSep(value: string): string {
+  return value.startsWith("-") || value.startsWith("_")
+    ? value.slice(1)
+    : value;
+}
+
+function isDecoyCore(core: string): boolean {
+  if (decoyExact.has(core)) return true;
+  if (
+    decoyWordPrefixes.some((prefix) => core.startsWith(prefix)) &&
+    /^\w+$/.test(core)
+  )
+    return true;
+  if (core.startsWith("related"))
+    return relatedNouns.has(stripSingleSep(core.slice(7)));
+  if (core.startsWith("also"))
+    return alsoVerbs.has(stripSingleSep(core.slice(4)));
+  return false;
+}
+
+function isDecoyToken(raw: string): boolean {
+  const token = raw.toLowerCase();
+  if (isDecoyCore(token)) return true;
+  const sep = /^[a-z0-9]+[-_]/.exec(token);
+  return sep ? isDecoyCore(token.slice(sep[0].length)) : false;
+}
+
 const isDecoy = (value: string) =>
-  value.split(/\s+/).some((token) => token && decoy.test(token));
+  value.split(/\s+/).some((token) => Boolean(token) && isDecoyToken(token));
+
+function stripTrailingColon(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.endsWith(":") || trimmed.endsWith("："))
+    return trimmed.slice(0, -1).trimEnd();
+  return trimmed;
+}
+
+function splitLabelLine(line: string): [string, string] | undefined {
+  const ascii = line.indexOf(":");
+  const full = line.indexOf("：");
+  let colon: number;
+  if (ascii !== -1 && full !== -1) colon = Math.min(ascii, full);
+  else colon = Math.max(ascii, full);
+  if (colon <= 0) return undefined;
+  const left = line.slice(0, colon).trimEnd();
+  if (!left || left.length > 20) return undefined;
+  const right = line.slice(colon + 1).trimStart();
+  if (!right) return undefined;
+  return [left, right];
+}
 
 function lines($: CheerioAPI) {
   const copy = load($.html(), undefined, false);
@@ -229,207 +317,202 @@ function lines($: CheerioAPI) {
     .filter(Boolean);
 }
 
-/** Field candidates from one edition page. Each value keeps its source kind; nothing is merged here. */
-export function extractEdition(html: string) {
-  const $ = load(html);
-  const candidates: EditionCandidate[] = [];
-  const add = (
-    target: Target,
-    source: Source,
-    raw: unknown,
-    label?: string,
-  ) => {
-    const value =
-      target.field === "description"
-        ? scalar(raw)
-        : scalar(raw).replace(/\s+/g, " ").trim();
-    if (!value || value.length > 100000) return;
-    if (target.field === "contributor" && isUrl(value)) return;
-    const candidate: EditionCandidate = {
-      field: target.field,
-      source,
-      value,
-      ...(label ? { label } : {}),
-      ...(target.role ? { role: target.role } : {}),
-      ...(target.format ? { format: target.format } : {}),
-    };
-    const key = JSON.stringify(candidate);
-    if (!candidates.some((item) => JSON.stringify(item) === key))
-      candidates.push(candidate);
-  };
-  const siteName = scalar($("meta[property='og:site_name']").attr("content"));
-  const canonical = scalar($("link[rel=canonical]").attr("href"));
+type AddCandidate = (
+  target: Target,
+  source: Source,
+  raw: unknown,
+  label?: string,
+) => void;
 
+const jsonLdBookTypes = new Set([
+  "Book",
+  "Product",
+  "ProductModel",
+  "IndividualProduct",
+]);
+const jsonLdRoleKeys = [
+  ["author", "aut"],
+  ["creator", "aut"],
+  ["translator", "trl"],
+  ["illustrator", "ill"],
+  ["editor", "edt"],
+] as const;
+const microdataTargets: Record<string, Target> = {
+  name: { field: "title" },
+  author: { field: "contributor", role: "aut" },
+  translator: { field: "contributor", role: "trl" },
+  illustrator: { field: "contributor", role: "ill" },
+  editor: { field: "contributor", role: "edt" },
+  publisher: { field: "publisher" },
+  datePublished: { field: "date" },
+  isbn: { field: "isbn" },
+  gtin13: { field: "isbn" },
+  inLanguage: { field: "language" },
+  description: { field: "description" },
+  image: { field: "coverUrl" },
+};
+const metaTagTargets: Record<string, [Target, Source]> = {
+  "og:title": [{ field: "title" }, "open-graph"],
+  "og:description": [{ field: "description" }, "open-graph"],
+  "og:image": [{ field: "coverUrl" }, "open-graph"],
+  "og:image:secure_url": [{ field: "coverUrl" }, "open-graph"],
+  "book:isbn": [{ field: "isbn" }, "open-graph"],
+  "book:release_date": [{ field: "date" }, "open-graph"],
+  "book:author": [{ field: "contributor", role: "aut" }, "open-graph"],
+  citation_title: [{ field: "title" }, "meta"],
+  citation_author: [{ field: "contributor", role: "aut" }, "meta"],
+  citation_publisher: [{ field: "publisher" }, "meta"],
+  citation_isbn: [{ field: "isbn" }, "meta"],
+  citation_publication_date: [{ field: "date" }, "meta"],
+  citation_date: [{ field: "date" }, "meta"],
+  citation_language: [{ field: "language" }, "meta"],
+  "dc.title": [{ field: "title" }, "meta"],
+  "dc.creator": [{ field: "contributor", role: "aut" }, "meta"],
+  "dc.publisher": [{ field: "publisher" }, "meta"],
+  "dc.date": [{ field: "date" }, "meta"],
+  "dc.language": [{ field: "language" }, "meta"],
+  "dc.description": [{ field: "description" }, "meta"],
+  "dcterms.title": [{ field: "title" }, "meta"],
+  "dcterms.creator": [{ field: "contributor", role: "aut" }, "meta"],
+  "dcterms.publisher": [{ field: "publisher" }, "meta"],
+  "dcterms.issued": [{ field: "date" }, "meta"],
+  description: [{ field: "description" }, "meta"],
+};
+
+function bookFormatOf(
+  book: Record<string, unknown>,
+): "electronic" | "print" | undefined {
+  const formats = list(book.bookFormat).map(scalar);
+  if (formats.some((item) => /EBook$/i.test(item))) return "electronic";
+  if (formats.some((item) => /(Hardcover|Paperback|GraphicNovel)$/i.test(item)))
+    return "print";
+  return undefined;
+}
+
+function collectJsonLdNodes(
+  value: unknown,
+  books: Record<string, unknown>[],
+  depth = 0,
+) {
+  if (depth > 6) return;
+  for (const item of list(value)) {
+    const node = object(item);
+    if (!Object.keys(node).length) continue;
+    if (typeOf(node).some((type) => jsonLdBookTypes.has(type)))
+      books.push(node);
+    for (const key of ["@graph", "mainEntity", "workExample"])
+      collectJsonLdNodes(node[key], books, depth + 1);
+  }
+}
+
+function addJsonLdMediaAndSeries(
+  book: Record<string, unknown>,
+  add: AddCandidate,
+) {
+  for (const img of list(book.image)) {
+    const imgUrl =
+      typeof img === "object"
+        ? scalar(object(img).contentUrl) || scalar(object(img).url)
+        : scalar(img);
+    add({ field: "coverUrl" }, "json-ld", imgUrl);
+  }
+  for (const part of list(book.isPartOf)) {
+    add({ field: "series" }, "json-ld", name(part));
+    add({ field: "position" }, "json-ld", object(part).position);
+  }
+  add({ field: "position" }, "json-ld", book.position ?? book.volumeNumber);
+  for (const original of list(book.translationOfWork))
+    add({ field: "originalTitle" }, "json-ld", name(original));
+}
+
+function addJsonLdBook(book: Record<string, unknown>, add: AddCandidate) {
+  const format = bookFormatOf(book);
+  add({ field: "title" }, "json-ld", book.name);
+  add({ field: "subtitle" }, "json-ld", book.alternativeHeadline);
+  for (const [key, role] of jsonLdRoleKeys) {
+    for (const person of list(book[key]))
+      add({ field: "contributor", role }, "json-ld", name(person));
+  }
+  for (const publisher of list(book.publisher))
+    add({ field: "publisher" }, "json-ld", name(publisher));
+  add({ field: "date" }, "json-ld", book.datePublished);
+  for (const key of ["isbn", "gtin13", "gtin", "gtin10"]) {
+    for (const value of list(book[key]))
+      add({ field: "isbn", format }, "json-ld", value, key);
+  }
+  for (const value of list(book.inLanguage))
+    add({ field: "language" }, "json-ld", name(value) || scalar(value));
+  add({ field: "description" }, "json-ld", book.description);
+  addJsonLdMediaAndSeries(book, add);
+}
+
+function extractJsonLd($: CheerioAPI, add: AddCandidate) {
   const books: Record<string, unknown>[] = [];
-  const visit = (value: unknown, depth = 0) => {
-    if (depth > 6) return;
-    for (const item of list(value)) {
-      const node = object(item);
-      if (!Object.keys(node).length) continue;
-      const types = typeOf(node);
-      if (
-        types.some((type) =>
-          ["Book", "Product", "ProductModel", "IndividualProduct"].includes(
-            type,
-          ),
-        )
-      )
-        books.push(node);
-      for (const key of ["@graph", "mainEntity", "workExample"])
-        visit(node[key], depth + 1);
-    }
-  };
   $("script[type='application/ld+json']").each((_, node) => {
     try {
-      visit(JSON.parse($(node).text()));
+      collectJsonLdNodes(JSON.parse($(node).text()), books);
     } catch {
       // Malformed structured data is ignored; other sources still apply.
     }
   });
-  for (const book of books) {
-    const format = list(book.bookFormat).some((item) =>
-      /EBook$/i.test(scalar(item)),
-    )
-      ? "electronic"
-      : list(book.bookFormat).some((item) =>
-            /(Hardcover|Paperback|GraphicNovel)$/i.test(scalar(item)),
-          )
-        ? "print"
-        : undefined;
-    add({ field: "title" }, "json-ld", book.name);
-    add({ field: "subtitle" }, "json-ld", book.alternativeHeadline);
-    for (const [key, role] of [
-      ["author", "aut"],
-      ["creator", "aut"],
-      ["translator", "trl"],
-      ["illustrator", "ill"],
-      ["editor", "edt"],
-    ] as const)
-      for (const person of list(book[key]))
-        add({ field: "contributor", role }, "json-ld", name(person));
-    for (const publisher of list(book.publisher))
-      add({ field: "publisher" }, "json-ld", name(publisher));
-    add({ field: "date" }, "json-ld", book.datePublished);
-    for (const key of ["isbn", "gtin13", "gtin", "gtin10"])
-      for (const value of list(book[key]))
-        add({ field: "isbn", format }, "json-ld", value, key);
-    for (const value of list(book.inLanguage))
-      add({ field: "language" }, "json-ld", name(value) || scalar(value));
-    add({ field: "description" }, "json-ld", book.description);
-    for (const img of list(book.image)) {
-      const imgUrl =
-        typeof img === "object"
-          ? scalar(object(img).contentUrl) || scalar(object(img).url)
-          : scalar(img);
-      add({ field: "coverUrl" }, "json-ld", imgUrl);
-    }
-    for (const part of list(book.isPartOf)) {
-      add({ field: "series" }, "json-ld", name(part));
-      add({ field: "position" }, "json-ld", object(part).position);
-    }
-    add({ field: "position" }, "json-ld", book.position ?? book.volumeNumber);
-    for (const original of list(book.translationOfWork))
-      add({ field: "originalTitle" }, "json-ld", name(original));
-  }
+  for (const book of books) addJsonLdBook(book, add);
+}
 
+function microdataValue(element: ReturnType<CheerioAPI>): string | undefined {
+  if (element.is("[itemscope]"))
+    return element.find("[itemprop=name]").first().text() || element.text();
+  const direct = element.attr("content") ?? element.attr("datetime");
+  if (direct !== undefined) return direct;
+  if (element.is("img")) return element.attr("src");
+  if (element.is("meta, link, a")) return element.attr("href");
+  return element.text();
+}
+
+function addMicrodataProp(element: ReturnType<CheerioAPI>, add: AddCandidate) {
+  const prop = scalar(element.attr("itemprop"));
+  const target = Object.hasOwn(microdataTargets, prop)
+    ? microdataTargets[prop]
+    : undefined;
+  if (!target) return;
+  const raw =
+    target.field === "description" ? element.html() : microdataValue(element);
+  add(target, "microdata", raw, prop);
+}
+
+function extractMicrodata($: CheerioAPI, add: AddCandidate) {
   $("[itemscope][itemtype]").each((_, scope) => {
     const type = scalar($(scope).attr("itemtype")).replace(/^.*[/#]/, "");
     if (!["Book", "Product"].includes(type)) return;
     $(scope)
       .find("[itemprop]")
-      .each((_, node) => {
-        const owner = $(node).parent().closest("[itemscope]")[0];
-        if (owner !== scope) return;
-        const element = $(node);
-        const value = element.is("[itemscope]")
-          ? element.find("[itemprop=name]").first().text() || element.text()
-          : (element.attr("content") ??
-            element.attr("datetime") ??
-            (element.is("img")
-              ? element.attr("src")
-              : element.is("meta, link, a")
-                ? element.attr("href")
-                : element.text()));
-        const prop = scalar(element.attr("itemprop"));
-        const targets: Record<string, Target> = {
-          name: { field: "title" as const },
-          author: { field: "contributor" as const, role: "aut" as const },
-          translator: { field: "contributor" as const, role: "trl" as const },
-          illustrator: { field: "contributor" as const, role: "ill" as const },
-          editor: { field: "contributor" as const, role: "edt" as const },
-          publisher: { field: "publisher" as const },
-          datePublished: { field: "date" as const },
-          isbn: { field: "isbn" as const },
-          gtin13: { field: "isbn" as const },
-          inLanguage: { field: "language" as const },
-          description: { field: "description" as const },
-          image: { field: "coverUrl" as const },
-        };
-        const target = Object.hasOwn(targets, prop) ? targets[prop] : undefined;
-        if (target)
-          add(
-            target,
-            "microdata",
-            target.field === "description" ? element.html() : value,
-            prop,
-          );
+      .each((__, node) => {
+        if ($(node).parent().closest("[itemscope]")[0] !== scope) return;
+        addMicrodataProp($(node), add);
       });
   });
+}
 
+function extractMetaTags($: CheerioAPI, add: AddCandidate) {
   $("meta[name], meta[property]").each((_, node) => {
     const key = scalar(
       $(node).attr("name") ?? $(node).attr("property"),
     ).toLowerCase();
     const value = $(node).attr("content");
-    const targets: Record<string, [Target, Source]> = {
-      "og:title": [{ field: "title" }, "open-graph"],
-      "og:description": [{ field: "description" }, "open-graph"],
-      "og:image": [{ field: "coverUrl" }, "open-graph"],
-      "og:image:secure_url": [{ field: "coverUrl" }, "open-graph"],
-      "book:isbn": [{ field: "isbn" }, "open-graph"],
-      "book:release_date": [{ field: "date" }, "open-graph"],
-      "book:author": [{ field: "contributor", role: "aut" }, "open-graph"],
-      citation_title: [{ field: "title" }, "meta"],
-      citation_author: [{ field: "contributor", role: "aut" }, "meta"],
-      citation_publisher: [{ field: "publisher" }, "meta"],
-      citation_isbn: [{ field: "isbn" }, "meta"],
-      citation_publication_date: [{ field: "date" }, "meta"],
-      citation_date: [{ field: "date" }, "meta"],
-      citation_language: [{ field: "language" }, "meta"],
-      "dc.title": [{ field: "title" }, "meta"],
-      "dc.creator": [{ field: "contributor", role: "aut" }, "meta"],
-      "dc.publisher": [{ field: "publisher" }, "meta"],
-      "dc.date": [{ field: "date" }, "meta"],
-      "dc.language": [{ field: "language" }, "meta"],
-      "dc.description": [{ field: "description" }, "meta"],
-      "dcterms.title": [{ field: "title" }, "meta"],
-      "dcterms.creator": [{ field: "contributor", role: "aut" }, "meta"],
-      "dcterms.publisher": [{ field: "publisher" }, "meta"],
-      "dcterms.issued": [{ field: "date" }, "meta"],
-      description: [{ field: "description" }, "meta"],
-    };
-    const target = Object.hasOwn(targets, key) ? targets[key] : undefined;
+    const target = Object.hasOwn(metaTagTargets, key)
+      ? metaTagTargets[key]
+      : undefined;
     if (target) add(target[0], target[1], value, key);
-    if (["dc.identifier", "dcterms.identifier"].includes(key))
+    if (key === "dc.identifier" || key === "dcterms.identifier")
       add({ field: "isbn" }, "meta", value, key);
   });
   add({ field: "title" }, "document-title", $("head > title").first().text());
+}
 
-  const body = $("body").length ? $("body").first() : $.root();
-  const content = load($.html(body), undefined, false);
-  content(excluded).remove();
-  content("*")
-    .filter((_, node) =>
-      isDecoy(
-        `${content(node).attr("class") ?? ""} ${content(node).attr("id") ?? ""}`,
-      ),
-    )
-    .remove();
-
+function extractBodyLabels(content: CheerioAPI, add: AddCandidate) {
   const pair = (label: string, value: string) => {
     const target = labels.get(labelKey(label));
     if (target && value.trim())
-      add(target, "label", value, label.trim().replace(/\s*[:：]$/u, ""));
+      add(target, "label", value, stripTrailingColon(label));
   };
   content("dt").each((_, node) => {
     const value = content(node).nextAll("dd").first();
@@ -440,26 +523,35 @@ export function extractEdition(html: string) {
     if (cells.length === 2) pair(cells.eq(0).text(), cells.eq(1).text());
   });
   for (const line of lines(content)) {
-    const match = /^([^:：]{1,20}?)\s*[:：]\s*(.+)$/u.exec(line);
-    if (match) pair(match[1], match[2]);
+    const split = splitLabelLine(line);
+    if (split) pair(split[0], split[1]);
   }
+}
 
+function findSectionBlock(
+  heading: ReturnType<CheerioAPI>,
+): ReturnType<CheerioAPI> {
+  let anchor = heading;
+  let block = anchor.nextAll().first();
+  for (let depth = 0; !block.length && depth < 3; depth++) {
+    anchor = anchor.parent();
+    if (!anchor.length || anchor.is("body")) break;
+    block = anchor.nextAll().first();
+  }
+  return block;
+}
+
+function extractDescriptionSections(content: CheerioAPI, add: AddCandidate) {
   content(
     "h1, h2, h3, h4, h5, h6, dt, strong, b, [class*=title], [class*=heading]",
   ).each((_, node) => {
     const heading = content(node);
     if (heading.text().length > 40 || !isHeading(heading.text())) return;
-    let anchor = heading;
-    let block = anchor.nextAll().first();
-    for (let depth = 0; !block.length && depth < 3; depth++) {
-      anchor = anchor.parent();
-      if (!anchor.length || anchor.is("body")) break;
-      block = anchor.nextAll().first();
-    }
+    const block = findSectionBlock(heading);
     if (!block.length) return;
     const full = block
       .find("[class]")
-      .filter((_, item) =>
+      .filter((__, item) =>
         /(?:^|\s)(all|full|complete|expand(?:ed)?)(?:\s|$)/i.test(
           content(item).attr("class") ?? "",
         ),
@@ -472,6 +564,60 @@ export function extractEdition(html: string) {
       : content.html(block);
     add({ field: "description" }, "section", html, heading.text().trim());
   });
+}
+
+function pushUniqueCandidate(
+  candidates: EditionCandidate[],
+  seen: Set<string>,
+  target: Target,
+  source: Source,
+  raw: unknown,
+  label?: string,
+) {
+  const value =
+    target.field === "description"
+      ? scalar(raw)
+      : scalar(raw).replace(/\s+/g, " ").trim();
+  if (!value || value.length > 100000) return;
+  if (target.field === "contributor" && isUrl(value)) return;
+  const candidate: EditionCandidate = { field: target.field, source, value };
+  if (label) candidate.label = label;
+  if (target.role) candidate.role = target.role;
+  if (target.format) candidate.format = target.format;
+  const key = JSON.stringify(candidate);
+  if (!seen.has(key)) {
+    seen.add(key);
+    candidates.push(candidate);
+  }
+}
+
+/** Field candidates from one edition page. Each value keeps its source kind; nothing is merged here. */
+export function extractEdition(html: string) {
+  const $ = load(html);
+  const candidates: EditionCandidate[] = [];
+  const seen = new Set<string>();
+  const add: AddCandidate = (target, source, raw, label) =>
+    pushUniqueCandidate(candidates, seen, target, source, raw, label);
+  const siteName = scalar($("meta[property='og:site_name']").attr("content"));
+  const canonical = scalar($("link[rel=canonical]").attr("href"));
+
+  extractJsonLd($, add);
+  extractMicrodata($, add);
+  extractMetaTags($, add);
+
+  const body = $("body").length ? $("body").first() : $.root();
+  const content = load($.html(body), undefined, false);
+  content(excluded).remove();
+  content("*")
+    .filter((_, node) =>
+      isDecoy(
+        `${content(node).attr("class") ?? ""} ${content(node).attr("id") ?? ""}`,
+      ),
+    )
+    .remove();
+
+  extractBodyLabels(content, add);
+  extractDescriptionSections(content, add);
   return {
     candidates,
     ...(siteName ? { siteName } : {}),

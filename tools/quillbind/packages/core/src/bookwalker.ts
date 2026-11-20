@@ -119,19 +119,24 @@ export async function collectBookWalker(
   options: BookWalkerOptions = {},
 ): Promise<BookWalkerLock> {
   const selection = selectionFrom(input);
-  const records: BookWalkerLock["records"] = [];
-  for (const url of [
+  const urls = [
     selection.japaneseUrl,
     ...(selection.translatedUrl ? [selection.translatedUrl] : []),
-  ]) {
-    const bytes = await fetchBookWalker(url, options);
-    records.push({
-      url,
-      sha256: sha256(bytes),
-      retrievedAt: new Date().toISOString(),
-      edition: parseBookWalker(bytes.toString("utf8"), url),
+  ];
+  const records: BookWalkerLock["records"] = [];
+  let chain = Promise.resolve();
+  for (const url of urls) {
+    chain = chain.then(async () => {
+      const bytes = await fetchBookWalker(url, options);
+      records.push({
+        url,
+        sha256: sha256(bytes),
+        retrievedAt: new Date().toISOString(),
+        edition: parseBookWalker(bytes.toString("utf8"), url),
+      });
     });
   }
+  await chain;
   const content = {
     schemaVersion: 1 as const,
     selection,

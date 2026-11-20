@@ -136,7 +136,7 @@ export interface CatalogLock {
 
 const isChineseIsbn = (isbn: string) =>
   /^(?:9787|978957|978986|978626|978962|978988)/.test(isbn);
-const isJapaneseIsbn = (isbn: string) => /^9784/.test(isbn);
+const isJapaneseIsbn = (isbn: string) => isbn.startsWith("9784");
 
 export function selectCatalogProviders(
   query: CatalogQuery,

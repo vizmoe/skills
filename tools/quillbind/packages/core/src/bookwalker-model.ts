@@ -58,6 +58,14 @@ export interface BookWalkerLock {
   digest: string;
 }
 
+function bookWalkerSite(hostname: string): "tw" | "jp" | undefined {
+  if (hostname === "www.bookwalker.com.tw" || hostname === "bookwalker.com.tw")
+    return "tw";
+  if (hostname === "bookwalker.jp" || hostname === "www.bookwalker.jp")
+    return "jp";
+  return undefined;
+}
+
 export function bookWalkerAddress(value: string) {
   let url: URL;
   try {
@@ -70,13 +78,7 @@ export function bookWalkerAddress(value: string) {
       "BOOKWALKER_URL",
       "BookWalker requires HTTPS without credentials or a custom port",
     );
-  const site = ["www.bookwalker.com.tw", "bookwalker.com.tw"].includes(
-    url.hostname,
-  )
-    ? "tw"
-    : ["bookwalker.jp", "www.bookwalker.jp"].includes(url.hostname)
-      ? "jp"
-      : undefined;
+  const site = bookWalkerSite(url.hostname);
   const match =
     site === "tw"
       ? /^\/product\/([1-9]\d*)\/?$/.exec(url.pathname)

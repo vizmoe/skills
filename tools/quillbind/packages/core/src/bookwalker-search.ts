@@ -88,17 +88,27 @@ const clean = (value: unknown) =>
     ? String(value).replace(/\s+/g, " ").trim().normalize("NFC")
     : "";
 
+const volumeUnits = new Set(["巻", "卷", "冊", "册", "集", ")"]);
+
 const volumeFromTitle = (title: string): string | null => {
   const normalized = title.normalize("NFKC");
-  const parenthesized = /[(\uff08]\s*0*(\d+(?:\.\d+)?)\s*[)\uff09]/.exec(
-    normalized,
-  );
+  const parenthesized = /[(（]\s*(\d+(?:\.\d+)?)\s*[)）]/.exec(normalized);
   if (parenthesized) return String(Number(parenthesized[1]));
-  const match =
-    /(?:^|[^\d.])(\d+(?:\.\d+)?)\s*(?:巻|卷|冊|册|集|\))?(?:\s*【[^】]*】)*$/.exec(
-      normalized,
-    );
-  return match ? String(Number(match[1])) : null;
+  let text = normalized;
+  while (text.endsWith("】")) {
+    const prevClose = text.lastIndexOf("】", text.length - 2);
+    const open = text.indexOf("【", prevClose + 1);
+    if (open === -1) break;
+    text = text.slice(0, open).trimEnd();
+  }
+  if (text.length > 0 && volumeUnits.has(text[text.length - 1])) {
+    text = text.slice(0, -1);
+  }
+  text = text.trimEnd();
+  let start = text.length;
+  while (start > 0 && /[\d.]/.test(text[start - 1])) start -= 1;
+  const candidate = text.slice(start);
+  return /^\d+(?:\.\d+)?$/.test(candidate) ? String(Number(candidate)) : null;
 };
 
 const safeHttpsUrl = (raw: string | undefined, base: string) => {
@@ -129,23 +139,44 @@ const tryProductUrl = (raw: string | undefined, base: string) => {
   }
 };
 
+function stripTrailingParens(value: string): string {
+  const trimmed = value.trimEnd();
+  if (!trimmed.endsWith(")") && !trimmed.endsWith("）")) return trimmed;
+  const open = Math.max(trimmed.lastIndexOf("("), trimmed.lastIndexOf("（"));
+  if (open === -1) return trimmed;
+  const inside = trimmed.slice(open + 1, -1);
+  if (!inside || /[()（）]/.test(inside)) return trimmed;
+  return trimmed.slice(0, open).trimEnd();
+}
+
 const splitNames = (raw: string) => [
   ...new Set(
     raw
       .split(/[、,，/／;；\n]+/u)
       .map((item) =>
-        item
-          .trim()
-          .replace(
-            /^(?:著者[・/／]イラスト|著者|作者|漫画|マンガ|原作|イラスト|挿絵|訳者|翻訳|キャラクター原案)\s*[:：]\s*/u,
-            "",
-          )
-          .replace(/\s*[(（][^()（）]+[)）]\s*$/u, "")
-          .trim(),
+        stripTrailingParens(
+          item
+            .trim()
+            .replace(
+              /^(?:著者[・/／]イラスト|著者|作者|漫画|マンガ|原作|イラスト|挿絵|訳者|翻訳|キャラクター原案)\s*[:：]\s*/u,
+              "",
+            ),
+        ).trim(),
       )
       .filter(Boolean),
   ),
 ];
+
+function classifyJpSearchKind(
+  hasMangaClass: boolean,
+  hasLnClass: boolean,
+  tagText: string,
+): BookWalkerSearchCandidate["kind"] {
+  if (hasMangaClass || /マンガ|コミック/u.test(tagText)) return "manga";
+  if (hasLnClass || /ラノベ|ライトノベル|新文芸/u.test(tagText))
+    return "light-novel";
+  return undefined;
+}
 
 export function parseBookWalkerSearch(
   html: string,
@@ -188,12 +219,7 @@ export function parseBookWalkerSearch(
       );
       const hasLnClass = card.find(".a-tag-LN").length > 0;
       const hasMangaClass = card.find(".a-tag-manga, .a-tag-comic").length > 0;
-      const kind: BookWalkerSearchCandidate["kind"] =
-        hasMangaClass || /マンガ|コミック/u.test(tagText)
-          ? "manga"
-          : hasLnClass || /ラノベ|ライトノベル|新文芸/u.test(tagText)
-            ? "light-novel"
-            : undefined;
+      const kind = classifyJpSearchKind(hasMangaClass, hasLnClass, tagText);
       const creators = splitNames(
         clean(card.find(".m-book-item__author").text()),
       );
@@ -358,6 +384,73 @@ async function fetchSearchPage(
   fail("BOOKWALKER_REDIRECT", "Too many BookWalker search redirects");
 }
 
+interface SearchAccumulator {
+  requests: BookWalkerSearchRequest[];
+  candidates: BookWalkerSearchCandidate[];
+  diagnostics: BookWalkerSearchDiagnostic[];
+  seen: Set<string>;
+}
+
+function isFatalSearchError(error: unknown): boolean {
+  const code = (error as { code?: string })?.code;
+  return (
+    code === "CI_NETWORK_DISABLED" ||
+    code === "SSRF_BLOCKED" ||
+    code === "CANCELLED"
+  );
+}
+
+async function collectSiteSearch(
+  site: BookWalkerSearchSite,
+  query: BookWalkerSearchQuery,
+  options: BookWalkerOptions & { now?: () => Date },
+  acc: SearchAccumulator,
+) {
+  const url = searchUrl(query, site);
+  try {
+    const response = await fetchSearchPage(url, site, options);
+    const parsed =
+      response.status === 200
+        ? parseBookWalkerSearch(
+            response.bytes.toString("utf8"),
+            site,
+            query.kind,
+          )
+        : [];
+    acc.requests.push({
+      site,
+      url,
+      status: response.status,
+      retrievedAt: (options.now?.() ?? new Date()).toISOString(),
+      sha256: sha256(response.bytes),
+      candidateCount: parsed.length,
+    });
+    if (response.status !== 200) {
+      acc.diagnostics.push({
+        code: "BOOKWALKER_SEARCH_HTTP",
+        severity: "warning",
+        site,
+        message: `BookWalker ${site.toUpperCase()} search returned HTTP ${response.status}`,
+      });
+    }
+    for (const item of parsed) {
+      if (!acc.seen.has(item.url)) {
+        acc.seen.add(item.url);
+        acc.candidates.push(item);
+      }
+    }
+  } catch (error) {
+    checkAbort(options.signal);
+    if (isFatalSearchError(error)) throw error;
+    acc.diagnostics.push({
+      code: "BOOKWALKER_SEARCH_ERROR",
+      severity: "warning",
+      site,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 export async function collectBookWalkerSearch(
   input: unknown,
   options: BookWalkerOptions & { now?: () => Date } = {},
@@ -369,72 +462,28 @@ export async function collectBookWalkerSearch(
     );
   const query = queryFrom(input);
   const sites: BookWalkerSearchSite[] = query.sites ?? ["jp", "tw"];
-  const requests: BookWalkerSearchRequest[] = [];
-  const candidates: BookWalkerSearchCandidate[] = [];
-  const diagnostics: BookWalkerSearchDiagnostic[] = [];
-  const seen = new Set<string>();
+  const acc: SearchAccumulator = {
+    requests: [],
+    candidates: [],
+    diagnostics: [],
+    seen: new Set<string>(),
+  };
 
+  let chain = Promise.resolve();
   for (const site of sites) {
-    const url = searchUrl(query, site);
-    try {
-      const response = await fetchSearchPage(url, site, options);
-      const parsed =
-        response.status === 200
-          ? parseBookWalkerSearch(
-              response.bytes.toString("utf8"),
-              site,
-              query.kind,
-            )
-          : [];
-      requests.push({
-        site,
-        url,
-        status: response.status,
-        retrievedAt: (options.now?.() ?? new Date()).toISOString(),
-        sha256: sha256(response.bytes),
-        candidateCount: parsed.length,
-      });
-      if (response.status !== 200) {
-        diagnostics.push({
-          code: "BOOKWALKER_SEARCH_HTTP",
-          severity: "warning",
-          site,
-          message: `BookWalker ${site.toUpperCase()} search returned HTTP ${response.status}`,
-        });
-      }
-      for (const item of parsed) {
-        if (!seen.has(item.url)) {
-          seen.add(item.url);
-          candidates.push(item);
-        }
-      }
-    } catch (error) {
-      checkAbort(options.signal);
-      const code = (error as { code?: string })?.code;
-      if (
-        code === "CI_NETWORK_DISABLED" ||
-        code === "SSRF_BLOCKED" ||
-        code === "CANCELLED"
-      )
-        throw error;
-      diagnostics.push({
-        code: "BOOKWALKER_SEARCH_ERROR",
-        severity: "warning",
-        site,
-        message: error instanceof Error ? error.message : String(error),
-      });
-    }
+    chain = chain.then(() => collectSiteSearch(site, query, options, acc));
   }
+  await chain;
 
-  if (!requests.some((item) => item.status === 200))
+  if (!acc.requests.some((item) => item.status === 200))
     fail(
       "BOOKWALKER_SEARCH_UNAVAILABLE",
       "All selected BookWalker search endpoints failed",
-      diagnostics,
+      acc.diagnostics,
     );
 
-  if (!candidates.length)
-    diagnostics.push({
+  if (!acc.candidates.length)
+    acc.diagnostics.push({
       code: "BOOKWALKER_SEARCH_NO_MATCH",
       severity: "warning",
       message: "No matching BookWalker light-novel or manga products found",
@@ -444,9 +493,9 @@ export async function collectBookWalkerSearch(
     schemaVersion: 1 as const,
     query,
     sites,
-    requests,
-    candidates,
-    diagnostics,
+    requests: acc.requests,
+    candidates: acc.candidates,
+    diagnostics: acc.diagnostics,
   };
   return { ...content, digest: sha256(stable(content)) };
 }

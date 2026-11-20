@@ -7,10 +7,11 @@ import {
   metadataFormat,
   deliverMetadata,
   children,
+  type MetadataFile,
   type MetadataFormat,
 } from "./metadata-file.js";
 import { patchZip } from "./zip-patch.js";
-import { coverImage } from "./cover-image.js";
+import { coverImage, type CoverImage } from "./cover-image.js";
 import { coverClaims, epubCover } from "./cover-epub.js";
 import { coverQa } from "./cover-qa.js";
 import { encodePage, jxlTools } from "./manga-jxl.js";
@@ -93,12 +94,16 @@ export async function auditCover(
     evidence: null,
   };
 }
-export async function applyCover(
-  bytes: Buffer,
-  image: Buffer,
-  value: unknown,
-  signal?: AbortSignal,
-) {
+interface CoverEdits {
+  replacements: Map<string, Buffer>;
+  additions: Map<string, Buffer>;
+  imagePath: string;
+  documentPath: string | null;
+}
+
+type CoverConversion = Awaited<ReturnType<typeof encodePage>>["evidence"];
+
+async function validateCoverPlan(bytes: Buffer, image: Buffer, value: unknown) {
   const parsed = planSchema.safeParse(value);
   if (!parsed.success)
     fail("COVER_PLAN", "Invalid cover plan", parsed.error.issues);
@@ -111,10 +116,10 @@ export async function applyCover(
       "Cover source, edition and visual review evidence are required",
     );
   const actual = await auditCover(bytes, plan.format, {
-      image,
-      modified: plan.modified,
-    }),
-    details = await coverImage(image);
+    image,
+    modified: plan.modified,
+  });
+  const details = await coverImage(image);
   if (stable(actual.image) !== stable(plan.image))
     fail(
       "COVER_STALE",
@@ -125,116 +130,147 @@ export async function applyCover(
     stable(actual.inventory) !== stable(plan.inventory)
   )
     fail("COVER_STALE", "Cover inventory must not be edited");
-  const file = openMetadata(bytes, plan.format);
-  let edits: {
-    replacements: Map<string, Buffer>;
-    additions: Map<string, Buffer>;
-    imagePath: string;
-    documentPath: string | null;
-  };
-  let conversion: Awaited<ReturnType<typeof encodePage>>["evidence"] | null =
-    null;
-  if (plan.format === "epub") {
-    if (plan.pageOrder.length) fail("COVER_PLAN", "pageOrder is only for CBZ");
-    edits = epubCover(bytes, image, details, plan.target, plan.modified);
-  } else {
-    const pages = [...file.entries.keys()].filter((name) =>
-      /\.(?:jpe?g|png|gif|webp|tiff?|avif|jxl)$/i.test(name),
-    );
-    if (
-      plan.target.document !== null ||
-      !plan.target.image ||
-      !pages.includes(plan.target.image) ||
-      !plan.evidence.pageOrder
-    )
-      fail(
-        "COVER_PAGE",
-        "Select an explicit CBZ cover page and record reviewed display order",
-      );
-    if (
-      new Set(plan.pageOrder).size !== pages.length ||
-      plan.pageOrder.length !== pages.length ||
-      pages.some((name) => !plan.pageOrder.includes(name))
-    )
-      fail(
-        "COVER_ORDER",
-        "Reviewed page order must contain every image exactly once",
-      );
-    const selected = plan.pageOrder.indexOf(plan.target.image),
-      extension = path.extname(plan.target.image).toLowerCase();
-    let payload = image;
-    if (extension === ".jxl") {
-      const temporary = await fs.mkdtemp(
-        path.join(os.tmpdir(), "quillbind-cover-"),
-      );
-      try {
-        const encoded = await encodePage(
-          { name: `cover${details.extension}`, bytes: image },
-          temporary,
-          await jxlTools(signal),
-          signal,
-        );
-        payload = encoded.bytes;
-        conversion = encoded.evidence;
-      } finally {
-        await fs.rm(temporary, { recursive: true, force: true });
-      }
-    } else if (!(
-      (details.mediaType === "image/jpeg" &&
-        [".jpg", ".jpeg"].includes(extension)) ||
-      (details.mediaType === "image/png" && extension === ".png")
-    ))
+  return { plan, details };
+}
+
+function matchesCbzRasterExtension(mediaType: string, extension: string) {
+  const isJpeg =
+    mediaType === "image/jpeg" &&
+    (extension === ".jpg" || extension === ".jpeg");
+  const isPng = mediaType === "image/png" && extension === ".png";
+  return isJpeg || isPng;
+}
+
+async function prepareCbzCoverPayload(
+  image: Buffer,
+  details: CoverImage,
+  extension: string,
+  signal?: AbortSignal,
+): Promise<{ payload: Buffer; conversion: CoverConversion | null }> {
+  if (extension !== ".jxl") {
+    if (!matchesCbzRasterExtension(details.mediaType, extension))
       fail(
         "COVER_FORMAT",
         "Selected page format differs from the original cover; supply matching JPEG/PNG or select an existing JXL page",
       );
-    const pageCount = elements(file.document, "PageCount")[0]?.textContent;
-    if (pageCount && Number(pageCount) !== pages.length)
-      fail(
-        "COVER_ORDER",
-        "ComicInfo PageCount conflicts with the image inventory",
-      );
-    let mapping = elements(file.document, "Pages")[0];
-    if (!mapping) {
-      mapping = file.document.createElement("Pages");
-      const after = children(file.metadata).find((node) =>
-        ["CommunityRating", "MainCharacterOrTeam", "Review"].includes(
-          node.localName ?? "",
-        ),
-      );
-      file.metadata.insertBefore(mapping, after ?? null);
-    }
-    const seen = new Set<number>();
-    for (const node of elements(mapping, "Page")) {
-      const raw = attr(node, "Image"),
-        index = Number(raw);
-      if (!/^\d+$/.test(raw) || index >= pages.length || seen.has(index))
-        fail("COVER_ORDER", "ComicInfo page mapping is invalid or duplicated");
-      seen.add(index);
-      const types = attr(node, "Type")
-        .split(/\s+/)
-        .filter((type) => type && type !== "FrontCover");
-      if (types.length) node.setAttribute("Type", types.join(" "));
-      else node.removeAttribute("Type");
-    }
-    let node = elements(mapping, "Page").find(
-      (node) => Number(attr(node, "Image")) === selected,
+    return { payload: image, conversion: null };
+  }
+  const temporary = await fs.mkdtemp(
+    path.join(os.tmpdir(), "quillbind-cover-"),
+  );
+  try {
+    const encoded = await encodePage(
+      { name: `cover${details.extension}`, bytes: image },
+      temporary,
+      await jxlTools(signal),
+      signal,
     );
-    if (!node) {
-      node = file.document.createElement("Page");
-      node.setAttribute("Image", String(selected));
-      mapping.appendChild(node);
-    }
-    node.setAttribute(
-      "Type",
-      [...attr(node, "Type").split(/\s+/).filter(Boolean), "FrontCover"].join(
-        " ",
-      ),
+    return { payload: encoded.bytes, conversion: encoded.evidence };
+  } finally {
+    await fs.rm(temporary, { recursive: true, force: true });
+  }
+}
+
+function ensureCbzPagesElement(file: MetadataFile) {
+  let mapping = elements(file.document, "Pages")[0];
+  if (mapping) return mapping;
+  mapping = file.document.createElement("Pages");
+  const after = children(file.metadata).find((node) =>
+    ["CommunityRating", "MainCharacterOrTeam", "Review"].includes(
+      node.localName ?? "",
+    ),
+  );
+  file.metadata.insertBefore(mapping, after ?? null);
+  return mapping;
+}
+
+function updateCbzCoverMapping(
+  file: MetadataFile,
+  pageCountTotal: number,
+  selected: number,
+  details: CoverImage,
+  payloadLength: number,
+) {
+  const pageCount = elements(file.document, "PageCount")[0]?.textContent;
+  if (pageCount && Number(pageCount) !== pageCountTotal)
+    fail(
+      "COVER_ORDER",
+      "ComicInfo PageCount conflicts with the image inventory",
     );
-    node.setAttribute("ImageWidth", String(details.width));
-    node.setAttribute("ImageHeight", String(details.height));
-    node.setAttribute("ImageSize", String(payload.length));
-    edits = {
+  const mapping = ensureCbzPagesElement(file);
+  const seen = new Set<number>();
+  for (const node of elements(mapping, "Page")) {
+    const raw = attr(node, "Image");
+    const index = Number(raw);
+    if (!/^\d+$/.test(raw) || index >= pageCountTotal || seen.has(index))
+      fail("COVER_ORDER", "ComicInfo page mapping is invalid or duplicated");
+    seen.add(index);
+    const types = attr(node, "Type")
+      .split(/\s+/)
+      .filter((type) => type && type !== "FrontCover");
+    if (types.length) node.setAttribute("Type", types.join(" "));
+    else node.removeAttribute("Type");
+  }
+  let node = elements(mapping, "Page").find(
+    (entry) => Number(attr(entry, "Image")) === selected,
+  );
+  if (!node) {
+    node = file.document.createElement("Page");
+    node.setAttribute("Image", String(selected));
+    mapping.appendChild(node);
+  }
+  node.setAttribute(
+    "Type",
+    [...attr(node, "Type").split(/\s+/).filter(Boolean), "FrontCover"].join(
+      " ",
+    ),
+  );
+  node.setAttribute("ImageWidth", String(details.width));
+  node.setAttribute("ImageHeight", String(details.height));
+  node.setAttribute("ImageSize", String(payloadLength));
+}
+
+async function applyCbzCover(
+  file: MetadataFile,
+  image: Buffer,
+  details: CoverImage,
+  plan: CoverPlan,
+  signal?: AbortSignal,
+): Promise<{ edits: CoverEdits; conversion: CoverConversion | null }> {
+  const pages = [...file.entries.keys()].filter((name) =>
+    /\.(?:jpe?g|png|gif|webp|tiff?|avif|jxl)$/i.test(name),
+  );
+  if (
+    plan.target.document !== null ||
+    !plan.target.image ||
+    !pages.includes(plan.target.image) ||
+    !plan.evidence?.pageOrder
+  )
+    fail(
+      "COVER_PAGE",
+      "Select an explicit CBZ cover page and record reviewed display order",
+    );
+  if (
+    new Set(plan.pageOrder).size !== pages.length ||
+    plan.pageOrder.length !== pages.length ||
+    pages.some((name) => !plan.pageOrder.includes(name))
+  )
+    fail(
+      "COVER_ORDER",
+      "Reviewed page order must contain every image exactly once",
+    );
+  const selected = plan.pageOrder.indexOf(plan.target.image);
+  const extension = path.extname(plan.target.image).toLowerCase();
+  const { payload, conversion } = await prepareCbzCoverPayload(
+    image,
+    details,
+    extension,
+    signal,
+  );
+  updateCbzCoverMapping(file, pages.length, selected, details, payload.length);
+  return {
+    conversion,
+    edits: {
       imagePath: plan.target.image,
       documentPath: null,
       replacements: new Map([
@@ -242,28 +278,60 @@ export async function applyCover(
         [file.location, Buffer.from(serialize(file.document))],
       ]),
       additions: new Map(),
-    };
+    },
+  };
+}
+
+function verifyCoverReadback(
+  output: Buffer,
+  plan: CoverPlan,
+  edits: CoverEdits,
+) {
+  const readback = openMetadata(output, plan.format);
+  for (const [name, content] of [...edits.replacements, ...edits.additions]) {
+    if (!readback.entries.get(name)?.bytes.equals(content))
+      fail("COVER_READBACK", `Cover readback failed: ${name}`);
   }
-  const output = patchZip(bytes, edits.replacements, edits.additions),
-    readback = openMetadata(output, plan.format);
+  if (plan.format !== "epub") return;
+  const claims = coverClaims(output);
+  if (
+    stable(claims.images) !== stable([edits.imagePath]) ||
+    stable(claims.documents) !== stable([edits.documentPath])
+  )
+    fail(
+      "COVER_READBACK",
+      "Cover declarations do not select the adopted image and page",
+    );
+}
+
+export async function applyCover(
+  bytes: Buffer,
+  image: Buffer,
+  value: unknown,
+  signal?: AbortSignal,
+) {
+  const { plan, details } = await validateCoverPlan(bytes, image, value);
+  const file = openMetadata(bytes, plan.format);
+  let edits: CoverEdits;
+  let conversion: CoverConversion | null = null;
+  if (plan.format === "epub") {
+    if (plan.pageOrder.length) fail("COVER_PLAN", "pageOrder is only for CBZ");
+    edits = epubCover(bytes, image, details, plan.target, plan.modified);
+  } else {
+    ({ edits, conversion } = await applyCbzCover(
+      file,
+      image,
+      details,
+      plan,
+      signal,
+    ));
+  }
+  const output = patchZip(bytes, edits.replacements, edits.additions);
+  verifyCoverReadback(output, plan, edits);
   const changedMembers = [
     ...edits.replacements.keys(),
     ...edits.additions.keys(),
   ];
-  for (const [name, content] of [...edits.replacements, ...edits.additions])
-    if (!readback.entries.get(name)?.bytes.equals(content))
-      fail("COVER_READBACK", `Cover readback failed: ${name}`);
-  if (plan.format === "epub") {
-    const claims = coverClaims(output);
-    if (
-      stable(claims.images) !== stable([edits.imagePath]) ||
-      stable(claims.documents) !== stable([edits.documentPath])
-    )
-      fail(
-        "COVER_READBACK",
-        "Cover declarations do not select the adopted image and page",
-      );
-  }
   const preserved = [...file.entries]
     .filter(([name]) => !changedMembers.includes(name))
     .map(([name, entry]) => ({ name, sha256: sha256(entry.bytes) }));

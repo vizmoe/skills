@@ -19,7 +19,7 @@ import { readSourceFile } from "./files.js";
 import { sha256 } from "./hash.js";
 import { stable } from "./json.js";
 import { repoRoot } from "./runtime.js";
-import { attr, elements, NS, serialize, xml } from "./xml.js";
+import { attr, elements, NS, removeNode, serialize, xml } from "./xml.js";
 
 export const comicSequence: readonly string[] = (() => {
   const schemaDoc = xml(
@@ -248,10 +248,48 @@ function extractSubjects(file: MetadataFile) {
   };
 }
 
-function evaluateDecision(
+type WorkKindRule =
+  LoadedVocabulary["workKinds"][keyof LoadedVocabulary["workKinds"]];
+type TagChange = z.infer<typeof changeSchema>;
+type TagUnresolved = z.infer<typeof unresolvedSchema>;
+
+function validateAddedTags(
+  added: string[],
+  vocabulary: LoadedVocabulary,
+  rule: WorkKindRule | undefined,
+) {
+  for (const tag of added) {
+    if (!vocabulary.canonical.has(tag))
+      fail(
+        "TAGS_DECISION",
+        `Added tag must match the controlled vocabulary: ${tag}`,
+      );
+    if (rule?.forbidden.includes(tag))
+      fail("TAGS_DECISION", `Tag conflicts with declared kind: ${tag}`);
+  }
+}
+
+function validateRemovedTags(
+  originalTags: string[],
+  decision: TagsDecision,
+  rule: WorkKindRule | undefined,
+) {
+  for (const tag of decision.remove) {
+    if (decision.add.includes(tag) || rule?.required === tag)
+      fail("TAGS_DECISION", `Conflicting add/remove tag decision: ${tag}`);
+    if (!originalTags.includes(tag))
+      fail(
+        "TAGS_DECISION",
+        `Removal must match an original tag exactly: ${tag}`,
+      );
+  }
+}
+
+function validateTagDecision(
   originalTags: string[],
   decision: TagsDecision,
   vocabulary: LoadedVocabulary,
+  rule: WorkKindRule | undefined,
 ) {
   const hasExplicitEdit =
     decision.kind !== undefined ||
@@ -262,31 +300,18 @@ function evaluateDecision(
       "TAGS_EVIDENCE",
       "Explicit tag or work-kind decisions require evidence",
     );
+  validateAddedTags(decision.add, vocabulary, rule);
+  validateRemovedTags(originalTags, decision, rule);
+}
 
-  const rule = decision.kind ? vocabulary.workKinds[decision.kind] : undefined;
-  for (const tag of decision.add) {
-    if (!vocabulary.canonical.has(tag))
-      fail(
-        "TAGS_DECISION",
-        `Added tag must match the controlled vocabulary: ${tag}`,
-      );
-    if (rule?.forbidden.includes(tag))
-      fail("TAGS_DECISION", `Tag conflicts with declared kind: ${tag}`);
-  }
-  for (const tag of decision.remove) {
-    if (decision.add.includes(tag) || rule?.required === tag)
-      fail("TAGS_DECISION", `Conflicting add/remove tag decision: ${tag}`);
-    if (!originalTags.includes(tag))
-      fail(
-        "TAGS_DECISION",
-        `Removal must match an original tag exactly: ${tag}`,
-      );
-  }
-
+function normalizeOriginalTags(
+  originalTags: string[],
+  decision: TagsDecision,
+  vocabulary: LoadedVocabulary,
+  rule: WorkKindRule | undefined,
+) {
   const proposed: string[] = [];
-  const changes: z.infer<typeof changeSchema>[] = [];
-  const unresolved: z.infer<typeof unresolvedSchema>[] = [];
-
+  const changes: TagChange[] = [];
   for (const original of originalTags) {
     const normalized =
       vocabulary.aliases.get(vocabulary.key(original)) ?? original;
@@ -303,28 +328,46 @@ function evaluateDecision(
     }
     if (proposed.includes(normalized)) {
       changes.push({ from: original, to: normalized, reason: "duplicate" });
-    } else {
-      proposed.push(normalized);
-      if (original !== normalized)
-        changes.push({
-          from: original,
-          to: normalized,
-          reason: "vocabulary normalization",
-        });
+      continue;
     }
+    proposed.push(normalized);
+    if (original !== normalized)
+      changes.push({
+        from: original,
+        to: normalized,
+        reason: "vocabulary normalization",
+      });
   }
+  return { proposed, changes };
+}
 
+function applyTagAdditions(
+  proposed: string[],
+  changes: TagChange[],
+  unresolved: TagUnresolved[],
+  decision: TagsDecision,
+  vocabulary: LoadedVocabulary,
+  rule: WorkKindRule | undefined,
+) {
   const additions = [...decision.add];
   if (rule?.required) {
     if (vocabulary.canonical.has(rule.required)) additions.push(rule.required);
     else unresolved.push({ code: "VOCABULARY_GAP", tag: rule.required });
   }
   for (const tag of additions) {
-    if (!proposed.includes(tag)) {
-      proposed.push(tag);
-      changes.push({ from: null, to: tag, reason: "evidence-backed addition" });
-    }
+    if (proposed.includes(tag)) continue;
+    proposed.push(tag);
+    changes.push({ from: null, to: tag, reason: "evidence-backed addition" });
   }
+}
+
+function collectTagUnresolved(
+  proposed: string[],
+  decision: TagsDecision,
+  vocabulary: LoadedVocabulary,
+  rule: WorkKindRule | undefined,
+  unresolved: TagUnresolved[],
+) {
   for (const tag of proposed) {
     if (!vocabulary.canonical.has(tag))
       unresolved.push({ code: "UNKNOWN_TAG", tag });
@@ -344,7 +387,24 @@ function evaluateDecision(
     unresolved.push({ code: "ART_SUBJECT_REQUIRED" });
   if (!proposed.length && !decision.clearEvidence)
     unresolved.push({ code: "MISSING_TAGS" });
+}
 
+function evaluateDecision(
+  originalTags: string[],
+  decision: TagsDecision,
+  vocabulary: LoadedVocabulary,
+) {
+  const rule = decision.kind ? vocabulary.workKinds[decision.kind] : undefined;
+  validateTagDecision(originalTags, decision, vocabulary, rule);
+  const { proposed, changes } = normalizeOriginalTags(
+    originalTags,
+    decision,
+    vocabulary,
+    rule,
+  );
+  const unresolved: TagUnresolved[] = [];
+  applyTagAdditions(proposed, changes, unresolved, decision, vocabulary, rule);
+  collectTagUnresolved(proposed, decision, vocabulary, rule, unresolved);
   return { proposed, changes, unresolved };
 }
 
@@ -390,6 +450,33 @@ export async function auditTags(
   };
 }
 
+function stripOpfMetadata(file: MetadataFile) {
+  const copy = file.document.cloneNode(true) as typeof file.document;
+  for (const node of elements(copy, "metadata", NS.opf)) removeNode(node);
+  return serialize(copy);
+}
+
+function nonSubjectRecords(file: MetadataFile) {
+  const subjectNodes = children(file.metadata).filter(
+    (node) => node.namespaceURI === NS.dc && node.localName === "subject",
+  );
+  const skip = new Set<Element>(subjectNodes);
+  for (const subject of subjectNodes) {
+    for (const ref of subjectRefinements(file, subject)) skip.add(ref);
+  }
+  return children(file.metadata)
+    .filter((node) => !skip.has(node))
+    .filter(
+      (node) =>
+        !(
+          node.namespaceURI === NS.opf &&
+          node.localName === "meta" &&
+          attr(node, "property") === "dcterms:modified"
+        ),
+    )
+    .map(serialize);
+}
+
 function verifyTagIntegrity(
   beforeBytes: Buffer,
   afterBytes: Buffer,
@@ -407,46 +494,12 @@ function verifyTagIntegrity(
     );
 
   if (format === "epub") {
-    const stripMetadata = (file: MetadataFile) => {
-      const copy = file.document.cloneNode(true) as typeof file.document;
-      for (const node of elements(copy, "metadata", NS.opf))
-        node.parentNode!.removeChild(node);
-      return serialize(copy);
-    };
     if (
-      stripMetadata(source) !== stripMetadata(result) ||
+      stripOpfMetadata(source) !== stripOpfMetadata(result) ||
       result.version !== source.version
     )
       fail("METADATA_INTEGRITY", "Package structure outside metadata changed");
-
-    const nonSubjectRecords = (file: MetadataFile, isSource: boolean) => {
-      const subjectNodes = children(file.metadata).filter(
-        (node) => node.namespaceURI === NS.dc && node.localName === "subject",
-      );
-      const skip = new Set<Element>(subjectNodes);
-      if (isSource) {
-        for (const subject of subjectNodes)
-          for (const ref of subjectRefinements(file, subject)) skip.add(ref);
-      } else {
-        for (const subject of subjectNodes)
-          for (const ref of subjectRefinements(file, subject)) skip.add(ref);
-      }
-      return children(file.metadata)
-        .filter((node) => !skip.has(node))
-        .filter(
-          (node) =>
-            !(
-              node.namespaceURI === NS.opf &&
-              node.localName === "meta" &&
-              attr(node, "property") === "dcterms:modified"
-            ),
-        )
-        .map(serialize);
-    };
-    if (
-      stable(nonSubjectRecords(source, true)) !==
-      stable(nonSubjectRecords(result, false))
-    )
+    if (stable(nonSubjectRecords(source)) !== stable(nonSubjectRecords(result)))
       fail("METADATA_INTEGRITY", "Unselected EPUB metadata records changed");
     return;
   }
@@ -459,10 +512,10 @@ function verifyTagIntegrity(
     fail("METADATA_INTEGRITY", "Unselected ComicInfo metadata fields changed");
 }
 
-export async function applyTags(
+async function validateTagsPlan(
   bytes: Buffer,
   value: unknown,
-  options: { vocabulary?: string } = {},
+  options: { vocabulary?: string },
 ) {
   const parsed = planSchema.safeParse(value);
   if (!parsed.success)
@@ -508,101 +561,167 @@ export async function applyTags(
       "Resolve all unknown or conflicting tags before applying",
       evaluated.unresolved,
     );
+  return { plan, evaluated };
+}
 
+function applyCbzTags(file: MetadataFile, proposed: string[]) {
+  const commaTag = proposed.find((tag) => tag.includes(","));
+  if (commaTag)
+    fail(
+      "TAGS_REPRESENTATION_CONFLICT",
+      `ComicInfo Genre comma list cannot unambiguously represent tag containing a comma: ${commaTag}`,
+    );
+  for (const node of children(file.metadata)) {
+    if (!node.namespaceURI && node.localName === "Genre") removeNode(node);
+  }
+  if (proposed.length) insertComicElement(file, "Genre", proposed.join(", "));
+}
+
+function buildDropDecisions(plan: TagsPlan) {
+  const dropDecisions = new Map<string, string>();
+  for (const item of plan.refinementDecisions) {
+    if (
+      dropDecisions.has(item.key) ||
+      !plan.before.nodes.some((row) => row.key === item.key)
+    )
+      fail(
+        "TAGS_REFINEMENT",
+        `Invalid or duplicate refinement decision: ${item.key}`,
+      );
+    dropDecisions.set(item.key, item.evidence);
+  }
+  return dropDecisions;
+}
+
+interface SubjectPoolEntry {
+  key: string;
+  node: Element;
+  value: string;
+  refinements: Element[];
+  external: boolean;
+  used: boolean;
+}
+
+function findSubjectInsertionAnchor(
+  subjects: Element[],
+  pool: SubjectPoolEntry[],
+) {
+  const subjectAndRefNodes = new Set<Node>();
+  for (const entry of pool) {
+    subjectAndRefNodes.add(entry.node);
+    for (const ref of entry.refinements) subjectAndRefNodes.add(ref);
+  }
+  let insertionAnchor: Node | null = subjects.at(-1)?.nextSibling ?? null;
+  while (insertionAnchor && subjectAndRefNodes.has(insertionAnchor)) {
+    insertionAnchor = insertionAnchor.nextSibling;
+  }
+  return insertionAnchor;
+}
+
+function pruneUnusedSubjects(
+  pool: SubjectPoolEntry[],
+  dropDecisions: Map<string, string>,
+) {
+  for (const entry of pool) {
+    if (entry.used) continue;
+    if (entry.external)
+      fail(
+        "TAGS_REFERENCE",
+        `dc:subject ${entry.key} is referenced outside metadata refinements`,
+      );
+    if (entry.refinements.length && !dropDecisions.has(entry.key))
+      fail(
+        "TAGS_REFINEMENT",
+        `Account for attached refinements on removed/replaced ${entry.key} in refinementDecisions`,
+      );
+    for (const ref of entry.refinements) removeNode(ref);
+    removeNode(entry.node);
+  }
+}
+
+function matchRetainedSubjects(
+  proposed: string[],
+  remainingPool: SubjectPoolEntry[],
+) {
+  const retainedByLabel = new Map<string, SubjectPoolEntry>();
+  for (const label of proposed) {
+    const match = remainingPool.find(
+      (entry) => !entry.used && entry.value === label,
+    );
+    if (!match) continue;
+    match.used = true;
+    retainedByLabel.set(label, match);
+  }
+  return retainedByLabel;
+}
+
+function insertOrderedSubjects(
+  file: MetadataFile,
+  proposed: string[],
+  retainedByLabel: Map<string, SubjectPoolEntry>,
+  insertionAnchor: Node | null,
+) {
+  for (const label of proposed) {
+    const kept = retainedByLabel.get(label);
+    if (kept) {
+      file.metadata.insertBefore(kept.node, insertionAnchor);
+      for (const ref of kept.refinements)
+        file.metadata.insertBefore(ref, insertionAnchor);
+      continue;
+    }
+    const created = file.document.createElementNS(NS.dc, "dc:subject");
+    created.textContent = label;
+    file.metadata.insertBefore(created, insertionAnchor);
+  }
+}
+
+function applyEpubTags(
+  file: MetadataFile,
+  plan: TagsPlan,
+  evaluated: ReturnType<typeof evaluateDecision>,
+) {
+  if (
+    evaluated.changes.length === 0 &&
+    stable(plan.before.tags) === stable(evaluated.proposed)
+  )
+    return;
+  const subjects = children(file.metadata).filter(
+    (node) => node.namespaceURI === NS.dc && node.localName === "subject",
+  );
+  const dropDecisions = buildDropDecisions(plan);
+  const remainingPool: SubjectPoolEntry[] = subjects.map((node, index) => ({
+    key: `subject/${index}`,
+    node,
+    value: (node.textContent ?? "").trim(),
+    refinements: subjectRefinements(file, node),
+    external: plan.before.nodes[index].externalReferences,
+    used: false,
+  }));
+  const insertionAnchor = findSubjectInsertionAnchor(subjects, remainingPool);
+  const retainedByLabel = matchRetainedSubjects(
+    evaluated.proposed,
+    remainingPool,
+  );
+  pruneUnusedSubjects(remainingPool, dropDecisions);
+  insertOrderedSubjects(
+    file,
+    evaluated.proposed,
+    retainedByLabel,
+    insertionAnchor,
+  );
+}
+
+export async function applyTags(
+  bytes: Buffer,
+  value: unknown,
+  options: { vocabulary?: string } = {},
+) {
+  const { plan, evaluated } = await validateTagsPlan(bytes, value, options);
   const file = openMetadata(bytes, plan.format, { preserveContent: true });
   const originalXml = serialize(file.document);
 
-  if (plan.format === "cbz") {
-    const commaTag = evaluated.proposed.find((tag) => tag.includes(","));
-    if (commaTag)
-      fail(
-        "TAGS_REPRESENTATION_CONFLICT",
-        `ComicInfo Genre comma list cannot unambiguously represent tag containing a comma: ${commaTag}`,
-      );
-    for (const node of children(file.metadata))
-      if (!node.namespaceURI && node.localName === "Genre")
-        file.metadata.removeChild(node);
-    if (evaluated.proposed.length)
-      insertComicElement(file, "Genre", evaluated.proposed.join(", "));
-  } else if (
-    evaluated.changes.length > 0 ||
-    stable(plan.before.tags) !== stable(evaluated.proposed)
-  ) {
-    const subjects = children(file.metadata).filter(
-      (node) => node.namespaceURI === NS.dc && node.localName === "subject",
-    );
-    const dropDecisions = new Map<string, string>();
-    for (const item of plan.refinementDecisions) {
-      if (
-        dropDecisions.has(item.key) ||
-        !plan.before.nodes.some((row) => row.key === item.key)
-      )
-        fail(
-          "TAGS_REFINEMENT",
-          `Invalid or duplicate refinement decision: ${item.key}`,
-        );
-      dropDecisions.set(item.key, item.evidence);
-    }
-
-    const remainingPool = subjects.map((node, index) => ({
-      key: `subject/${index}`,
-      node,
-      value: (node.textContent ?? "").trim(),
-      refinements: subjectRefinements(file, node),
-      external: plan.before.nodes[index].externalReferences,
-      used: false,
-    }));
-
-    const subjectAndRefNodes = new Set<Node>();
-    for (const entry of remainingPool) {
-      subjectAndRefNodes.add(entry.node);
-      for (const ref of entry.refinements) subjectAndRefNodes.add(ref);
-    }
-    let insertionAnchor: Node | null = subjects.at(-1)?.nextSibling ?? null;
-    while (insertionAnchor && subjectAndRefNodes.has(insertionAnchor)) {
-      insertionAnchor = insertionAnchor.nextSibling;
-    }
-
-    const retainedByLabel = new Map<string, (typeof remainingPool)[number]>();
-    for (const label of evaluated.proposed) {
-      const match = remainingPool.find(
-        (entry) => !entry.used && entry.value === label,
-      );
-      if (match) {
-        match.used = true;
-        retainedByLabel.set(label, match);
-      }
-    }
-
-    for (const entry of remainingPool) {
-      if (entry.used) continue;
-      if (entry.external)
-        fail(
-          "TAGS_REFERENCE",
-          `dc:subject ${entry.key} is referenced outside metadata refinements`,
-        );
-      if (entry.refinements.length && !dropDecisions.has(entry.key))
-        fail(
-          "TAGS_REFINEMENT",
-          `Account for attached refinements on removed/replaced ${entry.key} in refinementDecisions`,
-        );
-      for (const ref of entry.refinements) file.metadata.removeChild(ref);
-      file.metadata.removeChild(entry.node);
-    }
-
-    for (const label of evaluated.proposed) {
-      const kept = retainedByLabel.get(label);
-      if (kept) {
-        file.metadata.insertBefore(kept.node, insertionAnchor);
-        for (const ref of kept.refinements)
-          file.metadata.insertBefore(ref, insertionAnchor);
-      } else {
-        const created = file.document.createElementNS(NS.dc, "dc:subject");
-        created.textContent = label;
-        file.metadata.insertBefore(created, insertionAnchor);
-      }
-    }
-  }
+  if (plan.format === "cbz") applyCbzTags(file, evaluated.proposed);
+  else applyEpubTags(file, plan, evaluated);
 
   const changed = serialize(file.document) !== originalXml;
   if (changed) setModified(file, plan.modified);

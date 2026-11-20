@@ -9,8 +9,7 @@ import { STATE } from "@mathjax/src/js/core/MathItem.js";
 import "@mathjax/src/js/input/tex/base/BaseConfiguration.js";
 import "@mathjax/src/js/input/tex/ams/AmsConfiguration.js";
 import { fail } from "./errors.js";
-import { escapeXml as e } from "./xml.js";
-import { xml } from "./xml.js";
+import { escapeXml as e, xml } from "./xml.js";
 import type { MathExpression } from "./model.js";
 
 const adaptor = liteAdaptor();

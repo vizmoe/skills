@@ -49,7 +49,7 @@ export function missingFontSources(
       const groups: (typeof parsed.nodes)[] = [[]];
       for (const node of parsed.nodes) {
         if (node.type === "div" && node.value === ",") groups.push([]);
-        else groups[groups.length - 1].push(node);
+        else groups.at(-1)!.push(node);
       }
       const retained = groups.filter(
         (group) =>

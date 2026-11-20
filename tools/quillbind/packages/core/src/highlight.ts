@@ -4,8 +4,13 @@ import {
   type SpecialLanguage,
 } from "shiki";
 import { fail } from "./errors.js";
-import { escapeXml as e } from "./xml.js";
-import { xml } from "./xml.js";
+import { escapeXml as e, xml } from "./xml.js";
+
+function tokenClass(fontStyle: number | undefined): string {
+  if (fontStyle === 1) return "token-comment";
+  if (fontStyle === 2) return "token-emphasis";
+  return "token";
+}
 
 /** Shiki's shorthand already shares its highlighter, themes and grammars. */
 export async function highlightCode(text: string, language: string) {
@@ -23,7 +28,7 @@ export async function highlightCode(text: string, language: string) {
       line
         .map(
           (t) =>
-            `<span class="${t.fontStyle === 1 ? "token-comment" : t.fontStyle === 2 ? "token-emphasis" : "token"}">${e(t.content)}</span>`,
+            `<span class="${tokenClass(t.fontStyle)}">${e(t.content)}</span>`,
         )
         .join(""),
     )

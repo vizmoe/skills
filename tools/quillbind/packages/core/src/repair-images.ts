@@ -18,17 +18,45 @@ const excluded = new Set([
   "h6",
 ]);
 
-// Follow one image through transparent wrappers to its own block. Whitespace
-// and comments are harmless; a figure's separate caption remains untouched.
-function imageBranch(image: Element): Element[] | undefined {
+function hasExcludedAncestor(image: Element): boolean {
   for (
     let node: Element | null = image;
     node;
     node = node.parentNode as Element | null
   ) {
     if (excluded.has(node.localName ?? "") || node.hasAttribute?.("hidden"))
-      return;
+      return true;
   }
+  return false;
+}
+
+function hasOnlyTransparentSiblings(
+  parent: Element,
+  child: Element,
+  tag: string,
+): boolean {
+  let captions = 0;
+  for (const sibling of Array.from(parent.childNodes)) {
+    if (sibling === child || sibling.nodeType === 8) continue;
+    if (sibling.nodeType === 3 && /^[\t\r\n ]*$/.test(sibling.nodeValue ?? ""))
+      continue;
+    if (
+      tag === "figure" &&
+      sibling.nodeType === 1 &&
+      (sibling as Element).namespaceURI === NS.xhtml &&
+      (sibling as Element).localName === "figcaption" &&
+      ++captions === 1
+    )
+      continue;
+    return false;
+  }
+  return true;
+}
+
+// Follow one image through transparent wrappers to its own block. Whitespace
+// and comments are harmless; a figure's separate caption remains untouched.
+function imageBranch(image: Element): Element[] | undefined {
+  if (hasExcludedAncestor(image)) return;
   const branch = [image];
   let child = image;
   while (child.parentNode?.nodeType === 1) {
@@ -36,24 +64,7 @@ function imageBranch(image: Element): Element[] | undefined {
     if (parent.namespaceURI !== NS.xhtml) return;
     const tag = parent.localName!;
     if (!blocks.has(tag) && !wrappers.has(tag)) return;
-    let captions = 0;
-    for (const sibling of Array.from(parent.childNodes)) {
-      if (sibling === child || sibling.nodeType === 8) continue;
-      if (
-        sibling.nodeType === 3 &&
-        /^[\t\r\n ]*$/.test(sibling.nodeValue ?? "")
-      )
-        continue;
-      if (
-        tag === "figure" &&
-        sibling.nodeType === 1 &&
-        (sibling as Element).namespaceURI === NS.xhtml &&
-        (sibling as Element).localName === "figcaption" &&
-        ++captions === 1
-      )
-        continue;
-      return;
-    }
+    if (!hasOnlyTransparentSiblings(parent, child, tag)) return;
     if (blocks.has(tag)) return branch;
     branch.push(parent);
     child = parent;

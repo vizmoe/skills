@@ -48,45 +48,130 @@ export const guessMedia = (name: string, bytes: Buffer) => {
   }
   return undefined;
 };
-export function planFromBytes(
-  input: Uint8Array | EpubInspection,
-  purpose: RepairPlan["purpose"] = "publication",
-): RepairPlan {
-  const info = input instanceof Uint8Array ? inspectBytes(input) : input;
-  const actions: RepairAction[] = [];
-  const preserveNotes =
-    purpose === "reading" &&
-    inspectNotes(info).kind === "scripted-note-candidate";
-  const add = (
-    ruleId: string,
-    classification: RepairAction["classification"],
-    resource: string,
-    message: string,
-  ) => {
-    if (
-      purpose === "reading" &&
-      ["epub3-package", "modified", "accessibility-discovery"].includes(ruleId)
-    )
-      return;
+type AddPlanAction = (
+  ruleId: string,
+  classification: RepairAction["classification"],
+  resource: string,
+  message: string,
+) => void;
+
+const readingIgnoredRules = new Set([
+  "epub3-package",
+  "modified",
+  "accessibility-discovery",
+]);
+const epub2ReadingIgnoredRules = new Set(["navigation", "package-language"]);
+const preservedNoteSafeRules = new Set([
+  "ocf-packaging",
+  "package-language",
+  "identifier-reference",
+]);
+const bodyDefaultMetrics = new Set([
+  "font",
+  "font-family",
+  "font-size",
+  "line-height",
+  "height",
+  "min-height",
+  "max-height",
+]);
+const discoveryMetaFields = [
+  "schema:accessMode",
+  "schema:accessModeSufficient",
+  "schema:accessibilityFeature",
+  "schema:accessibilityHazard",
+  "schema:accessibilitySummary",
+];
+
+function createActionRecorder(
+  purpose: RepairPlan["purpose"],
+  info: EpubInspection,
+  preserveNotes: boolean,
+  actions: RepairAction[],
+): AddPlanAction {
+  return (ruleId, classification, resource, message) => {
+    if (purpose === "reading" && readingIgnoredRules.has(ruleId)) return;
     if (
       purpose === "reading" &&
       info.version === "2.0" &&
-      ["navigation", "package-language"].includes(ruleId)
+      epub2ReadingIgnoredRules.has(ruleId)
     )
       return;
+    let finalClassification = classification;
+    let finalMessage = message;
     if (
       preserveNotes &&
-      classification === "safe" &&
-      !["ocf-packaging", "package-language", "identifier-reference"].includes(
-        ruleId,
-      )
+      finalClassification === "safe" &&
+      !preservedNoteSafeRules.has(ruleId)
     ) {
-      classification = "review-required";
-      message += "; scripted-note dependencies remain byte-identical";
+      finalClassification = "review-required";
+      finalMessage += "; scripted-note dependencies remain byte-identical";
     }
-    actions.push({ ruleId, classification, resource, message });
+    actions.push({
+      ruleId,
+      classification: finalClassification,
+      resource,
+      message: finalMessage,
+    });
   };
-  for (const feature of info.unsupported)
+}
+
+function planNcxIdentifierActions(info: EpubInspection, add: AddPlanAction) {
+  const identifiers = elements(info.packageDocument, "identifier", NS.dc);
+  const uniqueIdentifier = attr(
+    info.packageDocument.documentElement!,
+    "unique-identifier",
+  );
+  if (
+    !identifiers.some((el) => attr(el, "id") === uniqueIdentifier) &&
+    identifiers.length === 1 &&
+    attr(identifiers[0], "id") &&
+    identifiers[0].textContent?.trim()
+  )
+    add(
+      "identifier-reference",
+      "safe",
+      info.packagePath,
+      "Point unique-identifier to the sole existing identifier without changing its value",
+    );
+  const identifier =
+    identifiers.find((el) => attr(el, "id") === uniqueIdentifier) ??
+    (identifiers.length === 1 ? identifiers[0] : undefined);
+  if (!identifier?.textContent?.trim()) return;
+  for (const item of info.manifest) {
+    if (
+      item.mediaType !== "application/x-dtbncx+xml" ||
+      !info.entries.has(item.path)
+    )
+      continue;
+    try {
+      const document = ncxXml(
+        info.entries.get(item.path)!.bytes.toString(),
+        item.path,
+      );
+      const uid = elements(document, "meta").find(
+        (el) => attr(el, "name") === "dtb:uid",
+      );
+      if (uid && !attr(uid, "content").trim())
+        add(
+          "ncx-identifier",
+          "safe",
+          item.path,
+          "Fill an empty NCX dtb:uid from the declared publication identifier",
+        );
+    } catch {
+      /* unsupported NCX remains available for explicit review */
+    }
+  }
+}
+
+function planUnsupportedAndVersionActions(
+  info: EpubInspection,
+  purpose: RepairPlan["purpose"],
+  preserveNotes: boolean,
+  add: AddPlanAction,
+) {
+  for (const feature of info.unsupported) {
     if (feature === "interactive-content" && preserveNotes)
       add(
         "scripted-notes-preserve",
@@ -95,6 +180,7 @@ export function planFromBytes(
         "Preserve all content resources; popup behavior requires epub check-notes with explicit script execution",
       );
     else add("unsupported-feature", "unsupported", info.packagePath, feature);
+  }
   if (purpose === "reading" && readingReflowNeeded(info))
     add(
       "reading-reflow",
@@ -116,6 +202,15 @@ export function planFromBytes(
       info.packagePath,
       `Unsupported package version ${info.version}`,
     );
+}
+
+function planPackageActions(
+  info: EpubInspection,
+  purpose: RepairPlan["purpose"],
+  preserveNotes: boolean,
+  add: AddPlanAction,
+) {
+  planUnsupportedAndVersionActions(info, purpose, preserveNotes, add);
   const nav = info.manifest.find((m) => m.properties.includes("nav"));
   if (!nav || !info.entries.has(nav.path))
     add(
@@ -142,52 +237,8 @@ export function planFromBytes(
       info.packagePath,
       "Copy existing dc:language to package xml:lang",
     );
-  const identifiers = elements(info.packageDocument, "identifier", NS.dc);
-  const uniqueIdentifier = attr(
-    info.packageDocument.documentElement!,
-    "unique-identifier",
-  );
-  if (
-    !identifiers.some((el) => attr(el, "id") === uniqueIdentifier) &&
-    identifiers.length === 1 &&
-    attr(identifiers[0], "id") &&
-    identifiers[0].textContent?.trim()
-  )
-    add(
-      "identifier-reference",
-      "safe",
-      info.packagePath,
-      "Point unique-identifier to the sole existing identifier without changing its value",
-    );
-  const identifier =
-    identifiers.find((el) => attr(el, "id") === uniqueIdentifier) ??
-    (identifiers.length === 1 ? identifiers[0] : undefined);
-  if (identifier?.textContent?.trim())
-    for (const item of info.manifest.filter(
-      (item) =>
-        item.mediaType === "application/x-dtbncx+xml" &&
-        info.entries.has(item.path),
-    )) {
-      try {
-        const document = ncxXml(
-          info.entries.get(item.path)!.bytes.toString(),
-          item.path,
-        );
-        const uid = elements(document, "meta").find(
-          (el) => attr(el, "name") === "dtb:uid",
-        );
-        if (uid && !attr(uid, "content").trim())
-          add(
-            "ncx-identifier",
-            "safe",
-            item.path,
-            "Fill an empty NCX dtb:uid from the declared publication identifier",
-          );
-      } catch {
-        /* unsupported NCX remains available for explicit review */
-      }
-    }
-  for (const key of ["title", "language", "identifier"])
+  planNcxIdentifierActions(info, add);
+  for (const key of ["title", "language", "identifier"]) {
     if (
       !elements(info.packageDocument, key, NS.dc).some((el) =>
         el.textContent?.trim(),
@@ -199,22 +250,26 @@ export function planFromBytes(
         info.packagePath,
         `Supply missing dc:${key}; bibliographic values are not inferred`,
       );
+  }
+}
+
+function planManifestActions(info: EpubInspection, add: AddPlanAction) {
   for (const item of info.manifest) {
     const entry = info.entries.get(item.path);
-    if (!entry)
+    if (!entry) {
       add(
         "missing-resource",
         "review-required",
         item.path,
         "Original resource is absent",
       );
-    else {
-      const type = guessMedia(item.path, entry.bytes);
-      if (type && type !== item.mediaType)
-        add("media-type", "safe", item.path, `Set sniffed media type ${type}`);
+      continue;
     }
+    const type = guessMedia(item.path, entry.bytes);
+    if (type && type !== item.mediaType)
+      add("media-type", "safe", item.path, `Set sniffed media type ${type}`);
   }
-  for (const [name, entry] of info.entries)
+  for (const [name, entry] of info.entries) {
     if (
       name !== "mimetype" &&
       !name.startsWith("META-INF/") &&
@@ -227,171 +282,208 @@ export function planFromBytes(
         name,
         "Declare existing resource in manifest",
       );
-  for (const [name, document] of info.documents) {
-    const images = imageCenteringRepairs(document);
-    if (images.repairs.length)
-      add(
-        "standalone-image-centering",
-        "safe",
-        name,
-        `Center ${images.repairs.length} standalone image(s) within the available line; preserve captions, links and image dimensions`,
-      );
-    if (images.invalidStyles)
-      add(
-        "standalone-image-style",
-        "review-required",
-        name,
-        `${images.invalidStyles} standalone image(s) have inline CSS that cannot be parsed safely`,
-      );
-    if (hasLegacyDoctype(info.entries.get(name)!.bytes.toString()))
-      add(
-        "legacy-xhtml",
-        "safe",
-        name,
-        "Remove recognized legacy XHTML DTD without fetching external entities",
-      );
-    const ids = new Map<string, number>();
-    for (const el of elements(document)) {
-      const id = attr(el, "id");
-      if (id) ids.set(id, (ids.get(id) ?? 0) + 1);
-    }
-    for (const [id, count] of ids)
-      if (count > 1) {
-        const referenced = [...info.documents].some(([from, doc]) =>
-          elements(doc, "a").some((a) => {
-            try {
-              const target = localTarget(from, attr(a, "href"));
-              return target.path === name && target.fragment === id;
-            } catch {
-              return false;
-            }
-          }),
-        );
-        add(
-          "duplicate-id",
-          referenced ? "review-required" : "safe",
-          name,
-          `Duplicate ID ${id}${referenced ? " has ambiguous inbound references" : ""}`,
-        );
-      }
-    const root = document.documentElement!;
-    if (!attr(root, "lang") && attr(root, "xml:lang"))
-      add("language-attribute", "safe", name, "Copy existing xml:lang to lang");
-    if (
-      !attr(root, "lang") &&
-      !attr(root, "xml:lang") &&
-      validLanguage(info.language)
-    )
-      add(
-        "document-language",
-        "safe",
-        name,
-        "Use the declared publication language for a document with no language attributes",
-      );
-    if (
-      elements(document, "math", NS.math).length &&
-      !info.manifest.find((m) => m.path === name)?.properties.includes("mathml")
-    )
-      add("mathml-property", "safe", name, "Declare existing MathML");
-    for (const a of elements(document, "a")) {
-      const href = attr(a, "href");
-      if (!href || externalHyperlink(href)) continue;
+  }
+}
+
+function isDuplicateIdReferenced(
+  info: EpubInspection,
+  name: string,
+  id: string,
+): boolean {
+  return [...info.documents].some(([from, doc]) =>
+    elements(doc, "a").some((a) => {
       try {
-        const target = localTarget(name, href);
-        if (!info.entries.has(target.path)) {
-          const matches = [...info.entries.keys()].filter(
-            (key) => key.toLowerCase() === target.path.toLowerCase(),
-          );
-          if (matches.length === 1)
-            add(
-              "link-case",
-              "safe",
-              name,
-              `Resolve unique case-insensitive resource ${href}`,
-            );
-          else
-            add(
-              "link-target",
-              "review-required",
-              name,
-              `Missing target ${href}`,
-            );
-        }
+        const target = localTarget(from, attr(a, "href"));
+        return target.path === name && target.fragment === id;
       } catch {
-        add("link-target", "review-required", name, `Unsafe target ${href}`);
+        return false;
       }
+    }),
+  );
+}
+
+function planDocumentDuplicateIds(
+  info: EpubInspection,
+  name: string,
+  document: import("@xmldom/xmldom").Document,
+  add: AddPlanAction,
+) {
+  const ids = new Map<string, number>();
+  for (const el of elements(document)) {
+    const id = attr(el, "id");
+    if (id) ids.set(id, (ids.get(id) ?? 0) + 1);
+  }
+  for (const [id, count] of ids) {
+    if (count <= 1) continue;
+    const referenced = isDuplicateIdReferenced(info, name, id);
+    add(
+      "duplicate-id",
+      referenced ? "review-required" : "safe",
+      name,
+      `Duplicate ID ${id}${referenced ? " has ambiguous inbound references" : ""}`,
+    );
+  }
+}
+
+function planDocumentLinkActions(
+  info: EpubInspection,
+  name: string,
+  document: import("@xmldom/xmldom").Document,
+  add: AddPlanAction,
+) {
+  for (const a of elements(document, "a")) {
+    const href = attr(a, "href");
+    if (!href || externalHyperlink(href)) continue;
+    try {
+      const target = localTarget(name, href);
+      if (info.entries.has(target.path)) continue;
+      const matches = [...info.entries.keys()].filter(
+        (key) => key.toLowerCase() === target.path.toLowerCase(),
+      );
+      if (matches.length === 1)
+        add(
+          "link-case",
+          "safe",
+          name,
+          `Resolve unique case-insensitive resource ${href}`,
+        );
+      else
+        add("link-target", "review-required", name, `Missing target ${href}`);
+    } catch {
+      add("link-target", "review-required", name, `Unsafe target ${href}`);
     }
   }
-  for (const [name, entry] of info.entries)
-    if (name.endsWith(".css")) {
-      try {
-        const normalized = repairableCss(entry.bytes.toString());
-        const css = postcss.parse(normalized.source);
-        if (normalized.changed)
-          add(
-            "css-punctuation",
-            "safe",
-            name,
-            "Replace full-width declaration semicolons outside strings and comments where the corrected stylesheet parses successfully",
-          );
-        const missingFonts = missingFontFaces(css, name, info);
-        if (missingFonts.length)
-          add(
-            "missing-font-face",
-            "safe",
-            name,
-            `Remove ${missingFonts.length} unavailable font-face rule(s); retain reader font fallback`,
-          );
-        if (missingFontSources(css, name, info).length)
-          add(
-            "missing-font-source",
-            "safe",
-            name,
-            "Remove absent font URL alternatives while preserving local() and available sources",
-          );
-        let fixed = false;
-        css.walkRules((rule) => {
-          if (/^(html|body|p)(\s*,\s*(html|body|p))*$/.test(rule.selector))
-            rule.walkDecls((decl) => {
-              if (
-                [
-                  "font",
-                  "font-family",
-                  "font-size",
-                  "line-height",
-                  "height",
-                  "min-height",
-                  "max-height",
-                ].includes(decl.prop)
-              )
-                fixed = true;
-            });
-        });
-        if (fixed)
-          add(
-            "body-defaults",
-            "safe",
-            name,
-            "Remove explicit body metrics to permit reader controls",
-          );
-      } catch {
-        add(
-          "css-invalid",
-          "review-required",
-          name,
-          "CSS cannot be parsed safely",
-        );
-      }
-    }
-  const fields = [
-    "schema:accessMode",
-    "schema:accessModeSufficient",
-    "schema:accessibilityFeature",
-    "schema:accessibilityHazard",
-    "schema:accessibilitySummary",
-  ];
+}
+
+function planSingleDocumentActions(
+  info: EpubInspection,
+  name: string,
+  document: import("@xmldom/xmldom").Document,
+  add: AddPlanAction,
+) {
+  const images = imageCenteringRepairs(document);
+  if (images.repairs.length)
+    add(
+      "standalone-image-centering",
+      "safe",
+      name,
+      `Center ${images.repairs.length} standalone image(s) within the available line; preserve captions, links and image dimensions`,
+    );
+  if (images.invalidStyles)
+    add(
+      "standalone-image-style",
+      "review-required",
+      name,
+      `${images.invalidStyles} standalone image(s) have inline CSS that cannot be parsed safely`,
+    );
+  if (hasLegacyDoctype(info.entries.get(name)!.bytes.toString()))
+    add(
+      "legacy-xhtml",
+      "safe",
+      name,
+      "Remove recognized legacy XHTML DTD without fetching external entities",
+    );
+  planDocumentDuplicateIds(info, name, document, add);
+  const root = document.documentElement!;
+  if (!attr(root, "lang") && attr(root, "xml:lang"))
+    add("language-attribute", "safe", name, "Copy existing xml:lang to lang");
   if (
-    fields.some(
+    !attr(root, "lang") &&
+    !attr(root, "xml:lang") &&
+    validLanguage(info.language)
+  )
+    add(
+      "document-language",
+      "safe",
+      name,
+      "Use the declared publication language for a document with no language attributes",
+    );
+  if (
+    elements(document, "math", NS.math).length &&
+    !info.manifest.find((m) => m.path === name)?.properties.includes("mathml")
+  )
+    add("mathml-property", "safe", name, "Declare existing MathML");
+  planDocumentLinkActions(info, name, document, add);
+}
+
+function planDocumentActions(info: EpubInspection, add: AddPlanAction) {
+  for (const [name, document] of info.documents)
+    planSingleDocumentActions(info, name, document, add);
+}
+
+function hasFixedBodyDefaults(css: postcss.Root): boolean {
+  let fixed = false;
+  css.walkRules((rule) => {
+    if (!/^(html|body|p)(\s*,\s*(html|body|p))*$/.test(rule.selector)) return;
+    rule.walkDecls((decl) => {
+      if (bodyDefaultMetrics.has(decl.prop)) fixed = true;
+    });
+  });
+  return fixed;
+}
+
+function planStylesheetActions(info: EpubInspection, add: AddPlanAction) {
+  for (const [name, entry] of info.entries) {
+    if (!name.endsWith(".css")) continue;
+    try {
+      const normalized = repairableCss(entry.bytes.toString());
+      const css = postcss.parse(normalized.source);
+      if (normalized.changed)
+        add(
+          "css-punctuation",
+          "safe",
+          name,
+          "Replace full-width declaration semicolons outside strings and comments where the corrected stylesheet parses successfully",
+        );
+      const missingFonts = missingFontFaces(css, name, info);
+      if (missingFonts.length)
+        add(
+          "missing-font-face",
+          "safe",
+          name,
+          `Remove ${missingFonts.length} unavailable font-face rule(s); retain reader font fallback`,
+        );
+      if (missingFontSources(css, name, info).length)
+        add(
+          "missing-font-source",
+          "safe",
+          name,
+          "Remove absent font URL alternatives while preserving local() and available sources",
+        );
+      if (hasFixedBodyDefaults(css))
+        add(
+          "body-defaults",
+          "safe",
+          name,
+          "Remove explicit body metrics to permit reader controls",
+        );
+    } catch {
+      add(
+        "css-invalid",
+        "review-required",
+        name,
+        "CSS cannot be parsed safely",
+      );
+    }
+  }
+}
+
+export function planFromBytes(
+  input: Uint8Array | EpubInspection,
+  purpose: RepairPlan["purpose"] = "publication",
+): RepairPlan {
+  const info = input instanceof Uint8Array ? inspectBytes(input) : input;
+  const actions: RepairAction[] = [];
+  const preserveNotes =
+    purpose === "reading" &&
+    inspectNotes(info).kind === "scripted-note-candidate";
+  const add = createActionRecorder(purpose, info, preserveNotes, actions);
+  planPackageActions(info, purpose, preserveNotes, add);
+  planManifestActions(info, add);
+  planDocumentActions(info, add);
+  planStylesheetActions(info, add);
+  if (
+    discoveryMetaFields.some(
       (key) =>
         !elements(info.packageDocument, "meta", NS.opf).some(
           (m) => attr(m, "property") === key,

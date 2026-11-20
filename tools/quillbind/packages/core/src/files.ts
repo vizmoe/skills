@@ -27,25 +27,31 @@ export async function readSourceFile(file: string) {
     await handle.close();
   }
 }
+async function ensureOutputDirectory(current: string, relative: string) {
+  try {
+    await fs.mkdir(current);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
+  // Another writer can create this component first. Validate what exists
+  // before descending; EEXIST alone does not establish an ordinary directory.
+  const stat = await fs.lstat(current);
+  if (stat.isSymbolicLink() || !stat.isDirectory())
+    fail(
+      "OUTPUT_SYMLINK",
+      `Output component is not an ordinary directory: ${relative}`,
+    );
+}
 export async function bookOutput(root: string, relative: string) {
   safeName(relative);
   let current = await fs.realpath(root);
+  let chain = Promise.resolve();
   for (const segment of relative.split("/")) {
     current = path.join(current, segment);
-    try {
-      await fs.mkdir(current);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    }
-    // Another writer can create this component first. Validate what exists
-    // before descending; EEXIST alone does not establish an ordinary directory.
-    const stat = await fs.lstat(current);
-    if (stat.isSymbolicLink() || !stat.isDirectory())
-      fail(
-        "OUTPUT_SYMLINK",
-        `Output component is not an ordinary directory: ${relative}`,
-      );
+    const next = current;
+    chain = chain.then(() => ensureOutputDirectory(next, relative));
   }
+  await chain;
   return current;
 }
 export async function exists(file: string) {

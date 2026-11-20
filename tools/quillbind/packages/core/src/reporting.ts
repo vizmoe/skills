@@ -62,7 +62,66 @@ const steps = {
   ],
 };
 const clean = (value: string) =>
-  value.replace(/[\r\n]+/g, " ").replace(/[\\`*_{}[\]<>|]/g, "\\$&");
+  value.replace(/[\r\n]+/g, " ").replace(/[\\`*_{}[\]<>|]/g, String.raw`\$&`);
+
+function formatToolFailureMessage(item: Record<string, unknown>): string {
+  const detail =
+    typeof item.detail === "string"
+      ? item.detail
+      : "Required tool is unavailable or has the wrong version";
+  const versionSuffix =
+    typeof item.version === "string" ? ` (found: ${item.version})` : "";
+  return `${String(item.tool)}: ${detail}${versionSuffix}`;
+}
+
+function resolveDiagnosticCode(
+  item: Record<string, unknown>,
+  isBlocker: boolean,
+): string {
+  if (typeof item.code === "string") return item.code;
+  if (typeof item.ID === "string") return item.ID;
+  return isBlocker ? "RELEASE_BLOCKED" : "WARNING";
+}
+
+function nextActionsForStatus(
+  status: "running" | "pass" | "fail",
+  failure?: { code: string; message: string },
+): string[] {
+  if (status === "fail") {
+    return [
+      failure?.code === "ENVIRONMENT_ERROR"
+        ? "Restore the pinned toolchain, then rerun the operation."
+        : "Resolve the reported failure and rerun the operation; remaining checks have not passed.",
+    ];
+  }
+  if (status === "pass")
+    return ["Review the warnings and distribution status before delivery."];
+  return ["Wait for this run to finish before using a publication artifact."];
+}
+
+function formatCheckDetail(check: Check): string {
+  if (check.distribution) return check.distribution;
+  if (check.message) return check.message;
+  if (check.cases === undefined) return "";
+  const coverageDetail = check.coverage
+    ? `; ${check.coverage.strategy}: full matrix on ${check.coverage.fullMatrixDocuments}/${check.coverage.documents} documents`
+    : "";
+  return `${check.cases} browser cases${coverageDetail}`;
+}
+
+function formatCheckRow(id: string, check: Check): string {
+  return `| ${id} | ${check.status} | ${clean(formatCheckDetail(check))} |`;
+}
+
+function formatDiagnosticLine(issue: {
+  code: string;
+  message: string;
+  source?: string;
+}): string {
+  const sourceSuffix = issue.source ? ` (${clean(issue.source)})` : "";
+  return `- ${clean(issue.code)}: ${clean(issue.message)}${sourceSuffix}`;
+}
+
 export class ReleaseReporter {
   readonly runId = randomUUID();
   readonly startedAt = new Date().toISOString();
@@ -96,6 +155,30 @@ export class ReleaseReporter {
       selected.map((id) => [id, { status: "not-run" as const }]),
     );
   }
+  private recordDiagnosticItem(item: Record<string, unknown>) {
+    // EPUBCheck uses uppercase WARNING; project policy blocks those releases.
+    // Lowercase warning is an advisory diagnostic from our own/platform checks.
+    const isBlocker =
+      ["error", "ERROR", "FATAL", "WARNING"].includes(String(item.severity)) ||
+      ["review-required", "unsupported"].includes(String(item.classification));
+    if (
+      (item.severity !== "warning" && !isBlocker) ||
+      typeof item.message !== "string"
+    )
+      return;
+    const entry = {
+      code: resolveDiagnosticCode(item, isBlocker),
+      message: item.message,
+      ...(typeof item.source === "string" ? { source: item.source } : {}),
+    };
+    const destination = isBlocker ? this.blockers : this.warnings;
+    if (
+      !destination.some(
+        (existing) => JSON.stringify(existing) === JSON.stringify(entry),
+      )
+    )
+      destination.push(entry);
+  }
   private collectDiagnostics(value: unknown) {
     if (!value || typeof value !== "object") return;
     if (Array.isArray(value)) {
@@ -107,37 +190,9 @@ export class ReleaseReporter {
       this.collectDiagnostics({
         severity: "error",
         code: "ENVIRONMENT_TOOL",
-        message: `${item.tool}: ${typeof item.detail === "string" ? item.detail : "Required tool is unavailable or has the wrong version"}${typeof item.version === "string" ? ` (found: ${item.version})` : ""}`,
+        message: formatToolFailureMessage(item),
       });
-    // EPUBCheck uses uppercase WARNING; project policy blocks those releases.
-    // Lowercase warning is an advisory diagnostic from our own/platform checks.
-    const isBlocker =
-      ["error", "ERROR", "FATAL", "WARNING"].includes(String(item.severity)) ||
-      ["review-required", "unsupported"].includes(String(item.classification));
-    if (
-      (item.severity === "warning" || isBlocker) &&
-      typeof item.message === "string"
-    ) {
-      const warning = {
-        code:
-          typeof item.code === "string"
-            ? item.code
-            : typeof item.ID === "string"
-              ? item.ID
-              : isBlocker
-                ? "RELEASE_BLOCKED"
-                : "WARNING",
-        message: item.message,
-        ...(typeof item.source === "string" ? { source: item.source } : {}),
-      };
-      const destination = isBlocker ? this.blockers : this.warnings;
-      if (
-        !destination.some(
-          (existing) => JSON.stringify(existing) === JSON.stringify(warning),
-        )
-      )
-        destination.push(warning);
-    }
+    this.recordDiagnosticItem(item);
     for (const key of [
       "diagnostics",
       "messages",
@@ -209,18 +264,7 @@ export class ReleaseReporter {
     await this.save();
   }
   async save() {
-    const nextActions =
-      this.status === "fail"
-        ? [
-            this.failure?.code === "ENVIRONMENT_ERROR"
-              ? "Restore the pinned toolchain, then rerun the operation."
-              : "Resolve the reported failure and rerun the operation; remaining checks have not passed.",
-          ]
-        : this.status === "pass"
-          ? ["Review the warnings and distribution status before delivery."]
-          : [
-              "Wait for this run to finish before using a publication artifact.",
-            ];
+    const nextActions = nextActionsForStatus(this.status, this.failure);
     const report = {
       schemaVersion: 1,
       runId: this.runId,
@@ -255,6 +299,15 @@ export class ReleaseReporter {
       ["kindle", "Kindle lint", "kindle-lint.json"],
       ["reproducibility", "reproducibility", "reproducibility.json"],
     ].filter(([id]) => this.checks[id]?.status === "pass");
+    const evidenceLinks = evidence
+      .map(([, title, file]) => `, [${title}](${file})`)
+      .join("");
+    const fallbackBlocker = this.failure
+      ? `${clean(this.failure.code)}: ${clean(this.failure.message)}`
+      : "None recorded.";
+    const blockerLines = this.blockers.length
+      ? this.blockers.map(formatDiagnosticLine)
+      : [fallbackBlocker];
     const lines = [
       `# Quillbind ${this.operation}: ${this.status}`,
       "",
@@ -277,31 +330,18 @@ export class ReleaseReporter {
           ]),
       "| Check | Result | Detail |",
       "| --- | --- | --- |",
-      ...Object.entries(this.checks).map(
-        ([id, check]) =>
-          `| ${id} | ${check.status} | ${clean(check.distribution ?? check.message ?? (check.cases !== undefined ? `${check.cases} browser cases${check.coverage ? `; ${check.coverage.strategy}: full matrix on ${check.coverage.fullMatrixDocuments}/${check.coverage.documents} documents` : ""}` : ""))} |`,
+      ...Object.entries(this.checks).map(([id, check]) =>
+        formatCheckRow(id, check),
       ),
       "",
       "## Blockers",
       "",
-      ...(this.blockers.length
-        ? this.blockers.map(
-            (issue) =>
-              `- ${clean(issue.code)}: ${clean(issue.message)}${issue.source ? ` (${clean(issue.source)})` : ""}`,
-          )
-        : [
-            this.failure
-              ? `${clean(this.failure.code)}: ${clean(this.failure.message)}`
-              : "None recorded.",
-          ]),
+      ...blockerLines,
       "",
       "## Warnings",
       "",
       ...(this.warnings.length
-        ? this.warnings.map(
-            (warning) =>
-              `- ${clean(warning.code)}: ${clean(warning.message)}${warning.source ? ` (${clean(warning.source)})` : ""}`,
-          )
+        ? this.warnings.map(formatDiagnosticLine)
         : ["None recorded by the checks completed in this run."]),
       "",
       "## Next actions",
@@ -313,7 +353,7 @@ export class ReleaseReporter {
       "",
       "Conformance, automated accessibility, browser QA, platform guideline lint and distribution policy are separate results. Native Apple Books/Kindle testing and store ingestion were not run. Automated accessibility results are not certification.",
       "",
-      `Detailed evidence: [run result](build.json)${evidence.map(([, title, file]) => `, [${title}](${file})`).join("")}. Unlinked reports can belong to an earlier run; use the run result for current failures.`,
+      `Detailed evidence: [run result](build.json)${evidenceLinks}. Unlinked reports can belong to an earlier run; use the run result for current failures.`,
       "",
     ];
     await atomicWrite(this.paths.summaryMarkdown, lines.join("\n"));

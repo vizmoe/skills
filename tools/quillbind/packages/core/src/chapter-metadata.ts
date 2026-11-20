@@ -76,6 +76,28 @@ export function isIsoDate(value: string) {
   );
 }
 
+function parseIsoTimestampDate(value: string): string | undefined {
+  if (value.indexOf("T") !== 10) return undefined;
+  const datePart = value.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return undefined;
+  let rest = value.slice(11);
+  if (rest.endsWith("Z")) {
+    rest = rest.slice(0, -1);
+  } else {
+    const offset = /[+-](?:[01]\d|2[0-3]):[0-5]\d$/.exec(rest);
+    if (offset) rest = rest.slice(0, offset.index);
+  }
+  const dotIndex = rest.indexOf(".");
+  if (dotIndex >= 0) {
+    if (!/^\.\d+$/.test(rest.slice(dotIndex))) return undefined;
+    rest = rest.slice(0, dotIndex);
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d$/.test(rest)) return undefined;
+  } else if (!/^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(rest)) {
+    return undefined;
+  }
+  return datePart;
+}
+
 /** Format an unambiguous calendar date without changing the source timezone. */
 export function chapterDisplayDate(value: string): string | undefined {
   const numeric =
@@ -85,11 +107,8 @@ export function chapterDisplayDate(value: string): string | undefined {
   let date = numeric
     ? `${numeric[1]}-${numeric[2].padStart(2, "0")}-${numeric[3].padStart(2, "0")}`
     : undefined;
-  const timestamp =
-    /^(\d{4}-\d{2}-\d{2})T(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)?$/.exec(
-      value,
-    );
-  if (timestamp) date = timestamp[1];
+  const timestamp = parseIsoTimestampDate(value);
+  if (timestamp) date = timestamp;
   const named = /^([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})$/.exec(value);
   if (named) {
     const months = [

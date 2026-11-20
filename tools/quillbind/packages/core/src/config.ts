@@ -81,7 +81,7 @@ export const bookSchema = z.strictObject({
       z.strictObject({
         id: z.string().regex(/^[a-zA-Z][\w-]*$/),
         text: z.string().min(1),
-        url: z.string().url().optional(),
+        url: z.url().optional(),
       }),
     )
     .default([]),

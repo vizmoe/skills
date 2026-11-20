@@ -90,13 +90,7 @@ export function inspectBytes(
     );
     if (
       !methods.length ||
-      methods.some(
-        (m) =>
-          ![
-            "http://www.idpf.org/2008/embedding",
-            "http://ns.adobe.com/pdf/enc#RC",
-          ].includes(m),
-      )
+      methods.some((m) => ![NS.epubEmbedding, NS.adobeEncryption].includes(m))
     )
       unsupported.push("encrypted-content");
   }

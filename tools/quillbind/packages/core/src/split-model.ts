@@ -2,6 +2,12 @@ import { z } from "zod";
 import { validIsbn, validLanguage } from "./config.js";
 import { seriesDecisionSchema } from "./series-policy.js";
 const text = z.string().trim().min(1);
+function expandPartialIsoDate(value: string): string {
+  if (value.length === 4) return `${value}-01-01`;
+  if (value.length === 7) return `${value}-01`;
+  return value;
+}
+
 export const splitMetadataSchema = z
   .object({
     identifier: z
@@ -22,12 +28,7 @@ export const splitMetadataSchema = z
       .string()
       .regex(/^\d{4}(?:-\d{2}(?:-\d{2})?)?$/)
       .refine((value) => {
-        const full =
-          value.length === 4
-            ? `${value}-01-01`
-            : value.length === 7
-              ? `${value}-01`
-              : value;
+        const full = expandPartialIsoDate(value);
         return (
           !Number.isNaN(Date.parse(full)) &&
           new Date(full).toISOString().slice(0, 10) === full

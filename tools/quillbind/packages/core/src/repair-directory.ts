@@ -33,6 +33,40 @@ export interface DirectoryRepairEntry {
   error?: { code: string; message: string };
 }
 
+function compareEntryName(a: { name: string }, b: { name: string }): number {
+  if (a.name < b.name) return -1;
+  if (a.name > b.name) return 1;
+  return 0;
+}
+
+function aggregateRepairStatus(
+  finished: boolean,
+  repaired: number,
+  total: number,
+): "pass" | "fail" | "running" {
+  if (!finished) return "running";
+  return repaired === total ? "pass" : "fail";
+}
+
+function escapeMarkdownLabel(value: string): string {
+  return value
+    .replace(/[\r\n]/g, " ")
+    .replace(/[\\`*_{}[\]<>|]/g, String.raw`\$&`);
+}
+
+function formatDirectoryRepairRow(row: DirectoryRepairEntry): string {
+  const escaped = escapeMarkdownLabel(row.relativePath);
+  const bookCell = row.copy
+    ? `[${escaped}](<${encodeURI(row.copy.path)}>)`
+    : escaped;
+  const resumedSuffix = row.resumed ? " (resumed)" : "";
+  const reportCell =
+    row.status === "repaired"
+      ? `[Report](<${encodeURI(row.reports.markdown)}>)`
+      : "See repair-summary.json";
+  return `| ${bookCell} | ${row.status}${resumedSuffix} | ${reportCell} |`;
+}
+
 /** Snapshot inputs once, repair independently, and resume only hash-verified copies. */
 export async function repairDirectory(
   input: string,
@@ -83,31 +117,42 @@ export async function repairDirectory(
     });
   try {
     const inputs: { file: string; relative: string; hash: string }[] = [];
+    const visitEntry = async (
+      directory: string,
+      entry: import("node:fs").Dirent,
+    ) => {
+      checkAbort(options.signal);
+      const file = path.join(directory, entry.name);
+      if (
+        file === output ||
+        file.startsWith(output + path.sep) ||
+        entry.isSymbolicLink()
+      )
+        return;
+      if (entry.isDirectory()) {
+        await visit(file);
+        return;
+      }
+      if (
+        entry.isFile() &&
+        /\.epub$/i.test(entry.name) &&
+        !/\.candidate\.epub$/i.test(entry.name)
+      )
+        inputs.push({
+          file,
+          relative: path.relative(source, file),
+          hash: sha256(await readSourceFile(file)),
+        });
+    };
     const visit = async (directory: string) => {
       const children = (
         await fs.readdir(directory, { withFileTypes: true })
-      ).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+      ).sort(compareEntryName);
+      let visitChain = Promise.resolve();
       for (const entry of children) {
-        checkAbort(options.signal);
-        const file = path.join(directory, entry.name);
-        if (
-          file === output ||
-          file.startsWith(output + path.sep) ||
-          entry.isSymbolicLink()
-        )
-          continue;
-        if (entry.isDirectory()) await visit(file);
-        else if (
-          entry.isFile() &&
-          /\.epub$/i.test(entry.name) &&
-          !/\.candidate\.epub$/i.test(entry.name)
-        )
-          inputs.push({
-            file,
-            relative: path.relative(source, file),
-            hash: sha256(await readSourceFile(file)),
-          });
+        visitChain = visitChain.then(() => visitEntry(directory, entry));
       }
+      await visitChain;
     };
     await visit(source);
     if (!inputs.length) fail("INPUT_EMPTY", "No original EPUB files found");
@@ -120,11 +165,7 @@ export async function repairDirectory(
       );
       const repaired = rows.filter((row) => row.status === "repaired").length;
       return {
-        status: finished
-          ? repaired === inputs.length
-            ? "pass"
-            : "fail"
-          : "running",
+        status: aggregateRepairStatus(finished, repaired, inputs.length),
         operation: "repair-directory",
         source,
         output,
@@ -230,12 +271,12 @@ export async function repairDirectory(
       }
     };
     let next = 0;
-    const worker = async () => {
-      while (next < inputs.length && !options.signal?.aborted) {
-        const index = next++;
-        results[index] = await repair(inputs[index]);
-        await save();
-      }
+    const worker = async (): Promise<void> => {
+      if (next >= inputs.length || options.signal?.aborted) return;
+      const index = next++;
+      results[index] = await repair(inputs[index]);
+      await save();
+      await worker();
     };
     await save();
     const workers = await Promise.allSettled(
@@ -246,8 +287,6 @@ export async function repairDirectory(
     if (failure?.status === "rejected") throw failure.reason;
     const result = aggregate(true);
     await json(reports.json, result);
-    const label = (value: string) =>
-      value.replace(/[\r\n]/g, " ").replace(/[\\`*_{}[\]<>|]/g, "\\$&");
     await atomicWrite(
       reports.markdown,
       [
@@ -257,10 +296,7 @@ export async function repairDirectory(
         "",
         "| Book | Result | Report |",
         "| --- | --- | --- |",
-        ...result.results.map(
-          (row) =>
-            `| ${row.copy ? `[${label(row.relativePath)}](<${encodeURI(row.copy.path)}>)` : label(row.relativePath)} | ${row.status}${row.resumed ? " (resumed)" : ""} | ${row.status === "repaired" ? `[Report](<${encodeURI(row.reports.markdown)}>)` : "See repair-summary.json"} |`,
-        ),
+        ...result.results.map(formatDirectoryRepairRow),
         "",
       ].join("\n"),
     );

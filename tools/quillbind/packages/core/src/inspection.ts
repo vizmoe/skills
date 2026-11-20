@@ -1,4 +1,4 @@
-import type { Element } from "@xmldom/xmldom";
+import type { Document as XmlDocument, Element } from "@xmldom/xmldom";
 import postcss from "postcss";
 import valueParser from "postcss-value-parser";
 import type { EpubInspection } from "./epub.js";
@@ -9,7 +9,7 @@ import { diagnostic } from "./errors.js";
 import { inspectNotes } from "./epub-notes.js";
 import type { Diagnostic } from "./model.js";
 
-const NCX = "http://www.daisy.org/z3986/2005/ncx/";
+const NCX = NS.ncx;
 const children = (element: Element, name?: string) =>
   Array.from(element.childNodes).filter(
     (node): node is Element =>
@@ -47,150 +47,174 @@ export interface InspectedNavigation {
   items: InspectedNavigationNode[];
 }
 
-/** Describe packaged data without interpreting it as instructions or loading URLs. */
-export function describeInspection(info: EpubInspection, size: number) {
-  const diagnostics: Diagnostic[] = [];
-  const documents = new Map(info.documents);
-  documents.set(info.packagePath, info.packageDocument);
+export interface CoverAssociation {
+  source: string;
+  kind: string;
+  target: ResourceReference;
+  manifestId?: string;
+}
+
+type ResolveReference = (
+  source: string,
+  href: string,
+  kind: string,
+  elementId?: string,
+) => ResourceReference;
+
+const extraXmlMediaTypes = new Set([
+  "application/x-dtbncx+xml",
+  "image/svg+xml",
+  "application/smil+xml",
+]);
+
+function collectExtraDocuments(
+  info: EpubInspection,
+  documents: Map<string, XmlDocument>,
+  diagnostics: Diagnostic[],
+) {
   for (const item of info.manifest) {
     if (
-      !documents.has(item.path) &&
-      info.entries.has(item.path) &&
-      [
-        "application/x-dtbncx+xml",
-        "image/svg+xml",
-        "application/smil+xml",
-      ].includes(item.mediaType)
-    ) {
-      try {
-        const source = info.entries.get(item.path)!.bytes.toString();
-        documents.set(
+      documents.has(item.path) ||
+      !info.entries.has(item.path) ||
+      !extraXmlMediaTypes.has(item.mediaType)
+    )
+      continue;
+    try {
+      const source = info.entries.get(item.path)!.bytes.toString();
+      documents.set(
+        item.path,
+        item.mediaType === "application/x-dtbncx+xml"
+          ? ncxXml(source, item.path)
+          : xml(source, item.path),
+      );
+    } catch (error) {
+      diagnostics.push(
+        diagnostic(
+          "INSPECT_XML",
+          String(error),
           item.path,
-          item.mediaType === "application/x-dtbncx+xml"
-            ? ncxXml(source, item.path)
-            : xml(source, item.path),
-        );
-      } catch (error) {
-        diagnostics.push(
-          diagnostic(
-            "INSPECT_XML",
-            String(error),
-            item.path,
-            undefined,
-            "warning",
-          ),
-        );
-      }
+          undefined,
+          "warning",
+        ),
+      );
     }
   }
-  const ids = new Map(
-    [...documents].map(([source, document]) => [
-      source,
-      new Set(
-        elements(document)
-          .map((el) => attr(el, "id"))
-          .filter(Boolean),
-      ),
-    ]),
-  );
-  const references: ResourceReference[] = [];
-  const reference = (
-    source: string,
-    href: string,
-    kind: string,
-    elementId?: string,
-  ): ResourceReference => {
+}
+
+function classifyLocalResolution(
+  info: EpubInspection,
+  ids: Map<string, Set<string>>,
+  target: { path: string; fragment?: string },
+): ResourceReference["resolution"] {
+  if (!info.entries.has(target.path)) return "missing-resource";
+  if (!target.fragment) return "resolved";
+  const targetIds = ids.get(target.path);
+  if (!targetIds) return "unverified-fragment";
+  return targetIds.has(target.fragment) ? "resolved" : "missing-fragment";
+}
+
+function createReferenceResolver(
+  info: EpubInspection,
+  ids: Map<string, Set<string>>,
+): ResolveReference {
+  return (source, href, kind, elementId) => {
     const base = { source, href, kind, ...(elementId ? { elementId } : {}) };
     if (/^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith("//"))
       return { ...base, resolution: "external" };
     try {
       const target = localTarget(source, href);
-      const resolution = !info.entries.has(target.path)
-        ? "missing-resource"
-        : target.fragment
-          ? !ids.has(target.path)
-            ? "unverified-fragment"
-            : ids.get(target.path)!.has(target.fragment)
-              ? "resolved"
-              : "missing-fragment"
-          : "resolved";
-      return { ...base, ...target, resolution };
+      return {
+        ...base,
+        ...target,
+        resolution: classifyLocalResolution(info, ids, target),
+      };
     } catch {
       return { ...base, resolution: "unsafe" };
     }
   };
-  const addReference = (
-    source: string,
-    href: string,
-    kind: string,
-    elementId?: string,
-  ) => {
-    const target = reference(source, href, kind, elementId);
-    references.push(target);
-    return target;
-  };
-  const cssReferences = (source: string, css: string) => {
-    const root = postcss.parse(css, { from: source });
-    const urls = (value: string) =>
-      valueParser(value).walk((node) => {
-        if (node.type === "function" && node.value.toLowerCase() === "url") {
-          const href = valueParser
-            .stringify(node.nodes)
-            .trim()
-            .replace(/^(['"])(.*)\1$/, "$2");
-          if (href) addReference(source, href, "css-url");
-          return false;
-        }
-      });
-    root.walkDecls((decl) => {
-      urls(decl.value);
-    });
-    root.walkAtRules("import", (rule) => {
-      const first = valueParser(rule.params).nodes[0];
-      if (first?.type === "string")
-        addReference(source, first.value, "css-import");
-      else urls(rule.params);
-    });
-  };
-  for (const [source, document] of documents) {
-    for (const element of elements(document)) {
-      for (const attribute of Array.from(element.attributes))
-        if (
-          ["href", "src", "poster", "data"].includes(
-            attribute.localName ?? attribute.name,
-          )
-        )
-          addReference(
-            source,
-            attribute.value,
-            `${element.localName}@${attribute.name}`,
-            attr(element, "id"),
-          );
-      try {
-        if (element.localName === "style")
-          cssReferences(source, element.textContent ?? "");
-        if (element.hasAttribute("style"))
-          cssReferences(source, `x { ${attr(element, "style")} }`);
-      } catch {
-        diagnostics.push(
-          diagnostic(
-            "INSPECT_CSS",
-            "Unable to inspect inline CSS references",
-            source,
-            undefined,
-            "warning",
-          ),
-        );
+}
+
+function collectCssReferences(
+  source: string,
+  css: string,
+  addReference: ResolveReference,
+) {
+  const root = postcss.parse(css, { from: source });
+  const urls = (value: string) =>
+    valueParser(value).walk((node) => {
+      if (node.type === "function" && node.value.toLowerCase() === "url") {
+        const href = valueParser
+          .stringify(node.nodes)
+          .trim()
+          .replace(/^(['"])(.*)\1$/, "$2");
+        if (href) addReference(source, href, "css-url");
+        return false;
       }
-    }
+    });
+  root.walkDecls((decl) => {
+    urls(decl.value);
+  });
+  root.walkAtRules("import", (rule) => {
+    const first = valueParser(rule.params).nodes[0];
+    if (first?.type === "string")
+      addReference(source, first.value, "css-import");
+    else urls(rule.params);
+  });
+}
+
+function collectElementReferences(
+  source: string,
+  element: Element,
+  addReference: ResolveReference,
+  diagnostics: Diagnostic[],
+) {
+  for (const attribute of Array.from(element.attributes)) {
+    if (
+      ["href", "src", "poster", "data"].includes(
+        attribute.localName ?? attribute.name,
+      )
+    )
+      addReference(
+        source,
+        attribute.value,
+        `${element.localName}@${attribute.name}`,
+        attr(element, "id"),
+      );
   }
+  try {
+    if (element.localName === "style")
+      collectCssReferences(source, element.textContent ?? "", addReference);
+    if (element.hasAttribute("style"))
+      collectCssReferences(
+        source,
+        `x { ${attr(element, "style")} }`,
+        addReference,
+      );
+  } catch {
+    diagnostics.push(
+      diagnostic(
+        "INSPECT_CSS",
+        "Unable to inspect inline CSS references",
+        source,
+        undefined,
+        "warning",
+      ),
+    );
+  }
+}
+
+function collectStylesheetReferences(
+  info: EpubInspection,
+  addReference: ResolveReference,
+  diagnostics: Diagnostic[],
+) {
   for (const item of info.manifest.filter(
-    (item) => item.mediaType === "text/css",
+    (manifestItem) => manifestItem.mediaType === "text/css",
   )) {
     const entry = info.entries.get(item.path);
     if (!entry) continue;
     try {
-      cssReferences(item.path, entry.bytes.toString());
+      collectCssReferences(item.path, entry.bytes.toString(), addReference);
     } catch {
       diagnostics.push(
         diagnostic(
@@ -203,46 +227,56 @@ export function describeInspection(info: EpubInspection, size: number) {
       );
     }
   }
+}
+
+function parseNavList(
+  list: Element | undefined,
+  itemPath: string,
+  resolveRef: ResolveReference,
+  covers: CoverAssociation[],
+): InspectedNavigationNode[] {
+  if (!list) return [];
+  return children(list, "li").map((li) => {
+    const title = children(li).find((el) =>
+      ["a", "span"].includes(el.localName ?? ""),
+    );
+    const href = title?.getAttribute("href");
+    const target =
+      href === null || href === undefined
+        ? undefined
+        : resolveRef(itemPath, href, "navigation", attr(li, "id"));
+    if (
+      target &&
+      title?.getAttributeNS(NS.epub, "type")?.split(/\s+/).includes("cover")
+    )
+      covers.push({ source: itemPath, kind: "landmark", target });
+    return {
+      label: label(title),
+      ...(attr(li, "id") ? { id: attr(li, "id") } : {}),
+      ...(target ? { target } : {}),
+      children: parseNavList(
+        children(li, "ol")[0],
+        itemPath,
+        resolveRef,
+        covers,
+      ),
+    };
+  });
+}
+
+function collectNavNavigation(
+  info: EpubInspection,
+  documents: Map<string, XmlDocument>,
+  resolveRef: ResolveReference,
+  covers: CoverAssociation[],
+): InspectedNavigation[] {
   const navigation: InspectedNavigation[] = [];
-  const covers: {
-    source: string;
-    kind: string;
-    target: ResourceReference;
-    manifestId?: string;
-  }[] = [];
-  for (const item of info.manifest.filter((item) =>
-    item.properties.includes("nav"),
+  for (const item of info.manifest.filter((m) =>
+    m.properties.includes("nav"),
   )) {
     const document = documents.get(item.path);
     if (!document) continue;
     for (const nav of elements(document, "nav", NS.xhtml)) {
-      const parseList = (list?: Element): InspectedNavigationNode[] =>
-        !list
-          ? []
-          : children(list, "li").map((li) => {
-              const title = children(li).find((el) =>
-                ["a", "span"].includes(el.localName ?? ""),
-              );
-              const href = title?.getAttribute("href");
-              const target =
-                href === null || href === undefined
-                  ? undefined
-                  : reference(item.path, href, "navigation", attr(li, "id"));
-              if (
-                target &&
-                title
-                  ?.getAttributeNS(NS.epub, "type")
-                  ?.split(/\s+/)
-                  .includes("cover")
-              )
-                covers.push({ source: item.path, kind: "landmark", target });
-              return {
-                label: label(title),
-                ...(attr(li, "id") ? { id: attr(li, "id") } : {}),
-                ...(target ? { target } : {}),
-                children: parseList(children(li, "ol")[0]),
-              };
-            });
       navigation.push({
         format: "nav",
         source: item.path,
@@ -250,10 +284,50 @@ export function describeInspection(info: EpubInspection, size: number) {
         title: label(
           children(nav).find((el) => /^h[1-6]$/.test(el.localName ?? "")),
         ),
-        items: parseList(children(nav, "ol")[0]),
+        items: parseNavList(
+          children(nav, "ol")[0],
+          item.path,
+          resolveRef,
+          covers,
+        ),
       });
     }
   }
+  return navigation;
+}
+
+function parseNcxPoints(
+  parent: Element,
+  name: string,
+  itemPath: string,
+  resolveRef: ResolveReference,
+): InspectedNavigationNode[] {
+  return children(parent, name).map((point) => {
+    const content = children(point, "content")[0];
+    return {
+      label: label(children(point, "navLabel")[0]),
+      id: attr(point, "id"),
+      ...(content
+        ? {
+            target: resolveRef(
+              itemPath,
+              attr(content, "src"),
+              "ncx",
+              attr(point, "id"),
+            ),
+          }
+        : {}),
+      children: parseNcxPoints(point, name, itemPath, resolveRef),
+    };
+  });
+}
+
+function collectNcxNavigation(
+  info: EpubInspection,
+  documents: Map<string, XmlDocument>,
+  resolveRef: ResolveReference,
+): InspectedNavigation[] {
+  const navigation: InspectedNavigation[] = [];
   const spineElement = elements(info.packageDocument, "spine", NS.opf)[0];
   const ncxId = spineElement ? attr(spineElement, "toc") : "";
   const ncxItems = info.manifest.filter(
@@ -263,42 +337,139 @@ export function describeInspection(info: EpubInspection, size: number) {
   for (const item of ncxItems) {
     const document = documents.get(item.path);
     if (!document) continue;
-    const parsePoints = (
-      parent: Element,
-      name: string,
-    ): InspectedNavigationNode[] =>
-      children(parent, name).map((point) => {
-        const content = children(point, "content")[0];
-        return {
-          label: label(children(point, "navLabel")[0]),
-          id: attr(point, "id"),
-          ...(content
-            ? {
-                target: reference(
-                  item.path,
-                  attr(content, "src"),
-                  "ncx",
-                  attr(point, "id"),
-                ),
-              }
-            : {}),
-          children: parsePoints(point, name),
-        };
-      });
     for (const [container, node, type] of [
       ["navMap", "navPoint", "toc"],
       ["pageList", "pageTarget", "page-list"],
       ["navList", "navTarget", "navigation"],
-    ])
-      for (const group of elements(document, container, NCX))
+    ]) {
+      for (const group of elements(document, container, NCX)) {
         navigation.push({
           format: "ncx",
           source: item.path,
           type,
           title: label(children(group, "navLabel")[0]),
-          items: parsePoints(group, node),
+          items: parseNcxPoints(group, node, item.path, resolveRef),
         });
+      }
+    }
   }
+  return navigation;
+}
+
+function collectPackageCovers(
+  info: EpubInspection,
+  records: {
+    name: string;
+    namespace: string | null;
+    value: string;
+    attributes: Record<string, string>;
+  }[],
+  resolveRef: ResolveReference,
+  covers: CoverAssociation[],
+) {
+  const coverIds = new Set(
+    records
+      .filter(
+        (r) =>
+          r.name.split(":").at(-1) === "meta" && r.attributes.name === "cover",
+      )
+      .map((r) => r.attributes.content),
+  );
+  for (const item of info.manifest.filter(
+    (manifestItem) =>
+      manifestItem.properties.includes("cover-image") ||
+      coverIds.has(manifestItem.id),
+  )) {
+    covers.push({
+      source: info.packagePath,
+      kind: item.properties.includes("cover-image")
+        ? "cover-image"
+        : "opf2-meta",
+      manifestId: item.id,
+      target: resolveRef(info.packagePath, item.href, "cover"),
+    });
+  }
+  for (const guide of elements(
+    info.packageDocument,
+    "reference",
+    NS.opf,
+  ).filter((el) => attr(el, "type").split(/\s+/).includes("cover"))) {
+    covers.push({
+      source: info.packagePath,
+      kind: "guide",
+      target: resolveRef(info.packagePath, attr(guide, "href"), "cover"),
+    });
+  }
+}
+
+function buildResourceList(
+  info: EpubInspection,
+  references: ResourceReference[],
+) {
+  const manifestByPath = new Map<string, EpubInspection["manifest"]>();
+  for (const item of info.manifest) {
+    const items = manifestByPath.get(item.path) ?? [];
+    items.push(item);
+    manifestByPath.set(item.path, items);
+  }
+  const referencesByPath = new Map<string, ResourceReference[]>();
+  for (const ref of references) {
+    if (!ref.path) continue;
+    const targets = referencesByPath.get(ref.path) ?? [];
+    targets.push(ref);
+    referencesByPath.set(ref.path, targets);
+  }
+  return [...info.entries.values()].map((entry) => ({
+    path: entry.name,
+    size: entry.bytes.length,
+    sha256: sha256(entry.bytes),
+    compression: entry.method,
+    manifestIds: (manifestByPath.get(entry.name) ?? []).map((item) => item.id),
+    mediaType: manifestByPath.get(entry.name)?.[0]?.mediaType,
+    referencedBy: referencesByPath.get(entry.name) ?? [],
+  }));
+}
+
+function countNavigationNodes(nodes: InspectedNavigationNode[]): number {
+  return nodes.reduce(
+    (total, node) => total + 1 + countNavigationNodes(node.children),
+    0,
+  );
+}
+
+/** Describe packaged data without interpreting it as instructions or loading URLs. */
+export function describeInspection(info: EpubInspection, size: number) {
+  const diagnostics: Diagnostic[] = [];
+  const documents = new Map(info.documents);
+  documents.set(info.packagePath, info.packageDocument);
+  collectExtraDocuments(info, documents, diagnostics);
+  const ids = new Map(
+    [...documents].map(([source, document]) => [
+      source,
+      new Set(
+        elements(document)
+          .map((el) => attr(el, "id"))
+          .filter(Boolean),
+      ),
+    ]),
+  );
+  const references: ResourceReference[] = [];
+  const resolveRef = createReferenceResolver(info, ids);
+  const addReference: ResolveReference = (source, href, kind, elementId) => {
+    const target = resolveRef(source, href, kind, elementId);
+    references.push(target);
+    return target;
+  };
+  for (const [source, document] of documents) {
+    for (const element of elements(document))
+      collectElementReferences(source, element, addReference, diagnostics);
+  }
+  collectStylesheetReferences(info, addReference, diagnostics);
+  const covers: CoverAssociation[] = [];
+  const navigation = [
+    ...collectNavNavigation(info, documents, resolveRef, covers),
+    ...collectNcxNavigation(info, documents, resolveRef),
+  ];
   const metadataElement = elements(info.packageDocument, "metadata", NS.opf)[0];
   const records = metadataElement
     ? children(metadataElement).map((el) => ({
@@ -314,34 +485,7 @@ export function describeInspection(info: EpubInspection, size: number) {
     info.packageDocument.documentElement!,
     "unique-identifier",
   );
-  const coverIds = records
-    .filter(
-      (r) =>
-        r.name.split(":").at(-1) === "meta" && r.attributes.name === "cover",
-    )
-    .map((r) => r.attributes.content);
-  for (const item of info.manifest.filter(
-    (item) =>
-      item.properties.includes("cover-image") || coverIds.includes(item.id),
-  ))
-    covers.push({
-      source: info.packagePath,
-      kind: item.properties.includes("cover-image")
-        ? "cover-image"
-        : "opf2-meta",
-      manifestId: item.id,
-      target: reference(info.packagePath, item.href, "cover"),
-    });
-  for (const guide of elements(
-    info.packageDocument,
-    "reference",
-    NS.opf,
-  ).filter((el) => attr(el, "type").split(/\s+/).includes("cover")))
-    covers.push({
-      source: info.packagePath,
-      kind: "guide",
-      target: reference(info.packagePath, attr(guide, "href"), "cover"),
-    });
+  collectPackageCovers(info, records, resolveRef, covers);
   const manifestById = new Map(info.manifest.map((item) => [item.id, item]));
   const readingOrder = elements(info.packageDocument, "itemref", NS.opf).map(
     (el, index) => {
@@ -361,30 +505,7 @@ export function describeInspection(info: EpubInspection, size: number) {
   const brokenReferences = references.filter((r) =>
     ["unsafe", "missing-resource", "missing-fragment"].includes(r.resolution),
   );
-  const manifestByPath = new Map<string, EpubInspection["manifest"]>();
-  for (const item of info.manifest) {
-    const items = manifestByPath.get(item.path) ?? [];
-    items.push(item);
-    manifestByPath.set(item.path, items);
-  }
-  const referencesByPath = new Map<string, ResourceReference[]>();
-  for (const ref of references) {
-    if (!ref.path) continue;
-    const targets = referencesByPath.get(ref.path) ?? [];
-    targets.push(ref);
-    referencesByPath.set(ref.path, targets);
-  }
-  const resources = [...info.entries.values()].map((entry) => ({
-    path: entry.name,
-    size: entry.bytes.length,
-    sha256: sha256(entry.bytes),
-    compression: entry.method,
-    manifestIds: (manifestByPath.get(entry.name) ?? []).map((item) => item.id),
-    mediaType: manifestByPath.get(entry.name)?.[0]?.mediaType,
-    referencedBy: referencesByPath.get(entry.name) ?? [],
-  }));
-  const countNodes = (nodes: InspectedNavigationNode[]): number =>
-    nodes.reduce((total, node) => total + 1 + countNodes(node.children), 0);
+  const resources = buildResourceList(info, references);
   return {
     schemaVersion: 1,
     operation: "inspect" as const,
@@ -415,7 +536,7 @@ export function describeInspection(info: EpubInspection, size: number) {
         .map((nav) => ({
           format: nav.format,
           source: nav.source,
-          count: countNodes(nav.items),
+          count: countNavigationNodes(nav.items),
         })),
       covers: covers.length,
       brokenReferences: brokenReferences.length,
@@ -464,5 +585,9 @@ export function inspectionSummary(report: InspectionReport) {
   };
 }
 export function formatInspection(report: InspectionReport) {
-  return `${report.title || "(no title)"}\nEPUB package ${report.version} · ${report.language || "(no language)"}\nPackage: ${report.packagePath}\nSHA-256: ${report.sha256}\nReading order: ${report.summary.spineItems} items (${report.summary.nonLinearItems} non-linear)\nContents: ${report.summary.tocEntries.map((toc) => `${toc.format}: ${toc.count}`).join(", ") || "not found"}\nResources: ${report.summary.resources} · Cover associations: ${report.summary.covers}\nBroken references: ${report.summary.brokenReferences} · Inspection warnings: ${report.summary.inspectionWarnings}\nNotes: ${report.notes.references.length} references (${report.notes.kind}); interactions not run\nMaintenance limitations: ${report.unsupported.join(", ") || "none detected"}\nInspection only; conformance, browser QA and platform checks were not run.\nUse --json for metadata records, navigation trees and resource references.\n`;
+  const contents =
+    report.summary.tocEntries
+      .map((toc) => `${toc.format}: ${toc.count}`)
+      .join(", ") || "not found";
+  return `${report.title || "(no title)"}\nEPUB package ${report.version} · ${report.language || "(no language)"}\nPackage: ${report.packagePath}\nSHA-256: ${report.sha256}\nReading order: ${report.summary.spineItems} items (${report.summary.nonLinearItems} non-linear)\nContents: ${contents}\nResources: ${report.summary.resources} · Cover associations: ${report.summary.covers}\nBroken references: ${report.summary.brokenReferences} · Inspection warnings: ${report.summary.inspectionWarnings}\nNotes: ${report.notes.references.length} references (${report.notes.kind}); interactions not run\nMaintenance limitations: ${report.unsupported.join(", ") || "none detected"}\nInspection only; conformance, browser QA and platform checks were not run.\nUse --json for metadata records, navigation trees and resource references.\n`;
 }

@@ -1,6 +1,6 @@
 # Quillbind
 
-以书库受控词表管理标签，将元数据直接写入 EPUB 或 CBZ 的 `ComicInfo.xml`。轻小说和漫画使用 BookWalker 专用流程（含候选检索与版本锁），中日英普通图书采用“出版社官方版本页 + 公共书目目录 + 已核实版本级书目/书店页”三级来源体系；同时支持 Markdown/网站小说构建 EPUB、已有 EPUB 检查修复、EPUB/MOBI/AZW3 合订本拆分为独立单卷、MOBI/AZW3 转 EPUB、中文繁简转换、扫图打包为无损 JXL CBZ，并支持通过与特定代理无关的 `coordinator` / `worker` / `verifier` subagent 体系并行加速具清晰隔离边界的任务（见[并行 subagent 工作流](../../../skills/quillbind/references/parallel-workflow.md)）。代理执行入口是 [SKILL.md](../../../skills/quillbind/SKILL.md)。
+以书库受控词表管理标签，将元数据直接写入 EPUB 或 CBZ 的 `ComicInfo.xml`。轻小说和漫画使用 BookWalker 专用流程（含候选检索与版本锁），中日英普通图书采用“出版社官方版本页 + 公共书目目录 + 已核实版本级书目/书店页”三级来源体系；同时支持文字版/扫描版/混合版 PDF 转流式横排单列 EPUB 3.3（含页面切片、按页 Markdown 分片精校、独立核验记录、跨页断句缝合、原生 MathML 公式、复杂语义表格与确定性非重绘图像修复）、Markdown/网站小说构建 EPUB、已有 EPUB 检查修复、EPUB/MOBI/AZW3 合订本拆分为独立单卷、MOBI/AZW3 转 EPUB、中文繁简转换、扫图打包为无损 JXL CBZ，并支持通过与特定代理无关的 `coordinator` / `worker` / `verifier` subagent 体系并行加速具清晰隔离边界的任务（见[并行 subagent 工作流](../../../skills/quillbind/references/parallel-workflow.md)与 [PDF 转换指南](../../../skills/quillbind/references/pdf.md)）。代理执行入口是 [SKILL.md](../../../skills/quillbind/SKILL.md)。
 
 ## 安装与运行条件
 

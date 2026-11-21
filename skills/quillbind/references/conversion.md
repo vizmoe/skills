@@ -1,5 +1,15 @@
 # Format and Chinese conversion
 
+## PDF to reflowable horizontal EPUB 3.3
+
+For digital, scanned or hybrid `.pdf` sources — including visual tiling, per-page Markdown sharding, independent `verifier` sign-off (`quillbind-pdf-verification`), canonical `cover -> titlepage -> colophon -> toc` frontmatter ordering (excluding `colophon` from TOC), native MathML formulas, validated `rowspan`/`colspan` tables, deterministic non-destructive image restoration (`pdf enhance-image`), and parallel `coordinator` / `worker` / `verifier` execution — follow [PDF conversion](pdf.md) and [parallel subagent workflow](parallel-workflow.md).
+
+Digital or hybrid PDFs whose pages all have `ocrTrust: "digital-native"` can run through `epub convert` directly (while pages with `ocrTrust: "unverified-embedded"` or `"none"` require `--spec` and an independent `--verification` file and fail with `PDF_OCR_VERIFICATION_REQUIRED` without them):
+
+```sh
+node <skill-directory>/scripts/quillbind.ts epub convert <source.pdf> [--spec <spec.json>] [--verification <verification.json>] --output <new.epub> --json
+```
+
 ## MOBI and AZW3 to EPUB
 
 Convert an existing `.mobi` or `.azw3` file to EPUB 3.3 through the skill helper:

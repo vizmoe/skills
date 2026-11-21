@@ -6,6 +6,14 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import zlib from "node:zlib";
+import sharp from "sharp";
+import {
+  PDF_SPEC_SCHEMA_VERSION,
+  computePageContentSha256,
+  type PdfSpec,
+  type PdfVerificationFile,
+} from "../packages/core/src/index.js";
 import { noteFixture } from "../tests/note-fixture.js";
 
 const repoRoot = path.resolve(
@@ -289,20 +297,277 @@ async function runMissingValidatorScenario(
 async function runUnsupportedInputScenario(
   ctx: ScenarioContext,
 ): Promise<boolean> {
-  const pdf = path.join(ctx.root, "original.pdf");
-  await fs.writeFile(pdf, "%PDF-1.7\nEvaluation input only\n");
-  const before = sha256(await fs.readFile(pdf));
+  const tex = path.join(ctx.root, "original.tex");
+  await fs.writeFile(
+    tex,
+    "\\documentclass{book}\n\\begin{document}Evaluation input only\\end{document}\n",
+  );
+  const before = sha256(await fs.readFile(tex));
   const formats = await ctx.invoke(["formats"]);
-  assert.ok(!formats.inputs.includes("pdf"));
+  assert.ok(!formats.inputs.includes("latex"));
+  assert.ok(formats.inputs.includes("pdf"));
   const failure = await ctx.invoke(
-    ["init", ctx.output, "--from", pdf, "--config", ctx.config],
+    ["init", ctx.output, "--from", tex, "--config", ctx.config],
     1,
   );
   assert.equal(failure.code, "UNSUPPORTED_FORMAT");
-  assert.equal(sha256(await fs.readFile(pdf)), before);
+  assert.equal(sha256(await fs.readFile(tex)), before);
   await assert.rejects(fs.stat(ctx.output));
   ctx.evidence.push(
-    "Unsupported source rejected with a nonzero exit; no output project or conversion claim",
+    "Unsupported LaTeX source rejected with a nonzero exit; no output project or conversion claim",
+  );
+  return false;
+}
+
+function buildMinimalScannedEvalPdf(): Buffer {
+  const imgRaw = zlib.deflateSync(Buffer.alloc(120 * 160 * 3, 0xee));
+  const objects = new Map<number, Buffer>();
+  objects.set(1, Buffer.from("<< /Type /Catalog /Pages 2 0 R >>", "latin1"));
+  objects.set(
+    2,
+    Buffer.from(
+      "<< /Type /Pages /Count 1 /Kids [3 0 R] /MediaBox [0 0 595 842] >>",
+      "latin1",
+    ),
+  );
+  objects.set(
+    3,
+    Buffer.from(
+      "<< /Type /Page /Parent 2 0 R /Resources << /XObject << /Im1 4 0 R >> >> /Contents 5 0 R >>",
+      "latin1",
+    ),
+  );
+  objects.set(
+    4,
+    Buffer.concat([
+      Buffer.from(
+        `<< /Type /XObject /Subtype /Image /Width 120 /Height 160 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /Length ${imgRaw.length} >>\nstream\n`,
+        "latin1",
+      ),
+      imgRaw,
+      Buffer.from("\nendstream", "latin1"),
+    ]),
+  );
+  const contentRaw = zlib.deflateSync(
+    Buffer.from("q 595 0 0 842 0 0 cm /Im1 Do Q", "latin1"),
+  );
+  objects.set(
+    5,
+    Buffer.concat([
+      Buffer.from(
+        `<< /Filter /FlateDecode /Length ${contentRaw.length} >>\nstream\n`,
+        "latin1",
+      ),
+      contentRaw,
+      Buffer.from("\nendstream", "latin1"),
+    ]),
+  );
+  const header = Buffer.from("%PDF-1.7\n%\xE2\xE3\xCF\xD3\n", "latin1");
+  const chunks: Buffer[] = [header];
+  let offset = header.length;
+  const offsets = new Map<number, number>();
+  for (const num of [1, 2, 3, 4, 5]) {
+    offsets.set(num, offset);
+    const wrapped = Buffer.concat([
+      Buffer.from(`${num} 0 obj\n`, "latin1"),
+      objects.get(num)!,
+      Buffer.from("\nendobj\n", "latin1"),
+    ]);
+    chunks.push(wrapped);
+    offset += wrapped.length;
+  }
+  const xrefLines = ["xref\n0 6\n0000000000 65535 f \n"];
+  for (let i = 1; i <= 5; i++) {
+    xrefLines.push(`${String(offsets.get(i)!).padStart(10, "0")} 00000 n \n`);
+  }
+  chunks.push(
+    Buffer.from(xrefLines.join(""), "latin1"),
+    Buffer.from(
+      `trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${offset}\n%%EOF\n`,
+      "latin1",
+    ),
+  );
+  return Buffer.concat(chunks);
+}
+
+async function runPdfWorkflowScenario(ctx: ScenarioContext): Promise<boolean> {
+  const pdfPath = path.join(ctx.root, "scanned.pdf");
+  const pdfBytes = buildMinimalScannedEvalPdf();
+  await fs.writeFile(pdfPath, pdfBytes);
+  const sourceBefore = sha256(pdfBytes);
+
+  const inspectRes = await ctx.invoke(["pdf", "inspect", pdfPath]);
+  assert.equal(inspectRes.classification, "scanned");
+
+  const baseSpecPath = path.join(ctx.root, "base.spec.json");
+  const initRes = await ctx.invoke([
+    "pdf",
+    "init-spec",
+    pdfPath,
+    "--output",
+    baseSpecPath,
+  ]);
+  assert.deepEqual(initRes.unverifiedPages, [1]);
+
+  const blocked = await ctx.invoke(
+    [
+      "pdf",
+      "build-epub",
+      baseSpecPath,
+      "--output",
+      path.join(ctx.root, "blocked.epub"),
+    ],
+    1,
+  );
+  assert.equal(blocked.code, "PDF_OCR_VERIFICATION_REQUIRED");
+
+  const coverRaw = path.join(ctx.root, "cover-raw.png");
+  const coverRestored = path.join(ctx.root, "cover-restored.png");
+  const coverReports = path.join(ctx.root, "enhance-reports");
+  const coverCanvas = Buffer.alloc(160 * 240 * 3, 240);
+  for (let y = 30; y < 210; y++) {
+    for (let x = 25; x < 135; x++) {
+      const idx = (y * 160 + x) * 3;
+      coverCanvas[idx] = (x * 2) % 255;
+      coverCanvas[idx + 1] = 80;
+      coverCanvas[idx + 2] = (y * 2) % 255;
+    }
+  }
+  await sharp(coverCanvas, { raw: { width: 160, height: 240, channels: 3 } })
+    .png()
+    .toFile(coverRaw);
+
+  const enhanceRes = await ctx.invoke([
+    "pdf",
+    "enhance-image",
+    coverRaw,
+    "--output",
+    coverRestored,
+    "--denoise",
+    "--sharpen",
+    "--reports",
+    coverReports,
+  ]);
+  assert.equal(enhanceRes.generativeRedraw, false);
+  assert.ok((await fs.stat(enhanceRes.comparisonImage)).size > 0);
+
+  const shardsDir = path.join(ctx.root, "shards");
+  await ctx.invoke([
+    "pdf",
+    "shard-init",
+    baseSpecPath,
+    "--output",
+    shardsDir,
+    "--format",
+    "md",
+  ]);
+  const baseSpec = await readJson<PdfSpec>(baseSpecPath);
+  const renderPng = path.join(ctx.root, "p0001.png");
+  await fs.copyFile(coverRaw, renderPng);
+  const renderSha = sha256(await fs.readFile(renderPng));
+
+  const editedDir = path.join(ctx.root, "edited-pages");
+  await fs.mkdir(editedDir, { recursive: true });
+  await fs.writeFile(
+    path.join(editedDir, "p0001.md"),
+    `---
+page: 1
+sourceSha256: "${baseSpec.source.sha256}"
+transcribedBy: "worker-eval"
+renderPath: "${renderPng}"
+renderSha256: "${renderSha}"
+dpi: 300
+tilesReviewed: []
+unresolved: []
+---
+
+# 第一章 山径
+
+清风入林，泉水潺潺[^1]。
+
+[^1]: 经独立核验的扫描页脚注。
+`,
+  );
+
+  const mergedPath = path.join(ctx.root, "merged.spec.json");
+  await ctx.invoke([
+    "pdf",
+    "merge-shards",
+    baseSpecPath,
+    "--shards",
+    editedDir,
+    "--output",
+    mergedPath,
+  ]);
+
+  const mergedSpec = await readJson<PdfSpec>(mergedPath);
+  mergedSpec.metadata.title = "扫描重建样本";
+  mergedSpec.metadata.authors = ["测试作者"];
+  mergedSpec.metadata.publisher = "测试出版社";
+  mergedSpec.frontmatter.coverImage = coverRestored;
+  mergedSpec.frontmatter.includeColophon = true;
+  mergedSpec.frontmatter.colophon = {
+    publisher: "测试出版社",
+    copyright: "© 2026 测试出版社",
+    lines: [],
+  };
+  await json(mergedPath, mergedSpec);
+
+  const verPath = path.join(ctx.root, "verification.json");
+  const verPayload: PdfVerificationFile = {
+    schemaVersion: PDF_SPEC_SCHEMA_VERSION,
+    kind: "quillbind-pdf-verification",
+    sourceSha256: mergedSpec.source.sha256,
+    verifierId: "verifier-eval",
+    verifiedAt: "2026-11-21T00:00:00Z",
+    pages: [
+      {
+        page: 1,
+        renderSha256: renderSha,
+        dpi: 300,
+        tilesReviewed: [],
+        transcribedBy: "worker-eval",
+        verifiedBy: "verifier-eval",
+        contentSha256: computePageContentSha256(mergedSpec.pages[0]),
+        status: "verified",
+        unresolved: [],
+      },
+    ],
+  };
+  await json(verPath, verPayload);
+
+  const outEpub = path.join(ctx.root, "rebuilt.epub");
+  const built = await ctx.invoke([
+    "pdf",
+    "build-epub",
+    mergedPath,
+    "--verification",
+    verPath,
+    "--output",
+    outEpub,
+  ]);
+  assert.equal(built.status, "pass");
+  assert.deepEqual(built.frontmatterSpine, [
+    "EPUB/cover.xhtml",
+    "EPUB/titlepage.xhtml",
+    "EPUB/colophon.xhtml",
+    "EPUB/toc.xhtml",
+  ]);
+  assert.equal(built.colophonExcludedFromToc, true);
+  assert.equal(built.validation.status, "pass");
+
+  const inspectedEpub = await ctx.invoke(["inspect", outEpub]);
+  assert.ok(
+    !JSON.stringify(inspectedEpub.navigation).includes("colophon.xhtml"),
+  );
+  const validated = await ctx.invoke(["validate", outEpub]);
+  assert.equal(validated.status, "pass");
+  assert.equal(sha256(await fs.readFile(pdfPath)), sourceBefore);
+
+  ctx.evidence.push(
+    "Unverified scanned PDF rejected with PDF_OCR_VERIFICATION_REQUIRED",
+    "Independent verifier record enabled EPUB 3.3 rebuild with cover->titlepage->colophon->toc and colophon excluded from TOC",
+    "Deterministic image enhancement produced comparison PNG without generative redraw; EPUBCheck passed and source PDF unchanged",
   );
   return false;
 }
@@ -426,6 +691,7 @@ const scenarioHandlers: Record<
   "author-preview": runAuthorPreviewScenario,
   "missing-validator": runMissingValidatorScenario,
   "unsupported-input": runUnsupportedInputScenario,
+  "pdf-workflow": runPdfWorkflowScenario,
   "scripted-notes": runScriptedNotesScenario,
   "release-handoff": runReleaseHandoffScenario,
 };

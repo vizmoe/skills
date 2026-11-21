@@ -34,12 +34,16 @@ import {
   convertEpub,
   convertKindleToEpub,
   isKindlePath,
+  isPdfPath,
   inspectPdf,
   initPdfSpec,
   initPdfShards,
   validatePdfShard,
   checkPdfSpec,
   mergePdfShards,
+  enhancePdfImage,
+  buildEpubFromPdfSpec,
+  convertPdfToEpub,
   enrichEpub,
   packageManga,
   checkNotes,
@@ -97,13 +101,15 @@ const HELP = [
   "quillbind epub repair <file.epub> --plan plan.json --output repaired.epub",
   "quillbind manga package <scan-directory|file.zip|file.cbz> --bookwalker LOCK.json --output volume.cbz [--page-order ORDER.json] [--reading-direction rtl|ltr]",
   "quillbind epub enrich <file.epub> --bookwalker LOCK.json --output enriched.epub",
-  "quillbind epub convert <file.epub|file.mobi|file.azw3> [--to simplified|traditional|china|taiwan|hongkong] --output converted.epub [--online]",
+  "quillbind epub convert <file.epub|file.mobi|file.azw3|file.pdf> [--spec SPEC.json] [--verification VER.json] [--render-manifest MANIFEST.json] [--to simplified|traditional|china|taiwan|hongkong] --output converted.epub [--online]",
   "quillbind pdf inspect <file.pdf> [--pages RANGE] [--shard-size N | --token-budget N] [--render-dir DIR] [--dpi N] [--tiles]",
   "quillbind pdf init-spec <file.pdf> --output SPEC.json [--pages RANGE] [--shard-size N | --token-budget N] [--render-dir DIR] [--dpi N] [--tiles] [--assets-dir DIR]",
   "quillbind pdf shard-init <base-spec.json> --output SHARDS_DIR [--format md|json] [--render-manifest MANIFEST.json]",
   "quillbind pdf validate-shard <shard-or-page-file-or-dir>",
   "quillbind pdf check-spec <spec.json> [--render-manifest MANIFEST.json] [--verification VERIFICATION.json]",
   "quillbind pdf merge-shards <base-spec.json> --shards PATHS --output MERGED.json",
+  "quillbind pdf enhance-image <input> --output <enhanced> [--deskew DEG] [--denoise] [--sharpen] [--normalize] [--upscale 1|2] [--verify-against SOURCE] [--reports DIR]",
+  "quillbind pdf build-epub <spec.json> --output <book.epub> [--verification VER.json] [--render-manifest MANIFEST.json] [--release] [--to TARGET] [--online] [--reports DIR]",
   "quillbind epub repair-plan <file.epub> --purpose reading --output plan.json",
   "quillbind epub repair-copy <file.epub> --plan plan.json --output copy.epub [--reports directory]",
   "quillbind epub repair-directory <directory> --output <directory> [--jobs 2]",
@@ -171,6 +177,14 @@ try {
       "render-manifest": { type: "string" },
       verification: { type: "string" },
       shards: { type: "string" },
+      deskew: { type: "string" },
+      denoise: { type: "boolean" },
+      sharpen: { type: "boolean" },
+      normalize: { type: "boolean" },
+      upscale: { type: "string" },
+      "verify-against": { type: "string" },
+      spec: { type: "string" },
+      release: { type: "boolean" },
     },
   });
   jsonMode = !!values.json;
@@ -233,11 +247,24 @@ try {
     values.to &&
     command !== "build" &&
     command !== "preview" &&
-    !(command === "epub" && subcommand === "convert")
+    !(command === "epub" && subcommand === "convert") &&
+    !(command === "pdf" && subcommand === "build-epub")
   )
     fail(
       "ARGUMENT_CONFLICT",
-      "--to is supported by build, preview and epub convert",
+      "--to is supported by build, preview, epub convert and pdf build-epub",
+    );
+  if (values.spec && !(command === "epub" && subcommand === "convert"))
+    fail("ARGUMENT_CONFLICT", "--spec is supported by epub convert only");
+  if (
+    command !== "pdf" &&
+    !(command === "epub" && subcommand === "convert") &&
+    (values.verification !== undefined ||
+      values["render-manifest"] !== undefined)
+  )
+    fail(
+      "ARGUMENT_CONFLICT",
+      "--verification and --render-manifest are supported by pdf commands and epub convert only",
     );
   if (
     command !== "pdf" &&
@@ -250,9 +277,14 @@ try {
       values.tiles,
       values["assets-dir"],
       values.format,
-      values["render-manifest"],
-      values.verification,
       values.shards,
+      values.deskew,
+      values.denoise,
+      values.sharpen,
+      values.normalize,
+      values.upscale,
+      values["verify-against"],
+      values.release,
     ].some((value) => value !== undefined)
   )
     fail("ARGUMENT_CONFLICT", "PDF options are supported by pdf commands only");
@@ -706,8 +738,21 @@ try {
             signal: abort.signal,
           });
         else if (subcommand === "convert")
-          output =
-            isKindlePath(file) && !values.to
+          output = isPdfPath(file)
+            ? await convertPdfToEpub(
+                file,
+                required(values.output, "--output"),
+                {
+                  spec: values.spec,
+                  verification: values.verification,
+                  renderManifest: values["render-manifest"],
+                  to: values.to ? conversionTarget(values.to) : undefined,
+                  online: values.online,
+                  reports: values.reports,
+                  signal: abort.signal,
+                },
+              )
+            : isKindlePath(file) && !values.to
               ? await convertKindleToEpub(file, {
                   output: required(values.output, "--output"),
                   reports: values.reports,
@@ -818,10 +863,52 @@ try {
             required(values.shards, "--shards"),
             required(values.output, "--output"),
           );
+        } else if (subcommand === "enhance-image") {
+          const upscaleVal =
+            values.upscale === undefined
+              ? undefined
+              : values.upscale === "1"
+                ? 1
+                : values.upscale === "2"
+                  ? 2
+                  : fail("ARGUMENT_CONFLICT", "--upscale supports 1 or 2 only");
+          const deskewVal =
+            values.deskew === undefined ? undefined : Number(values.deskew);
+          if (deskewVal !== undefined && !Number.isFinite(deskewVal)) {
+            fail("ARGUMENT_CONFLICT", "--deskew must be a number");
+          }
+          output = await enhancePdfImage(
+            target,
+            required(values.output, "--output"),
+            {
+              deskew: deskewVal,
+              denoise: values.denoise,
+              sharpen: values.sharpen,
+              normalize: values.normalize,
+              upscale: upscaleVal,
+              verifyAgainst: values["verify-against"],
+              reports: values.reports,
+              signal: abort.signal,
+            },
+          );
+        } else if (subcommand === "build-epub") {
+          output = await buildEpubFromPdfSpec(
+            target,
+            required(values.output, "--output"),
+            {
+              verification: values.verification,
+              renderManifest: values["render-manifest"],
+              release: values.release,
+              to: values.to ? conversionTarget(values.to) : undefined,
+              online: values.online,
+              reports: values.reports,
+              signal: abort.signal,
+            },
+          );
         } else {
           fail(
             "COMMAND_UNKNOWN",
-            "Use pdf inspect, init-spec, shard-init, validate-shard, check-spec or merge-shards",
+            "Use pdf inspect, init-spec, shard-init, validate-shard, check-spec, merge-shards, enhance-image or build-epub",
           );
         }
         break;

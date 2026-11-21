@@ -1057,7 +1057,8 @@ function parseContentStreamRuns(
     if (typeof val === "object" && !Array.isArray(val) && val.kind === "str") {
       chunk = decodeGlyphBytes(val.raw, currentFont);
     } else if (Array.isArray(val)) {
-      for (const item of val) {
+      for (let i = 0; i < val.length; i++) {
+        const item = val[i];
         if (
           item &&
           typeof item === "object" &&
@@ -1067,12 +1068,19 @@ function parseContentStreamRuns(
           chunk += decodeGlyphBytes(item.raw, currentFont);
         } else if (
           typeof item === "number" &&
-          item < -180 &&
+          item < -320 &&
           chunk &&
           !chunk.endsWith(" ")
         ) {
+          const next = val[i + 1];
+          const nextStartsSpace =
+            next &&
+            typeof next === "object" &&
+            !Array.isArray(next) &&
+            next.kind === "str" &&
+            decodeGlyphBytes(next.raw, currentFont).startsWith(" ");
           const lastCp = chunk.codePointAt(chunk.length - 1) ?? 0;
-          if (lastCp < 0x2e80) chunk += " ";
+          if (!nextStartsSpace && lastCp < 0x2e80) chunk += " ";
         }
       }
     }
@@ -1981,8 +1989,9 @@ function groupRunsIntoLines(
         const estHeight = vertical
           ? Math.max(fontSize, text.length * fontSize * 0.95)
           : fontSize * 1.2;
+        const normalizedText = text.replace(/ {2,}/g, " ").trim();
         return {
-          text: text.trim(),
+          text: normalizedText,
           x: Math.round(minX * 100) / 100,
           y: Math.round(minY * 100) / 100,
           width: Math.round(estWidth * 100) / 100,

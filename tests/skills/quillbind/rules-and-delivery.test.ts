@@ -375,6 +375,290 @@ describe("delivery audit helper", () => {
       ),
     ).toEqual(new Set(["DESTINATION_EXISTS", "SOURCE_HASH_MISMATCH"]));
   });
+
+  it("audits on-disk PDF import, verification, enhance, and repair evidence reports", async () => {
+    const root = await fs.mkdtemp(
+      path.join(os.tmpdir(), "quillbind-delivery-pdf-"),
+    );
+    tempDirs.push(root);
+
+    const srcPdf = path.join(root, "scan.pdf");
+    const outEpub = path.join(root, "rebuilt.epub");
+    const outPdf = path.join(root, "repaired.pdf");
+    const figOut = path.join(root, "fig-restored.png");
+    const figCmp = path.join(root, "fig-restored.png.compare.png");
+    await Promise.all([
+      fs.writeFile(srcPdf, "%PDF-1.7\nsource-scan"),
+      fs.writeFile(outEpub, "epub-bytes"),
+      fs.writeFile(outPdf, "%PDF-1.7\nsource-scan\nrepaired"),
+      fs.writeFile(figOut, "restored-figure-png"),
+      fs.writeFile(figCmp, "compare-heatmap-png"),
+    ]);
+    const [srcSha, epubSha, repPdfSha, figSha, cmpSha] = await Promise.all([
+      fs.readFile(srcPdf).then(sha256),
+      fs.readFile(outEpub).then(sha256),
+      fs.readFile(outPdf).then(sha256),
+      fs.readFile(figOut).then(sha256),
+      fs.readFile(figCmp).then(sha256),
+    ]);
+
+    const verPath = path.join(root, "verification.json");
+    const verBytes = Buffer.from(
+      JSON.stringify({
+        schemaVersion: 1,
+        kind: "quillbind-pdf-verification",
+        sourceSha256: srcSha,
+        verifierId: "verifier-01",
+        verifiedAt: "2026-11-21T00:00:00Z",
+        pages: [
+          {
+            page: 1,
+            renderSha256: "a".repeat(64),
+            dpi: 300,
+            tilesReviewed: ["p0001-band-01"],
+            transcribedBy: "worker-01",
+            verifiedBy: "verifier-01",
+            contentSha256: "b".repeat(64),
+            status: "verified",
+            unresolved: [],
+          },
+        ],
+      }),
+    );
+    await fs.writeFile(verPath, verBytes);
+    const verSha = sha256(verBytes);
+
+    const enhPath = path.join(root, "fig-restored.png.enhance.json");
+    await fs.writeFile(
+      enhPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        source: {
+          path: srcPdf,
+          sha256: srcSha,
+          width: 100,
+          height: 100,
+          format: "png",
+        },
+        output: {
+          path: figOut,
+          sha256: figSha,
+          width: 200,
+          height: 200,
+          format: "png",
+        },
+        comparisonImage: figCmp,
+        comparisonImageSha256: cmpSha,
+        operations: [
+          "deskew:-1.2",
+          "denoise:median3",
+          "background-clean:normalize",
+          "super-resolution:2x-lanczos3",
+          "deblur:unsharp",
+        ],
+        multiScaleSsim: 0.92,
+        edgeCorrelation: 0.9,
+        aspectRatioDelta: 0.01,
+        mode: "non-destructive-restoration",
+        generativeRedraw: false,
+      }),
+    );
+
+    const importRepPath = path.join(root, "pdf-import.json");
+    await fs.writeFile(
+      importRepPath,
+      JSON.stringify({
+        status: "pass",
+        operation: "pdf-to-epub",
+        source: srcPdf,
+        sourceSha256: srcSha,
+        output: outEpub,
+        outputSha256: epubSha,
+        frontmatterSpine: [
+          "EPUB/cover.xhtml",
+          "EPUB/titlepage.xhtml",
+          "EPUB/colophon.xhtml",
+          "EPUB/toc.xhtml",
+        ],
+        tocHrefs: ["EPUB/text/ch-001.xhtml"],
+        colophonExcludedFromToc: true,
+        figureProvenance: [
+          { mode: "non-destructive-restoration", generativeRedraw: false },
+        ],
+        verification: {
+          pagesRequiringVerification: [1],
+          verifierId: "verifier-01",
+          verificationFileSha256: verSha,
+        },
+        validation: { status: "pass" },
+      }),
+    );
+
+    const repairRepPath = path.join(root, "pdf-repair.json");
+    await fs.writeFile(
+      repairRepPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        operation: "pdf-repair-ocr",
+        status: "pass",
+        source: { path: srcPdf, sha256: srcSha },
+        output: { path: outPdf, sha256: repPdfSha },
+        incrementalUpdate: true,
+        ocrLayerVerified: true,
+        preservedImageStreams: { count: 1, verifiedBitIdentical: true },
+        verification: {
+          pagesRequiringVerification: [1],
+          verifierId: "verifier-01",
+          verificationFileSha256: verSha,
+        },
+      }),
+    );
+
+    const goodDelivery = path.join(root, "good-pdf-delivery.json");
+    await fs.writeFile(
+      goodDelivery,
+      JSON.stringify({
+        schemaVersion: 1,
+        status: "completed",
+        items: [
+          {
+            source: { path: srcPdf, sha256: srcSha },
+            final: { path: outEpub, sha256: epubSha },
+            pdfImportReport: importRepPath,
+            verificationReport: verPath,
+            enhanceReports: [enhPath],
+          },
+          {
+            source: { path: srcPdf, sha256: srcSha },
+            final: { path: outPdf, sha256: repPdfSha },
+            pdfRepairReport: repairRepPath,
+            verificationReport: verPath,
+          },
+        ],
+      }),
+    );
+    const okRes = await runDeliveryCli(["audit", "--input", goodDelivery]);
+    expect(okRes.rc, JSON.stringify(okRes.payload)).toBe(0);
+    expect(okRes.payload.ok).toBe(true);
+
+    // Negative cases: self-reported unbacked PDF claims, self-approval, colophon in TOC, forbidden op, non-incremental repair
+    const badVerPath = path.join(root, "bad-ver.json");
+    await fs.writeFile(
+      badVerPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        kind: "quillbind-pdf-verification",
+        sourceSha256: srcSha,
+        verifierId: "worker-01",
+        verifiedAt: "2026-11-21T00:00:00Z",
+        pages: [
+          {
+            page: 1,
+            renderSha256: "a".repeat(64),
+            dpi: 300,
+            tilesReviewed: [],
+            transcribedBy: "worker-01",
+            verifiedBy: "worker-01",
+            contentSha256: "b".repeat(64),
+            status: "verified",
+            unresolved: [{ reason: "blur" }],
+          },
+        ],
+      }),
+    );
+    const badEnhPath = path.join(root, "bad.enhance.json");
+    await fs.writeFile(
+      badEnhPath,
+      JSON.stringify({
+        output: { path: figOut, sha256: "0".repeat(64) },
+        comparisonImage: path.join(root, "missing-compare.png"),
+        comparisonImageSha256: cmpSha,
+        operations: ["generative-redraw:ai"],
+        mode: "generative",
+        generativeRedraw: true,
+      }),
+    );
+    const badImportPath = path.join(root, "bad-import.json");
+    await fs.writeFile(
+      badImportPath,
+      JSON.stringify({
+        status: "pass",
+        operation: "pdf-to-epub",
+        sourceSha256: srcSha,
+        output: outEpub,
+        outputSha256: epubSha,
+        frontmatterSpine: ["EPUB/toc.xhtml", "EPUB/colophon.xhtml"],
+        tocHrefs: ["EPUB/colophon.xhtml"],
+        colophonExcludedFromToc: false,
+        validation: { status: "pass" },
+        verification: { pagesRequiringVerification: [1] },
+      }),
+    );
+    const badRepairPath = path.join(root, "bad-repair.json");
+    await fs.writeFile(
+      badRepairPath,
+      JSON.stringify({
+        operation: "pdf-repair-ocr",
+        status: "pass",
+        source: { path: srcPdf, sha256: srcSha },
+        output: { path: outPdf, sha256: repPdfSha },
+        incrementalUpdate: false,
+        ocrLayerVerified: false,
+        preservedImageStreams: { count: 1, verifiedBitIdentical: false },
+      }),
+    );
+    const badDelivery = path.join(root, "bad-pdf-delivery.json");
+    await fs.writeFile(
+      badDelivery,
+      JSON.stringify({
+        schemaVersion: 1,
+        status: "completed",
+        items: [
+          {
+            source: { path: srcPdf, sha256: srcSha },
+            final: { path: outEpub, sha256: epubSha },
+            pdfConversion: { ocrVerified: true },
+          },
+          {
+            source: { path: srcPdf, sha256: srcSha },
+            final: { path: outEpub, sha256: epubSha },
+            pdfImportReport: badImportPath,
+            verificationReport: badVerPath,
+            enhanceReports: [badEnhPath],
+          },
+          {
+            source: { path: srcPdf, sha256: srcSha },
+            final: { path: outPdf, sha256: repPdfSha },
+            pdfRepairReport: badRepairPath,
+          },
+        ],
+      }),
+    );
+    const badRes = await runDeliveryCli(["audit", "--input", badDelivery]);
+    expect(badRes.rc).toBe(1);
+    const codes = new Set(
+      (badRes.payload.issues as Array<{ code: string }>).map((i) => i.code),
+    );
+    for (const expectedCode of [
+      "PDF_EVIDENCE_REPORT_MISSING",
+      "PDF_FRONTMATTER_ORDER_INVALID",
+      "COLOPHON_IN_TOC",
+      "PDF_SELF_APPROVAL_FORBIDDEN",
+      "PDF_UNRESOLVED_ITEMS",
+      "GENERATIVE_REDRAW_FORBIDDEN",
+      "FORBIDDEN_IMAGE_OPERATION",
+      "ENHANCE_OUTPUT_HASH_MISMATCH",
+      "ENHANCE_COMPARISON_MISSING",
+      "PDF_REPAIR_NOT_INCREMENTAL",
+      "PDF_OCR_LAYER_UNVERIFIED",
+      "PDF_IMAGE_STREAM_MUTATED",
+    ]) {
+      expect(
+        codes.has(expectedCode),
+        `Expected issue code ${expectedCode}`,
+      ).toBe(true);
+    }
+  });
 });
 
 describe("installed standalone delivery-audit helper", () => {

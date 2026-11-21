@@ -562,11 +562,35 @@ unresolved: []
   );
   const validated = await ctx.invoke(["validate", outEpub]);
   assert.equal(validated.status, "pass");
+
+  const repairedPdf = path.join(ctx.root, "repaired.pdf");
+  const backupPdf = path.join(ctx.root, "scanned.backup.pdf");
+  const repairRes = await ctx.invoke([
+    "pdf",
+    "repair-ocr",
+    pdfPath,
+    "--spec",
+    mergedPath,
+    "--verification",
+    verPath,
+    "--output",
+    repairedPdf,
+    "--backup",
+    backupPdf,
+  ]);
+  assert.equal(repairRes.status, "pass");
+  assert.equal(repairRes.incrementalUpdate, true);
+  assert.equal(repairRes.ocrLayerVerified, true);
+  assert.equal(repairRes.preservedImageStreams.verifiedBitIdentical, true);
+  assert.equal(sha256(await fs.readFile(backupPdf)), sourceBefore);
+  const repairedBytes = await fs.readFile(repairedPdf);
+  assert.ok(repairedBytes.subarray(0, pdfBytes.length).equals(pdfBytes));
   assert.equal(sha256(await fs.readFile(pdfPath)), sourceBefore);
 
   ctx.evidence.push(
     "Unverified scanned PDF rejected with PDF_OCR_VERIFICATION_REQUIRED",
     "Independent verifier record enabled EPUB 3.3 rebuild with cover->titlepage->colophon->toc and colophon excluded from TOC",
+    "Incremental PDF OCR repair preserved source prefix bytes and bit-identical image streams while verifying readback text",
     "Deterministic image enhancement produced comparison PNG without generative redraw; EPUBCheck passed and source PDF unchanged",
   );
   return false;

@@ -192,4 +192,20 @@ node <skill-directory>/scripts/quillbind.ts epub convert /absolute/books/digital
 3. **Run EPUB 3.3 conformance**: run `validate <staged.epub> --json` and require internal checks plus actual **EPUBCheck** to pass with **0 errors and 0 warnings**.
 4. **Audit reading structure and footnotes**: run `epub audit <staged.epub> --json` and `epub check-notes <staged.epub> --json` to confirm popup `noteref` / `footnote` round-trip integrity.
 5. **Run browser QA**: run `qa <staged.epub> --json` when the host environment permits Chromium (`ENVIRONMENT_ERROR` on restricted sandboxes must be reported explicitly per [environment](environment.md)).
-6. **Verify Calibre sidecar safety and hash chain**: run `scripts/delivery-audit.ts audit` against the pre-run `snapshot` ([quality](quality.md)) before delivering the final `.epub`.
+6. **Verify Calibre sidecar safety and hash chain**: run `scripts/delivery-audit.ts audit` against the pre-run `snapshot` ([quality](quality.md)) supplying on-disk `pdfImportReport`, `verificationReport`, and `enhanceReports` paths before delivering the final `.epub`.
+
+## Scanned PDF OCR layer and bookmark repair
+
+When the user wants a searchable scanned PDF (rather than or in addition to EPUB 3.3), write the independently verified proofread text back into the PDF using a **PDF incremental update**:
+
+```sh
+node <skill-directory>/scripts/quillbind.ts pdf repair-ocr /absolute/books/scanned.pdf --spec /tmp/work/spec.merged.json --verification /tmp/work/verification.json --render-manifest /tmp/work/pages-view/render-manifest.json --output /tmp/work/repaired.pdf --backup /tmp/work/scanned.backup.pdf --reports /tmp/work/repair-reports --json
+```
+
+Guarantees and explicit limits of `pdf repair-ocr`:
+
+- **Proofread `blocks` are the sole text authority**: text written into the invisible (`3 Tr`) layer comes strictly from verified `blocks` and `footnotes`, never from stale hidden OCR streams or `rawOcrDraft`.
+- **Deterministic line geometry with explicit block-level fallback**: each page maps proofread lines sequentially onto `geometry` boxes (priority: 1. existing OCR layer boxes, 2. `pdftotext -bbox-layout`, 3. `sharp` horizontal-projection line cuts on the rendered page PNG). When transcribed line counts do not match detected geometry boxes (or no line boxes exist), the writer falls back explicitly to block-level bounding boxes and records `mode: "block-fallback"` in `pdf-repair.json` (`pageAlignments[]`) rather than silently fabricating uniform line coordinates.
+- **Embedded GlyphLess TrueType font and `Tz` horizontal fit**: embeds a minimal valid 1-glyph TrueType font (`/FontFile2`) with an explicit `/CIDToGIDMap` and `/ToUnicode` CMap, scaling each line horizontally via `Tz` to fit its target box within page bounds without right-edge clipping.
+- **PDF incremental update**: preserves the original PDF byte prefix untouched (leaving all original image XObject streams, untouched objects, generation numbers, and `/ID[0]` intact) and appends updated page dictionaries (with `/ReaddleObject` and stale `3 Tr` OCR streams stripped), new invisible text streams, optional `/Outlines` bookmarks, and an incremental cross-reference section matching the source format (classic `xref` table or PDF 1.5+ `/XRef` stream).
+- **Mandatory post-write readback gate**: verifies original byte-prefix preservation, bit-identical image XObject SHA-256 digests (`PDF_IMAGE_STREAM_MUTATED`), and normalized text readback via `pdftotext` (or internal parser fallback when Poppler is unavailable) against the verified spec; any text drift fails immediately with `PDF_OCR_LAYER_STALE`. Supply `pdfRepairReport` (`pdf-repair.json`) and `verificationReport` to `scripts/delivery-audit.ts audit`.

@@ -1196,6 +1196,136 @@ function parseContentStreamRuns(
   return { runs, hasInvisibleText };
 }
 
+/**
+ * Strip invisible (3 Tr) BT..ET OCR text blocks and /Readdle marked-content wrappers
+ * from a decoded PDF content stream while preserving all raster/vector drawing operators.
+ */
+export function stripInvisibleOcrFromContentStream(contentBuf: Buffer): {
+  cleaned: Buffer;
+  strippedBlocks: number;
+} {
+  const tok = new PdfTokenizer(contentBuf, 0);
+  const operands: { val: PdfVal; start: number }[] = [];
+  const removeSpans: [number, number][] = [];
+  let strippedBlocks = 0;
+
+  let trMode = 0;
+  const trStack: number[] = [];
+  let inTextBlock = false;
+  let btStart = 0;
+  let btHadInvisible = false;
+  let btHadVisible = false;
+  let readdleDepth = 0;
+  let readdleStart = -1;
+
+  while (tok.pos < contentBuf.length) {
+    tok.skipWsAndComments();
+    if (tok.pos >= contentBuf.length) break;
+    if (tok.peekWord() === "BI") {
+      const eiIdx = contentBuf.indexOf("EI", tok.pos + 2, "latin1");
+      if (eiIdx < 0) break;
+      tok.pos = eiIdx + 2;
+      operands.length = 0;
+      continue;
+    }
+    const tokenStart = tok.pos;
+    const v = tok.readValue();
+    const tokenEnd = tok.pos;
+    if (v === undefined) break;
+
+    const isOperator =
+      typeof v === "object" &&
+      v !== null &&
+      !Array.isArray(v) &&
+      v.kind === "name" &&
+      contentBuf[tokenStart] !== 0x2f;
+
+    if (!isOperator) {
+      operands.push({ val: v, start: tokenStart });
+      continue;
+    }
+
+    const op = v.value;
+    if (op === "q") {
+      trStack.push(trMode);
+    } else if (op === "Q") {
+      trMode = trStack.pop() ?? 0;
+    } else if (op === "BDC" || op === "BMC") {
+      const tagOperand =
+        op === "BDC"
+          ? operands[operands.length - 2]
+          : operands[operands.length - 1];
+      const tagName = asName(tagOperand?.val) ?? "";
+      if (readdleDepth > 0) {
+        readdleDepth++;
+      } else if (tagName.includes("Readdle")) {
+        readdleDepth = 1;
+        readdleStart = tagOperand?.start ?? tokenStart;
+      }
+    } else if (op === "EMC") {
+      if (readdleDepth > 0) {
+        readdleDepth--;
+        if (readdleDepth === 0 && readdleStart >= 0) {
+          removeSpans.push([readdleStart, tokenEnd]);
+          strippedBlocks++;
+          readdleStart = -1;
+        }
+      }
+    } else if (op === "BT") {
+      inTextBlock = true;
+      btStart = tokenStart;
+      btHadInvisible = false;
+      btHadVisible = false;
+    } else if (op === "Tr") {
+      const mode = asNum(operands[operands.length - 1]?.val);
+      if (mode !== undefined) {
+        trMode = mode;
+        if (inTextBlock && mode === 3) btHadInvisible = true;
+      }
+    } else if (op === "Tj" || op === "TJ" || op === "'" || op === '"') {
+      if (inTextBlock) {
+        if (trMode === 3) btHadInvisible = true;
+        else btHadVisible = true;
+      }
+    } else if (op === "ET") {
+      if (
+        inTextBlock &&
+        btHadInvisible &&
+        !btHadVisible &&
+        readdleDepth === 0
+      ) {
+        removeSpans.push([btStart, tokenEnd]);
+        strippedBlocks++;
+      }
+      inTextBlock = false;
+    }
+    operands.length = 0;
+  }
+
+  if (removeSpans.length === 0) {
+    return { cleaned: contentBuf, strippedBlocks: 0 };
+  }
+  removeSpans.sort((a, b) => a[0] - b[0]);
+  const merged: [number, number][] = [];
+  for (const span of removeSpans) {
+    const prev = merged[merged.length - 1];
+    if (prev && span[0] <= prev[1]) {
+      prev[1] = Math.max(prev[1], span[1]);
+    } else {
+      merged.push([span[0], span[1]]);
+    }
+  }
+  const chunks: Buffer[] = [];
+  let cursor = 0;
+  for (const [s, e] of merged) {
+    if (s > cursor) chunks.push(contentBuf.subarray(cursor, s));
+    chunks.push(Buffer.from("\n", "latin1"));
+    cursor = e;
+  }
+  if (cursor < contentBuf.length) chunks.push(contentBuf.subarray(cursor));
+  return { cleaned: Buffer.concat(chunks), strippedBlocks };
+}
+
 export interface ExtractedTextLine {
   text: string;
   x: number;
@@ -1687,7 +1817,7 @@ export function planPdfShards(
   return shards;
 }
 
-function extractOutline(
+export function extractOutline(
   doc: PdfDocumentParser,
   pageByObjNum: Map<number, number>,
 ): PdfOutlineNode[] {

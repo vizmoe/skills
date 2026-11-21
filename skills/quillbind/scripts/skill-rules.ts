@@ -42,6 +42,15 @@ export interface DeliveryRules {
   protectedSidecars: ProtectedSidecarRule[];
 }
 
+export interface ParallelRoleRule {
+  writeScope: string;
+  selfApproval: boolean;
+}
+
+export interface ParallelWorkflowRules {
+  roles: Record<string, ParallelRoleRule>;
+}
+
 const defaultReferencesDir = fileURLToPath(
   new URL("../references", import.meta.url),
 );
@@ -327,4 +336,44 @@ export async function readDeliveryRules(
     );
   }
   return { statuses, protectedSidecars };
+}
+
+export async function readParallelWorkflowRules(
+  referencesDir: string = defaultReferencesDir,
+): Promise<ParallelWorkflowRules> {
+  const content = await fs.readFile(
+    path.join(referencesDir, "parallel-workflow.md"),
+    "utf8",
+  );
+  const roleRows = parseMarkdownSectionTables(
+    content,
+    "Subagent role contracts",
+  );
+  const roles: Record<string, ParallelRoleRule> = {};
+  for (const row of roleRows) {
+    const role = singleCode(row["Role"], "Role");
+    checkRule(!Object.hasOwn(roles, role), `Duplicate subagent role: ${role}`);
+    const approvalCode = singleCode(row["Self-approval"], "Self-approval");
+    checkRule(
+      approvalCode === "allowed" || approvalCode === "forbidden",
+      `Self-approval must be allowed or forbidden for ${role}`,
+    );
+    roles[role] = {
+      writeScope: singleCode(row["Write scope"], "Write scope"),
+      selfApproval: approvalCode === "allowed",
+    };
+  }
+  for (const expected of ["coordinator", "worker", "verifier"]) {
+    checkRule(
+      Object.hasOwn(roles, expected),
+      `parallel-workflow.md must declare subagent role "${expected}"`,
+    );
+  }
+  checkRule(
+    roles.verifier?.writeScope === "read-only-reports" &&
+      roles.worker?.selfApproval === false &&
+      roles.coordinator?.selfApproval === false,
+    "parallel-workflow.md must keep verifier read-only and forbid worker/coordinator self-approval",
+  );
+  return { roles };
 }

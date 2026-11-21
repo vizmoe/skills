@@ -6,6 +6,7 @@ import {
   readBibliographyRules,
   readDeliveryRules,
   readNamingRules,
+  readParallelWorkflowRules,
   readWorkTypeTagRules,
 } from "../../../skills/quillbind/scripts/skill-rules.ts";
 import { installSkillCopy, runNode, sha256, SKILL_DIR } from "./support.ts";
@@ -37,11 +38,12 @@ async function runDeliveryCli(
 describe("reference rule table parser", () => {
   it("parses all reference rule tables and detects table mutations", async () => {
     const refsDir = path.join(SKILL_DIR, "references");
-    const [tags, naming, bibliography, delivery] = await Promise.all([
+    const [tags, naming, bibliography, delivery, parallel] = await Promise.all([
       readWorkTypeTagRules(refsDir),
       readNamingRules(refsDir),
       readBibliographyRules(refsDir),
       readDeliveryRules(refsDir),
+      readParallelWorkflowRules(refsDir),
     ]);
 
     expect(tags["light-novel"]).toEqual({
@@ -71,6 +73,12 @@ describe("reference rule table parser", () => {
     ).toBe(true);
     expect(delivery.statuses.completed?.filesWritten).toBe(true);
     expect(delivery.statuses["plan-only"]?.filesWritten).toBe(false);
+    expect(new Set(Object.keys(parallel.roles))).toEqual(
+      new Set(["coordinator", "worker", "verifier"]),
+    );
+    expect(parallel.roles.verifier?.writeScope).toBe("read-only-reports");
+    expect(parallel.roles.worker?.selfApproval).toBe(false);
+    expect(parallel.roles.coordinator?.selfApproval).toBe(false);
 
     const tmp1 = await fs.mkdtemp(path.join(os.tmpdir(), "quillbind-rules-1-"));
     tempDirs.push(tmp1);
@@ -86,6 +94,23 @@ describe("reference rule table parser", () => {
       "utf8",
     );
     await expect(readWorkTypeTagRules(copied1)).rejects.toMatchObject({
+      code: "RULE_TABLE_INVALID",
+    });
+
+    const tmp2 = await fs.mkdtemp(path.join(os.tmpdir(), "quillbind-rules-2-"));
+    tempDirs.push(tmp2);
+    const copied2 = path.join(tmp2, "references");
+    await fs.cp(refsDir, copied2, { recursive: true });
+    const parallelMd = path.join(copied2, "parallel-workflow.md");
+    await fs.writeFile(
+      parallelMd,
+      (await fs.readFile(parallelMd, "utf8")).replace(
+        "| `worker` | `assigned-slice-only` | `forbidden` |",
+        "| `worker` | `assigned-slice-only` | `allowed` |",
+      ),
+      "utf8",
+    );
+    await expect(readParallelWorkflowRules(copied2)).rejects.toMatchObject({
       code: "RULE_TABLE_INVALID",
     });
   });

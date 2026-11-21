@@ -1,10 +1,10 @@
 ---
 name: quillbind
-description: Maintain metadata directly in EPUB files and CBZ ComicInfo.xml, using the library's controlled English tags, BookWalker for light novels and manga, and tiered publisher, public catalog and verified edition sources for Chinese, Japanese and English books, including self-made editions. Plan consistent light-novel series names, audit tag cleanup, build EPUB 3.3 from Markdown or supported novel websites, inspect and repair EPUBs, split existing EPUB, MOBI or AZW3 anthologies into independent volumes, check scripted popup notes, convert MOBI/AZW3 to EPUB and Chinese scripts, and package manga scans as lossless JPEG XL CBZ. Arbitrary HTML, PDF and LaTeX import are unsupported.
+description: Maintain metadata directly in EPUB files and CBZ ComicInfo.xml, using the library's controlled English tags, BookWalker for light novels and manga, and tiered publisher, public catalog and verified edition sources for Chinese, Japanese and English books, including self-made editions. Plan consistent light-novel series names, audit tag cleanup, build EPUB 3.3 from Markdown or supported novel websites, inspect and repair EPUBs, split existing EPUB, MOBI or AZW3 anthologies into independent volumes, check scripted popup notes, convert MOBI/AZW3 to EPUB and Chinese scripts, package manga scans as lossless JPEG XL CBZ, and parallelize isolated multi-slice tasks with coordinator, worker and verifier subagents. Arbitrary HTML, PDF and LaTeX import are unsupported.
 license: MIT
 compatibility: Standalone TypeScript tag, naming, rule-parsing and delivery-audit helpers need Node.js; file metadata writers and publishing operations use tools/quillbind from vizmoe/skills with dependencies installed, exposed through QUILLBIND_ROOT or quillbind on PATH. EPUB checks need Java, EPUBCheck and Chromium; CBZ checks need xmllint, and manga packaging needs libjxl cjxl and djxl. Online retrieval needs network; saved locks support offline replay. Calibre database access is never used.
 metadata:
-  version: "0.2.0"
+  version: "0.2.1"
 ---
 
 # Quillbind
@@ -46,8 +46,17 @@ Select only the branches required by the user's request. Keep every action withi
 | New publications | Markdown syntax, tables, math, quotes or images | [Markdown](references/markdown.md) | `preflight`, `build` |
 | New publications | Blog/Astro chapters, Properties or heading jumps | [blog Markdown](references/blog-markdown.md) | `init`, `preflight`, `build` |
 | Manga scans | Scan directories or archives to lossless JXL CBZ | [manga](references/manga.md) | `manga package` |
+| Multi-slice tasks | Accelerate isolated books, chapters or volumes with `coordinator` / `worker` / `verifier` subagents | [parallel subagent workflow](references/parallel-workflow.md) | Disjoint slices + `scripts/delivery-audit.ts` |
 | Every run | Artifact handoff, Calibre boundary check or release gates | [quality](references/quality.md) | `scripts/delivery-audit.ts`, `doctor --json` |
 | Every run | Missing validators, setup or `ENVIRONMENT_ERROR` | [environment](references/environment.md) | `doctor --json` |
+
+## Parallel execution with subagents
+
+When the host agent environment supports subagents or parallel workers, accelerate any task with clear isolation boundaries using the portable three-role architecture in [references/parallel-workflow.md](references/parallel-workflow.md) (not tied to any specific agent harness or model):
+
+- **`coordinator`**: inspects inputs, captures a single pre-run `scripts/delivery-audit.ts snapshot`, locks shared vocabularies/sources, partitions non-overlapping slices (individual ebooks in batch metadata/tag/cover/repair runs, per-volume evidence in series naming, chapters in Markdown/novel authoring, or scan volumes in manga packaging), merges outputs, and assembles delivery reports.
+- **`worker`**: executes strictly within its assigned isolated slice and private staging path; never touches sibling slices or shared sidecars, and never self-approves its own output.
+- **`verifier`**: audits outputs read-only against source evidence, SHA-256 chains, EPUBCheck/Ace/QA/XSD validators and Calibre sidecar snapshots, routing defects back to the owning `worker` rather than co-editing target files.
 
 ## Shared boundaries
 

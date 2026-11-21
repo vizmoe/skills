@@ -5,7 +5,7 @@ import { REPO_ROOT, SKILL_DIR } from "./support.ts";
 
 // An installed skill exposes the runtime only through this launcher; `quillbind` is not on PATH.
 const BARE =
-  /(?:^|[`\s])quillbind\s+(?:epub|metadata|manga|novel|init|doctor|inspect|build|preview|preflight|validate|qa|schema|formats|taxonomy|version)\b/u;
+  /(?:^|[`\s])quillbind\s+(?:epub|pdf|metadata|manga|novel|init|doctor|inspect|build|preview|preflight|validate|qa|schema|formats|taxonomy|version)\b/u;
 
 async function collectMarkdownFiles(dir: string): Promise<string[]> {
   const files: string[] = [];

@@ -42,9 +42,16 @@ export {
   planPdfShards,
   detectLineGeometryFromImage,
   sliceRenderedPageTiles,
+  stripInvisibleOcrFromContentStream,
+  extractOutline,
   inspectPdf,
   extractPdfRawPages,
 } from "./pdf-binary.js";
+export {
+  buildGlyphLessTrueTypeFont,
+  verifyPdfOcrLayerReadback,
+  repairScannedPdf,
+} from "./pdf-repair.js";
 export {
   computePageContentSha256,
   extractBlockPlainText,
@@ -92,7 +99,7 @@ export { VERSION } from "./runtime.js";
 /** Supported workflows; EPUB publication retains every EPUB release gate. */
 export const formats = {
   inputs: ["markdown-book", "epub", "pdf", "novel-url", "manga-scans"],
-  outputs: ["epub", "cbz"],
+  outputs: ["epub", "cbz", "pdf"],
   kindleInputFormats: ["mobi", "azw3"],
   pdfInputModes: [
     "inspect",
@@ -103,6 +110,7 @@ export const formats = {
     "merge-shards",
     "enhance-image",
     "build-epub",
+    "repair-ocr",
     "convert",
   ],
   mangaInputFormats: ["image-directory", "zip", "cbz"],

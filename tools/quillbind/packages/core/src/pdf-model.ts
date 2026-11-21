@@ -511,3 +511,54 @@ export const pdfImageEnhanceReportSchema = z.strictObject({
   generativeRedraw: z.literal(false),
 });
 export type PdfImageEnhanceReport = z.infer<typeof pdfImageEnhanceReportSchema>;
+
+export const pdfRepairPageAlignmentSchema = z.strictObject({
+  page: z.number().int().min(1),
+  mode: z.enum(["line-matched", "block-fallback", "skipped-empty"]),
+  geometryLines: z.number().int().nonnegative(),
+  textLines: z.number().int().nonnegative(),
+  geometrySource: z.string().optional(),
+});
+export type PdfRepairPageAlignment = z.infer<
+  typeof pdfRepairPageAlignmentSchema
+>;
+
+export const pdfRepairReportSchema = z.strictObject({
+  schemaVersion: z.literal(PDF_SPEC_SCHEMA_VERSION),
+  operation: z.literal("pdf-repair-ocr"),
+  status: z.literal("pass"),
+  source: z.strictObject({
+    path: z.string().min(1),
+    sha256: sha256Schema,
+  }),
+  output: z.strictObject({
+    path: z.string().min(1),
+    sha256: sha256Schema,
+  }),
+  backup: z
+    .strictObject({
+      path: z.string().min(1),
+      sha256: sha256Schema,
+    })
+    .optional(),
+  incrementalUpdate: z.literal(true),
+  xrefFormat: z.enum(["classic", "xref-stream"]),
+  pagesRepaired: z.array(z.number().int().min(1)),
+  pageAlignments: z.array(pdfRepairPageAlignmentSchema),
+  strippedOcrArtifacts: z.number().int().nonnegative(),
+  outlineEntries: z.number().int().nonnegative(),
+  ocrLayerVerified: z.literal(true),
+  readbackTool: z.enum(["pdftotext", "internal-parser"]),
+  preservedImageStreams: z.strictObject({
+    count: z.number().int().nonnegative(),
+    verifiedBitIdentical: z.literal(true),
+  }),
+  verification: z.strictObject({
+    pagesRequiringVerification: z.array(z.number().int().min(1)),
+    verifierId: z.string().min(1).optional(),
+    verifiedAt: z.string().min(1).optional(),
+    verificationFileSha256: sha256Schema.optional(),
+  }),
+  reports: z.string().min(1),
+});
+export type PdfRepairReport = z.infer<typeof pdfRepairReportSchema>;

@@ -103,11 +103,12 @@
     },
     {
       "id": "pdf-workflow",
-      "prompt": "将扫描版 PDF 经由分片 Markdown 转写、独立核验记录、无损图像修复和规范序言重建为单栏横排流式 EPUB 3.3，且版权页不得进入目录。",
+      "prompt": "将扫描版 PDF 经由分片 Markdown 转写、独立核验记录、无损图像修复和规范序言重建为单栏横排流式 EPUB 3.3（版权页不得进入目录），并通过增量更新修复扫描 PDF 的 OCR 文字层与书签。",
       "expected": [
         "unverified scanned PDF is blocked until independent verifier record exists",
         "deterministic image restoration produces comparison PNG without generative redraw",
         "canonical frontmatter spine cover->titlepage->colophon->toc with colophon excluded from TOC",
+        "incremental OCR repair verifies readback text and bit-identical image streams",
         "EPUBCheck passes and original PDF is unchanged"
       ],
       "protected": ["original PDF"]

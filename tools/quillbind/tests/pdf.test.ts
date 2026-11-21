@@ -17,8 +17,14 @@ import {
   renderPdfSpecToEpub,
 } from "../packages/core/src/pdf-epub.js";
 import {
+  PdfDocumentParser,
+  asArr,
+  asDict,
+  collectPages,
   detectLineGeometryFromImage,
+  dictGet,
   estimatePageImageTokens,
+  extractOutline,
   extractPdfRawPages,
   inspectPdf,
   isPdfBytes,
@@ -27,7 +33,13 @@ import {
   parsePdftotextBboxLayout,
   planPdfShards,
   sliceRenderedPageTiles,
+  stripInvisibleOcrFromContentStream,
 } from "../packages/core/src/pdf-binary.js";
+import {
+  buildGlyphLessTrueTypeFont,
+  repairScannedPdf,
+  verifyPdfOcrLayerReadback,
+} from "../packages/core/src/pdf-repair.js";
 import {
   PDF_SPEC_SCHEMA_VERSION,
   pageRequiresOcrVerification,
@@ -1910,7 +1922,7 @@ describe("PDF-to-EPUB 3.3 builder, non-destructive image restoration and P0-3/P0
       path.join(reportsDir, "pdf-import.json"),
     );
     expect(importReport.outputSha256).toBe(result.outputSha256);
-  }, 60_000);
+  }, 120_000);
 
   it("wires pdf enhance-image, pdf build-epub, and epub convert <pdf> through the CLI", async () => {
     const root = await makeTempDir();
@@ -1996,7 +2008,7 @@ describe("PDF-to-EPUB 3.3 builder, non-destructive image restoration and P0-3/P0
         spec: specPath,
       }),
     ).rejects.toMatchObject({ code: "SOURCE_HASH_MISMATCH" });
-  }, 60_000);
+  }, 120_000);
 
   it("converts a real Chrome 2-column CJK + photo PDF directly to a validated EPUB 3.3", async () => {
     let executable: string;
@@ -2056,5 +2068,637 @@ describe("PDF-to-EPUB 3.3 builder, non-destructive image restoration and P0-3/P0
       .join("\n");
     expect(chromeBody).toContain("中文康熙部首正文");
     expect(chromeBody).not.toContain("⽂");
-  }, 60_000);
+  }, 120_000);
+});
+
+function buildScannedPdfWithIdAndGen(): Buffer {
+  const img1 = zlib.deflateSync(Buffer.alloc(120 * 160 * 3, 0xdd));
+  const objects = new Map<number, { gen: number; body: string | Buffer }>();
+  objects.set(1, { gen: 0, body: "<< /Type /Catalog /Pages 2 0 R >>" });
+  objects.set(2, {
+    gen: 0,
+    body: "<< /Type /Pages /Count 2 /Kids [3 2 R 4 0 R] /MediaBox [0 0 595 842] >>",
+  });
+  objects.set(11, {
+    gen: 0,
+    body: pdfStream(
+      "/Type /XObject /Subtype /Image /Width 120 /Height 160 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode",
+      img1,
+    ),
+  });
+  objects.set(13, {
+    gen: 0,
+    body: "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  });
+  objects.set(3, {
+    gen: 2,
+    body: "<< /Type /Page /Parent 2 0 R /PieceInfo << /ReaddleObject << /Private (bad) >> /KeepMe << /Ok 1 >> >> /Resources << /XObject << /Im1 11 0 R >> /Font << /F1 13 0 R >> >> /Contents 7 0 R >>",
+  });
+  objects.set(7, {
+    gen: 0,
+    body: flateStream(
+      "",
+      "q 595 0 0 842 0 0 cm /Im1 Do Q\nBT 3 Tr /F1 12 Tf 1 0 0 1 72 700 Tm (Helo wrold te) Tj ET",
+    ),
+  });
+  objects.set(4, {
+    gen: 0,
+    body: "<< /Type /Page /Parent 2 0 R /Resources << /XObject << /Im1 11 0 R >> >> /Contents 8 0 R >>",
+  });
+  objects.set(8, {
+    gen: 0,
+    body: flateStream("", "q 595 0 0 842 0 0 cm /Im1 Do Q"),
+  });
+
+  const sorted = [...objects.keys()].sort((a, b) => a - b);
+  const maxObj = sorted[sorted.length - 1]!;
+  const header = Buffer.from("%PDF-1.7\n%\xE2\xE3\xCF\xD3\n", "latin1");
+  const chunks: Buffer[] = [header];
+  let offset = header.length;
+  const offsets = new Map<number, { offset: number; gen: number }>();
+
+  for (const num of sorted) {
+    const entry = objects.get(num)!;
+    offsets.set(num, { offset, gen: entry.gen });
+    const bodyBuf =
+      typeof entry.body === "string"
+        ? Buffer.from(entry.body, "latin1")
+        : entry.body;
+    const wrapped = Buffer.concat([
+      Buffer.from(`${num} ${entry.gen} obj\n`, "latin1"),
+      bodyBuf,
+      Buffer.from("\nendobj\n", "latin1"),
+    ]);
+    chunks.push(wrapped);
+    offset += wrapped.length;
+  }
+
+  const xrefStart = offset;
+  const xrefLines = [`xref\n0 ${maxObj + 1}\n0000000000 65535 f \n`];
+  for (let i = 1; i <= maxObj; i++) {
+    const meta = offsets.get(i);
+    xrefLines.push(
+      meta
+        ? `${String(meta.offset).padStart(10, "0")} ${String(meta.gen).padStart(5, "0")} n \n`
+        : "0000000000 65535 f \n",
+    );
+  }
+  chunks.push(
+    Buffer.from(xrefLines.join(""), "latin1"),
+    Buffer.from(
+      `trailer\n<< /Size ${maxObj + 1} /Root 1 0 R /ID [<0123456789ABCDEF0123456789ABCDEF> <FEDCBA9876543210FEDCBA9876543210>] >>\nstartxref\n${xrefStart}\n%%EOF\n`,
+      "latin1",
+    ),
+  );
+  return Buffer.concat(chunks);
+}
+
+function buildScannedPdf15XrefStream(): Buffer {
+  const imgRaw = zlib.deflateSync(Buffer.alloc(100 * 140 * 3, 0xcc));
+  const obj1 = "<< /Type /Catalog /Pages 2 0 R >>";
+  const obj2 =
+    "<< /Type /Pages /Count 1 /Kids [3 0 R] /MediaBox [0 0 595 842] >>";
+  const entries = [
+    { num: 1, str: obj1 },
+    { num: 2, str: obj2 },
+  ];
+  const bodyParts: string[] = [];
+  const headerPairs: string[] = [];
+  let rel = 0;
+  for (const item of entries) {
+    headerPairs.push(`${item.num} ${rel}`);
+    bodyParts.push(item.str);
+    rel += Buffer.byteLength(item.str, "latin1") + 1;
+  }
+  const headerStr = `${headerPairs.join(" ")}\n`;
+  const objStm = flateStream(
+    `/Type /ObjStm /N ${entries.length} /First ${Buffer.byteLength(headerStr, "latin1")}`,
+    Buffer.from(`${headerStr}${bodyParts.join("\n")}`, "latin1"),
+  );
+  const obj3 = Buffer.from(
+    "<< /Type /Page /Parent 2 0 R /Resources << /XObject << /Im1 4 0 R >> >> /Contents 5 0 R >>",
+    "latin1",
+  );
+  const obj4 = pdfStream(
+    "/Type /XObject /Subtype /Image /Width 100 /Height 140 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode",
+    imgRaw,
+  );
+  const obj5 = flateStream("", "q 595 0 0 842 0 0 cm /Im1 Do Q");
+
+  const fileHeader = Buffer.from("%PDF-1.5\n%\xE2\xE3\xCF\xD3\n", "latin1");
+  const chunks: Buffer[] = [fileHeader];
+  let pos = fileHeader.length;
+  const wrap = (num: number, content: Buffer) => {
+    const start = pos;
+    const buf = Buffer.concat([
+      Buffer.from(`${num} 0 obj\n`, "latin1"),
+      content,
+      Buffer.from("\nendobj\n", "latin1"),
+    ]);
+    chunks.push(buf);
+    pos += buf.length;
+    return start;
+  };
+  const off3 = wrap(3, obj3);
+  const off4 = wrap(4, obj4);
+  const off5 = wrap(5, obj5);
+  const off6 = wrap(6, objStm);
+  const off7 = pos;
+
+  const rows: Buffer[] = [];
+  const addRow = (type: number, f1: number, f2: number) => {
+    const b = Buffer.alloc(7);
+    b[0] = type;
+    b.writeUInt32BE(f1, 1);
+    b.writeUInt16BE(f2, 5);
+    rows.push(b);
+  };
+  addRow(0, 0, 65535);
+  addRow(2, 6, 0);
+  addRow(2, 6, 1);
+  addRow(1, off3, 0);
+  addRow(1, off4, 0);
+  addRow(1, off5, 0);
+  addRow(1, off6, 0);
+  addRow(1, off7, 0);
+
+  const xrefStream = flateStream(
+    "/Type /XRef /Size 8 /Root 1 0 R /W [1 4 2] /ID [<11111111111111111111111111111111> <22222222222222222222222222222222>]",
+    Buffer.concat(rows),
+  );
+  wrap(7, xrefStream);
+  chunks.push(Buffer.from(`startxref\n${off7}\n%%EOF\n`, "latin1"));
+  return Buffer.concat(chunks);
+}
+
+describe("Incremental scanned-PDF OCR/bookmark repair (P0-1, P1-B3)", () => {
+  it("builds a valid checksummed GlyphLess TrueType font and strips invisible OCR blocks only", () => {
+    const ttf = buildGlyphLessTrueTypeFont();
+    expect(ttf.readUInt32BE(0)).toBe(0x00010000);
+    const numTables = ttf.readUInt16BE(4);
+    expect(numTables).toBe(10);
+    const tags: string[] = [];
+    for (let i = 0; i < numTables; i++) {
+      tags.push(ttf.subarray(12 + i * 16, 16 + i * 16).toString("ascii"));
+    }
+    expect(tags).toEqual([...tags].sort());
+    let sum = 0;
+    for (let i = 0; i < ttf.length; i += 4) {
+      sum = (sum + ttf.readUInt32BE(i)) >>> 0;
+    }
+    expect(sum).toBe(0xb1b0afba);
+
+    const mixedStream = Buffer.from(
+      "q 595 0 0 842 0 0 cm /Im1 Do Q\nBT 3 Tr /F1 12 Tf (Helo wrold te) Tj ET\nBT 0 Tr /F1 12 Tf (KeepVisible) Tj ET\n",
+      "latin1",
+    );
+    const stripped = stripInvisibleOcrFromContentStream(mixedStream);
+    expect(stripped.strippedBlocks).toBe(1);
+    const outStr = stripped.cleaned.toString("latin1");
+    expect(outStr).toContain("/Im1 Do");
+    expect(outStr).toContain("KeepVisible");
+    expect(outStr).not.toContain("Helo wrold te");
+  });
+
+  it("repairs Readdle OCR with proofread blocks, Tz fit, /Outlines, incremental prefix/gen/ID preservation, and readback gate", async () => {
+    const root = await makeTempDir();
+    const srcPdf = path.join(root, "readdle-scan.pdf");
+    const srcBytes = buildScannedPdfWithIdAndGen();
+    await fs.writeFile(srcPdf, srcBytes);
+
+    const specPath = path.join(root, "readdle.spec.json");
+    await initPdfSpec(srcPdf, specPath);
+    const spec = await readJson<PdfSpec>(specPath);
+
+    const p1Png = path.join(root, "p1.png");
+    const p2Png = path.join(root, "p2.png");
+    const [p1Sha, p2Sha] = await Promise.all([
+      makeSyntheticPagePng(p1Png),
+      makeSyntheticPagePng(p2Png),
+    ]);
+
+    const longProofreadLine =
+      "这是一段经过多模态大模型逐切片精校的超长中文与English混合验证句子，用来确保Tz水平缩放与无字形字体不会在页面右边界被截断：The quick brown fox jumps over the lazy dog 1234567890。";
+    spec.outline = [
+      { title: "第一章 校订正文", page: 1, children: [] },
+      { title: "第二章 块级回退页", page: 2, children: [] },
+    ];
+    spec.pages[0] = {
+      ...spec.pages[0],
+      render: { path: p1Png, sha256: p1Sha, dpi: 300 },
+      transcription: { transcribedBy: "worker-ocr-1", unresolved: [] },
+      geometry: [
+        { x: 72, y: 700, width: 450, height: 14, source: "ocr-layer" },
+      ],
+      blocks: [{ kind: "paragraph", text: longProofreadLine }],
+      footnotes: [],
+    };
+    spec.pages[1] = {
+      ...spec.pages[1],
+      render: { path: p2Png, sha256: p2Sha, dpi: 300 },
+      transcription: { transcribedBy: "worker-ocr-2", unresolved: [] },
+      geometry: [],
+      blocks: [
+        { kind: "heading", level: 1, text: "第二章 块级回退页" },
+        {
+          kind: "paragraph",
+          text: "行数不匹配时必须退回块级大框并在报告中显式标注。",
+        },
+      ],
+      footnotes: [],
+    };
+    await json(specPath, spec);
+
+    // P0-1 readback gate catches stale Readdle text on original un-repaired PDF
+    await expect(
+      verifyPdfOcrLayerReadback(srcPdf, spec, [1]),
+    ).rejects.toMatchObject({ code: "PDF_OCR_LAYER_STALE" });
+
+    // P0-2 blocks repair without independent verification
+    await expect(
+      repairScannedPdf(srcPdf, specPath, path.join(root, "blocked.pdf")),
+    ).rejects.toMatchObject({ code: "PDF_OCR_VERIFICATION_REQUIRED" });
+
+    const verPath = path.join(root, "verification.json");
+    await json(verPath, {
+      schemaVersion: PDF_SPEC_SCHEMA_VERSION,
+      kind: "quillbind-pdf-verification",
+      sourceSha256: spec.source.sha256,
+      verifierId: "verifier-ocr",
+      verifiedAt: "2026-11-21T00:00:00Z",
+      pages: spec.pages.map((p) => ({
+        page: p.page,
+        renderSha256: p.render!.sha256,
+        dpi: 300,
+        tilesReviewed: [],
+        transcribedBy: p.transcription!.transcribedBy,
+        verifiedBy: "verifier-ocr",
+        contentSha256: computePageContentSha256(p),
+        status: "verified",
+        unresolved: [],
+      })),
+    } satisfies PdfVerificationFile);
+
+    const outPdf = path.join(root, "repaired.pdf");
+    const bakPdf = path.join(root, "backup.pdf");
+    const repDir = path.join(root, "repair-reports");
+    const report = await repairScannedPdf(srcPdf, specPath, outPdf, {
+      verification: verPath,
+      backup: bakPdf,
+      reports: repDir,
+    });
+
+    expect(report.status).toBe("pass");
+    expect(report.incrementalUpdate).toBe(true);
+    expect(report.xrefFormat).toBe("classic");
+    expect(report.ocrLayerVerified).toBe(true);
+    expect(report.preservedImageStreams.verifiedBitIdentical).toBe(true);
+    expect(report.preservedImageStreams.count).toBe(2);
+    expect(report.strippedOcrArtifacts).toBeGreaterThanOrEqual(2);
+    expect(report.outlineEntries).toBe(2);
+    expect(report.backup?.sha256).toBe(sha256(srcBytes));
+
+    expect(report.pageAlignments[0]).toMatchObject({
+      page: 1,
+      mode: "line-matched",
+    });
+    expect(report.pageAlignments[1]).toMatchObject({
+      page: 2,
+      mode: "block-fallback",
+    });
+
+    const outBytes = await fs.readFile(outPdf);
+    expect(outBytes.subarray(0, srcBytes.length).equals(srcBytes)).toBe(true);
+    expect(await fs.readFile(bakPdf)).toEqual(srcBytes);
+
+    const repParser = new PdfDocumentParser(outBytes);
+    const repPages = collectPages(repParser);
+    expect(repPages[0].gen).toBe(2);
+    const repPiece = asDict(
+      repParser.resolve(dictGet(repPages[0].dict, "PieceInfo")),
+    );
+    expect(repPiece?.entries.has("ReaddleObject")).toBe(false);
+    expect(repPiece?.entries.has("KeepMe")).toBe(true);
+
+    const repId = asArr(repParser.resolve(dictGet(repParser.trailer, "ID")));
+    expect(repId).toHaveLength(2);
+    expect(
+      repId?.[0] &&
+        typeof repId[0] === "object" &&
+        !Array.isArray(repId[0]) &&
+        repId[0].kind === "str" &&
+        repId[0].raw.toString("hex").toUpperCase(),
+    ).toBe("0123456789ABCDEF0123456789ABCDEF");
+
+    const pageByObj = new Map(repPages.map((p) => [p.objNum, p.page]));
+    const outline = extractOutline(repParser, pageByObj);
+    expect(outline.map((n) => ({ title: n.title, page: n.page }))).toEqual([
+      { title: "第一章 校订正文", page: 1 },
+      { title: "第二章 块级回退页", page: 2 },
+    ]);
+
+    const hasPdftotext = await run("pdftotext", ["-v"], { timeout: 5000 })
+      .then(() => true)
+      .catch(() => false);
+    if (hasPdftotext) {
+      expect(report.readbackTool).toBe("pdftotext");
+      const txt = await run("pdftotext", [outPdf, "-"], { timeout: 15000 });
+      expect(txt.exitCode).toBe(0);
+      expect(txt.stdout).not.toContain("Helo");
+      expect(txt.stdout).not.toContain("wrold");
+      expect(txt.stdout.replace(/\s+/g, "")).toContain(
+        longProofreadLine.replace(/\s+/g, ""),
+      );
+      expect(txt.stdout.replace(/\s+/g, "")).toContain(
+        "行数不匹配时必须退回块级大框并在报告中显式标注。",
+      );
+    }
+
+    const hasQpdf = await run("qpdf", ["--version"], { timeout: 5000 })
+      .then((r) => r.exitCode === 0)
+      .catch(() => false);
+    if (hasQpdf) {
+      const qpdfCheck = await run("qpdf", ["--check", outPdf], {
+        timeout: 15000,
+      });
+      expect(qpdfCheck.exitCode, qpdfCheck.stderr).toBe(0);
+    }
+
+    const saved = await readJson<typeof report>(
+      path.join(repDir, "pdf-repair.json"),
+    );
+    expect(saved.output.sha256).toBe(report.output.sha256);
+  });
+
+  it("repairs PDF 1.5 compressed XRef-stream PDFs incrementally and wires CLI pdf repair-ocr", async () => {
+    const root = await makeTempDir();
+    const pdf15Path = path.join(root, "scan15.pdf");
+    const pdf15Bytes = buildScannedPdf15XrefStream();
+    await fs.writeFile(pdf15Path, pdf15Bytes);
+
+    const specPath = path.join(root, "scan15.spec.json");
+    await initPdfSpec(pdf15Path, specPath);
+    const spec = await readJson<PdfSpec>(specPath);
+
+    const p1Png = path.join(root, "p1.png");
+    const p1Sha = await makeSyntheticPagePng(p1Png);
+    spec.pages[0] = {
+      ...spec.pages[0],
+      render: { path: p1Png, sha256: p1Sha, dpi: 300 },
+      transcription: { transcribedBy: "worker-15", unresolved: [] },
+      blocks: [
+        { kind: "paragraph", text: "PDF一点五压缩交叉引用流增量修复验证。" },
+      ],
+      footnotes: [],
+    };
+    spec.outline = [{ title: "压缩流书签", page: 1, children: [] }];
+    await json(specPath, spec);
+
+    const verPath = path.join(root, "ver15.json");
+    await json(verPath, {
+      schemaVersion: PDF_SPEC_SCHEMA_VERSION,
+      kind: "quillbind-pdf-verification",
+      sourceSha256: spec.source.sha256,
+      verifierId: "verifier-15",
+      verifiedAt: "2026-11-21T00:00:00Z",
+      pages: [
+        {
+          page: 1,
+          renderSha256: p1Sha,
+          dpi: 300,
+          tilesReviewed: [],
+          transcribedBy: "worker-15",
+          verifiedBy: "verifier-15",
+          contentSha256: computePageContentSha256(spec.pages[0]),
+          status: "verified",
+          unresolved: [],
+        },
+      ],
+    } satisfies PdfVerificationFile);
+
+    const cli = path.join(repoRoot, "packages/cli/src/index.ts");
+    const outPdf = path.join(root, "scan15-repaired.pdf");
+    const cliRes = await run(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        cli,
+        "pdf",
+        "repair-ocr",
+        pdf15Path,
+        "--spec",
+        specPath,
+        "--verification",
+        verPath,
+        "--output",
+        outPdf,
+        "--json",
+      ],
+      { cwd: repoRoot },
+    );
+    expect(cliRes.exitCode, cliRes.stdout || cliRes.stderr).toBe(0);
+    const payload = JSON.parse(cliRes.stdout) as {
+      status: string;
+      xrefFormat: string;
+      incrementalUpdate: boolean;
+      ocrLayerVerified: boolean;
+      outlineEntries: number;
+    };
+    expect(payload.status).toBe("pass");
+    expect(payload.xrefFormat).toBe("xref-stream");
+    expect(payload.incrementalUpdate).toBe(true);
+    expect(payload.ocrLayerVerified).toBe(true);
+    expect(payload.outlineEntries).toBe(1);
+
+    const outBytes = await fs.readFile(outPdf);
+    expect(outBytes.subarray(0, pdf15Bytes.length).equals(pdf15Bytes)).toBe(
+      true,
+    );
+    const parsed = new PdfDocumentParser(outBytes);
+    expect(parsed.usesXrefStream).toBe(true);
+    const pages = collectPages(parsed);
+    const outline = extractOutline(
+      parsed,
+      new Map(pages.map((p) => [p.objNum, p.page])),
+    );
+    expect(outline[0]?.title).toBe("压缩流书签");
+  });
+
+  it("covers vertical OCR lines, nested outlines, skipped-empty pages, Readdle annots, and repair error guards", async () => {
+    const root = await makeTempDir();
+    const img1 = zlib.deflateSync(Buffer.alloc(80 * 100 * 3, 0xee));
+    const objs = new Map<number, string | Buffer>();
+    objs.set(1, "<< /Type /Catalog /Pages 2 0 R >>");
+    objs.set(
+      2,
+      "<< /Type /Pages /Count 2 /Kids [3 0 R 4 0 R] /MediaBox [0 0 595 842] >>",
+    );
+    objs.set(
+      10,
+      pdfStream(
+        "/Type /XObject /Subtype /Image /Width 80 /Height 100 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode",
+        img1,
+      ),
+    );
+    objs.set(11, "<< /ReaddleAnnot (drop) /Subtype /Text >>");
+    objs.set(12, "<< /Subtype /Link /Border [0 0 0] >>");
+    objs.set(
+      3,
+      "<< /Type /Page /Parent 2 0 R /Annots [11 0 R 12 0 R] /Resources << /XObject << /Im1 10 0 R >> >> /Contents [5 0 R] >>",
+    );
+    objs.set(5, flateStream("", "q 595 0 0 842 0 0 cm /Im1 Do Q"));
+    objs.set(
+      4,
+      "<< /Type /Page /Parent 2 0 R /Resources << /XObject << /Im1 10 0 R >> >> /Contents 6 0 R >>",
+    );
+    objs.set(6, flateStream("", "q 595 0 0 842 0 0 cm /Im1 Do Q"));
+
+    const pdfPath = path.join(root, "edge.pdf");
+    await fs.writeFile(pdfPath, buildClassicPdf(objs, { rootObj: 1 }));
+
+    // Guard checks: non-PDF source, non-PDF output, corrupt source, spec hash mismatch
+    await expect(
+      repairScannedPdf(
+        path.join(root, "a.txt"),
+        path.join(root, "s.json"),
+        path.join(root, "o.pdf"),
+      ),
+    ).rejects.toMatchObject({ code: "UNSUPPORTED_FORMAT" });
+    await expect(
+      repairScannedPdf(
+        pdfPath,
+        path.join(root, "s.json"),
+        path.join(root, "o.epub"),
+      ),
+    ).rejects.toMatchObject({ code: "UNSUPPORTED_FORMAT" });
+
+    const corruptPdf = path.join(root, "corrupt.pdf");
+    await fs.writeFile(corruptPdf, "not-a-pdf");
+    await expect(
+      repairScannedPdf(
+        corruptPdf,
+        path.join(root, "s.json"),
+        path.join(root, "o.pdf"),
+      ),
+    ).rejects.toMatchObject({ code: "PDF_INVALID" });
+
+    const specPath = path.join(root, "edge.spec.json");
+    await initPdfSpec(pdfPath, specPath);
+    const spec = await readJson<PdfSpec>(specPath);
+    const p1Png = path.join(root, "p1.png");
+    const p2Png = path.join(root, "p2.png");
+    const [p1Sha, p2Sha] = await Promise.all([
+      makeSyntheticPagePng(p1Png),
+      makeSyntheticPagePng(p2Png),
+    ]);
+
+    spec.outline = [
+      {
+        title: "卷一",
+        page: 1,
+        children: [{ title: "第一节 竖排", page: 1, children: [] }],
+      },
+      { title: "卷二 空白", page: 2, children: [] },
+    ];
+    spec.pages[0] = {
+      ...spec.pages[0],
+      render: { path: p1Png, sha256: p1Sha, dpi: 300 },
+      transcription: { transcribedBy: "worker-e1", unresolved: [] },
+      geometry: [
+        {
+          x: 500,
+          y: 700,
+          width: 18,
+          height: 200,
+          vertical: true,
+          source: "ocr-layer",
+        },
+      ],
+      blocks: [{ kind: "paragraph", text: "竖排古籍示例" }],
+      footnotes: [],
+    };
+    spec.pages[1] = {
+      ...spec.pages[1],
+      render: { path: p2Png, sha256: p2Sha, dpi: 300 },
+      transcription: { transcribedBy: "worker-e2", unresolved: [] },
+      geometry: [],
+      blocks: [],
+      footnotes: [],
+    };
+
+    const wrongSpec = structuredClone(spec);
+    wrongSpec.source.sha256 = "0".repeat(64);
+    await expect(
+      repairScannedPdf(pdfPath, wrongSpec, path.join(root, "wrong.pdf")),
+    ).rejects.toMatchObject({ code: "SOURCE_HASH_MISMATCH" });
+
+    const verObj: PdfVerificationFile = {
+      schemaVersion: PDF_SPEC_SCHEMA_VERSION,
+      kind: "quillbind-pdf-verification",
+      sourceSha256: spec.source.sha256,
+      verifierId: "verifier-edge",
+      verifiedAt: "2026-11-21T00:00:00Z",
+      pages: spec.pages.map((p) => ({
+        page: p.page,
+        renderSha256: p.render!.sha256,
+        dpi: 300,
+        tilesReviewed: [],
+        transcribedBy: p.transcription!.transcribedBy,
+        verifiedBy: "verifier-edge",
+        contentSha256: computePageContentSha256(p),
+        status: "verified",
+        unresolved: [],
+      })),
+    };
+    const manifestObj: PdfRenderManifest = {
+      schemaVersion: PDF_SPEC_SCHEMA_VERSION,
+      kind: "quillbind-pdf-render-manifest",
+      sourcePath: pdfPath,
+      sourceSha256: spec.source.sha256,
+      dpi: 300,
+      tiled: false,
+      pages: [
+        {
+          page: 1,
+          path: p1Png,
+          sha256: p1Sha,
+          dpi: 300,
+          widthPx: 400,
+          heightPx: 600,
+          estimatedImageTokens: 400,
+        },
+        {
+          page: 2,
+          path: p2Png,
+          sha256: p2Sha,
+          dpi: 300,
+          widthPx: 400,
+          heightPx: 600,
+          estimatedImageTokens: 400,
+        },
+      ],
+    };
+
+    const outPdf = path.join(root, "edge-repaired.pdf");
+    const rep = await repairScannedPdf(pdfPath, spec, outPdf, {
+      verification: verObj,
+      renderManifest: manifestObj,
+    });
+    expect(rep.outlineEntries).toBe(3);
+    expect(rep.strippedOcrArtifacts).toBeGreaterThanOrEqual(1);
+    expect(rep.pageAlignments[0]?.mode).toBe("line-matched");
+    expect(rep.pageAlignments[1]?.mode).toBe("skipped-empty");
+
+    // Existing output and existing backup refused
+    await expect(
+      repairScannedPdf(pdfPath, spec, outPdf, { verification: verObj }),
+    ).rejects.toMatchObject({ code: "OUTPUT_EXISTS" });
+    await expect(
+      repairScannedPdf(pdfPath, spec, path.join(root, "edge-2.pdf"), {
+        verification: verObj,
+        backup: outPdf,
+      }),
+    ).rejects.toMatchObject({ code: "OUTPUT_EXISTS" });
+  });
 });

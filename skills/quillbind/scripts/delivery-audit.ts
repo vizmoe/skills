@@ -13,9 +13,11 @@ import {
   readBibliographyRules,
   readDeliveryRules,
   readNamingRules,
+  readPdfRules,
   type BibliographyRules,
   type DeliveryStatusRule,
   type NamingRules,
+  type PdfRules,
   type ProtectedSidecarRule,
 } from "./skill-rules.ts";
 
@@ -725,12 +727,521 @@ function auditItemSynopsis(
   return issues;
 }
 
+async function readEvidenceJson(
+  filePath: string,
+): Promise<
+  { ok: true; value: Record<string, unknown>; sha256: string } | { ok: false }
+> {
+  const bytes = await fs.readFile(path.resolve(filePath)).catch(() => null);
+  if (!bytes) return { ok: false };
+  try {
+    const parsed: unknown = JSON.parse(bytes.toString("utf8"));
+    if (!object(parsed)) return { ok: false };
+    return { ok: true, value: parsed, sha256: digest(bytes) };
+  } catch {
+    return { ok: false };
+  }
+}
+
+async function verifyDiskFileSha256(
+  filePath: unknown,
+  expectedSha: unknown,
+): Promise<"ok" | "missing" | "mismatch"> {
+  if (
+    typeof filePath !== "string" ||
+    typeof expectedSha !== "string" ||
+    !/^[a-f0-9]{64}$/u.test(expectedSha)
+  ) {
+    return "mismatch";
+  }
+  const bytes = await fs.readFile(path.resolve(filePath)).catch(() => null);
+  if (!bytes) return "missing";
+  return digest(bytes) === expectedSha ? "ok" : "mismatch";
+}
+
+function auditFrontmatterSpineOrder(
+  frontmatterSpine: unknown,
+  pdfRules: PdfRules,
+  label: string,
+): AuditIssue[] {
+  if (!Array.isArray(frontmatterSpine)) {
+    return [{ code: "PDF_FRONTMATTER_INVALID", item: label }];
+  }
+  const orderByPath = new Map(
+    pdfRules.frontmatter.map((entry) => [entry.path, entry.order]),
+  );
+  let lastOrder = 0;
+  for (const item of frontmatterSpine) {
+    if (typeof item !== "string" || !orderByPath.has(item)) {
+      return [
+        {
+          code: "PDF_FRONTMATTER_ORDER_INVALID",
+          item: label,
+          path: formatUnknownValue(item),
+        },
+      ];
+    }
+    const order = orderByPath.get(item)!;
+    if (order <= lastOrder) {
+      return [
+        {
+          code: "PDF_FRONTMATTER_ORDER_INVALID",
+          item: label,
+          frontmatterSpine,
+        },
+      ];
+    }
+    lastOrder = order;
+  }
+  return [];
+}
+
+async function auditPdfVerificationEvidence(
+  verPath: unknown,
+  label: string,
+  expectedSourceSha: string | undefined,
+  requiredPages: number[],
+  expectedFileSha: string | undefined,
+): Promise<AuditIssue[]> {
+  if (typeof verPath !== "string" || !verPath.trim()) {
+    return requiredPages.length > 0
+      ? [
+          {
+            code: "PDF_VERIFICATION_REPORT_MISSING",
+            item: label,
+            requiredPages,
+          },
+        ]
+      : [];
+  }
+  const loaded = await readEvidenceJson(verPath);
+  if (!loaded.ok) {
+    return [
+      {
+        code: "PDF_EVIDENCE_INVALID",
+        item: label,
+        role: "verificationReport",
+        path: verPath,
+      },
+    ];
+  }
+  const issues: AuditIssue[] = [];
+  if (expectedFileSha && loaded.sha256 !== expectedFileSha) {
+    issues.push({
+      code: "PDF_VERIFICATION_HASH_MISMATCH",
+      item: label,
+      path: verPath,
+      expected: expectedFileSha,
+      actual: loaded.sha256,
+    });
+  }
+  const v = loaded.value;
+  if (
+    v.kind !== "quillbind-pdf-verification" ||
+    typeof v.verifierId !== "string" ||
+    !v.verifierId.trim() ||
+    !Array.isArray(v.pages)
+  ) {
+    return [
+      ...issues,
+      {
+        code: "PDF_EVIDENCE_INVALID",
+        item: label,
+        role: "verificationReport",
+        path: verPath,
+      },
+    ];
+  }
+  if (expectedSourceSha && v.sourceSha256 !== expectedSourceSha) {
+    issues.push({
+      code: "PDF_VERIFICATION_SOURCE_MISMATCH",
+      item: label,
+      expected: expectedSourceSha,
+      actual: v.sourceSha256,
+    });
+  }
+  const verifiedPages = new Set<number>();
+  for (const rawPage of v.pages) {
+    if (!object(rawPage) || typeof rawPage.page !== "number") {
+      issues.push({
+        code: "PDF_EVIDENCE_INVALID",
+        item: label,
+        role: "verificationReport.pages",
+      });
+      continue;
+    }
+    const pageNum = rawPage.page;
+    const tBy =
+      typeof rawPage.transcribedBy === "string"
+        ? rawPage.transcribedBy.trim()
+        : "";
+    const vBy =
+      typeof rawPage.verifiedBy === "string" ? rawPage.verifiedBy.trim() : "";
+    if (!tBy || !vBy || tBy === vBy) {
+      issues.push({
+        code: "PDF_SELF_APPROVAL_FORBIDDEN",
+        item: label,
+        page: pageNum,
+      });
+    }
+    if (
+      typeof rawPage.renderSha256 !== "string" ||
+      !/^[a-f0-9]{64}$/u.test(rawPage.renderSha256) ||
+      typeof rawPage.contentSha256 !== "string" ||
+      !/^[a-f0-9]{64}$/u.test(rawPage.contentSha256)
+    ) {
+      issues.push({
+        code: "PDF_VERIFICATION_HASH_INVALID",
+        item: label,
+        page: pageNum,
+      });
+    }
+    if (Array.isArray(rawPage.unresolved) && rawPage.unresolved.length > 0) {
+      issues.push({
+        code: "PDF_UNRESOLVED_ITEMS",
+        item: label,
+        page: pageNum,
+        count: rawPage.unresolved.length,
+      });
+    }
+    if (rawPage.status === "verified") {
+      verifiedPages.add(pageNum);
+    } else {
+      issues.push({
+        code: "PDF_PAGE_NOT_VERIFIED",
+        item: label,
+        page: pageNum,
+        status: rawPage.status,
+      });
+    }
+  }
+  const missing = requiredPages.filter((p) => !verifiedPages.has(p));
+  if (missing.length > 0) {
+    issues.push({
+      code: "PDF_VERIFICATION_INCOMPLETE",
+      item: label,
+      missingPages: missing,
+    });
+  }
+  return issues;
+}
+
+async function auditPdfEnhanceEvidence(
+  enhancePaths: unknown,
+  label: string,
+  pdfRules: PdfRules,
+): Promise<AuditIssue[]> {
+  if (enhancePaths === undefined) return [];
+  if (!strings(enhancePaths)) {
+    return [
+      { code: "PDF_EVIDENCE_INVALID", item: label, role: "enhanceReports" },
+    ];
+  }
+  const issues: AuditIssue[] = [];
+  for (const repPath of enhancePaths) {
+    const loaded = await readEvidenceJson(repPath);
+    if (!loaded.ok) {
+      issues.push({
+        code: "PDF_EVIDENCE_INVALID",
+        item: label,
+        role: "enhanceReports",
+        path: repPath,
+      });
+      continue;
+    }
+    const rep = loaded.value;
+    if (
+      rep.mode !== "non-destructive-restoration" ||
+      rep.generativeRedraw !== false
+    ) {
+      issues.push({
+        code: "GENERATIVE_REDRAW_FORBIDDEN",
+        item: label,
+        path: repPath,
+      });
+    }
+    if (!Array.isArray(rep.operations)) {
+      issues.push({
+        code: "PDF_EVIDENCE_INVALID",
+        item: label,
+        role: "enhanceReports.operations",
+        path: repPath,
+      });
+    } else {
+      for (const rawOp of rep.operations) {
+        if (typeof rawOp !== "string") {
+          issues.push({
+            code: "FORBIDDEN_IMAGE_OPERATION",
+            item: label,
+            operation: rawOp,
+            path: repPath,
+          });
+          continue;
+        }
+        const opKey = rawOp.split(":")[0];
+        if (!pdfRules.imageOperations[opKey]?.allowed) {
+          issues.push({
+            code: "FORBIDDEN_IMAGE_OPERATION",
+            item: label,
+            operation: rawOp,
+            ruleKey: opKey,
+            path: repPath,
+          });
+        }
+      }
+    }
+    const outObj = object(rep.output) ? rep.output : null;
+    const outCheck = await verifyDiskFileSha256(outObj?.path, outObj?.sha256);
+    if (outCheck !== "ok") {
+      issues.push({
+        code: "ENHANCE_OUTPUT_HASH_MISMATCH",
+        item: label,
+        path: outObj?.path ?? repPath,
+        reason: outCheck,
+      });
+    }
+    const cmpCheck = await verifyDiskFileSha256(
+      rep.comparisonImage,
+      rep.comparisonImageSha256,
+    );
+    if (cmpCheck !== "ok") {
+      issues.push({
+        code:
+          cmpCheck === "missing"
+            ? "ENHANCE_COMPARISON_MISSING"
+            : "ENHANCE_COMPARISON_HASH_MISMATCH",
+        item: label,
+        path: rep.comparisonImage ?? repPath,
+      });
+    }
+  }
+  return issues;
+}
+
+async function auditItemPdfEvidence(
+  item: Record<string, unknown>,
+  sourceObj: Record<string, unknown>,
+  label: string,
+  pdfRules: PdfRules,
+): Promise<AuditIssue[]> {
+  const issues: AuditIssue[] = [];
+  const expectedSourceSha =
+    typeof sourceObj.sha256 === "string" ? sourceObj.sha256 : undefined;
+  const finalObj = object(item.final) ? item.final : null;
+  const expectedFinalSha =
+    typeof finalObj?.sha256 === "string" ? finalObj.sha256 : undefined;
+
+  // Reject unbacked self-reported PDF claims lacking on-disk tool reports.
+  if (
+    item.pdfConversion !== undefined &&
+    typeof item.pdfImportReport !== "string"
+  ) {
+    issues.push({
+      code: "PDF_EVIDENCE_REPORT_MISSING",
+      item: label,
+      role: "pdfImportReport",
+    });
+  }
+  if (
+    item.pdfRepair !== undefined &&
+    typeof item.pdfRepairReport !== "string"
+  ) {
+    issues.push({
+      code: "PDF_EVIDENCE_REPORT_MISSING",
+      item: label,
+      role: "pdfRepairReport",
+    });
+  }
+
+  let requiredVerificationPages: number[] = [];
+  let expectedVerificationFileSha: string | undefined;
+
+  if (typeof item.pdfImportReport === "string") {
+    const loaded = await readEvidenceJson(item.pdfImportReport);
+    if (!loaded.ok) {
+      issues.push({
+        code: "PDF_EVIDENCE_INVALID",
+        item: label,
+        role: "pdfImportReport",
+        path: item.pdfImportReport,
+      });
+    } else {
+      const rep = loaded.value;
+      if (rep.operation !== "pdf-to-epub" || rep.status !== "pass") {
+        issues.push({
+          code: "PDF_EVIDENCE_INVALID",
+          item: label,
+          role: "pdfImportReport",
+          path: item.pdfImportReport,
+        });
+      }
+      if (expectedSourceSha && rep.sourceSha256 !== expectedSourceSha) {
+        issues.push({
+          code: "PDF_REPORT_SOURCE_MISMATCH",
+          item: label,
+          role: "pdfImportReport",
+        });
+      }
+      if (expectedFinalSha && rep.outputSha256 !== expectedFinalSha) {
+        issues.push({
+          code: "PDF_REPORT_OUTPUT_MISMATCH",
+          item: label,
+          role: "pdfImportReport",
+        });
+      }
+      const outDisk = await verifyDiskFileSha256(rep.output, rep.outputSha256);
+      if (outDisk !== "ok") {
+        issues.push({
+          code: "PDF_REPORT_OUTPUT_MISMATCH",
+          item: label,
+          role: "pdfImportReport",
+          reason: outDisk,
+        });
+      }
+      const valObj = object(rep.validation) ? rep.validation : null;
+      if (valObj?.status !== "pass") {
+        issues.push({ code: "PDF_EPUB_VALIDATION_FAILED", item: label });
+      }
+      issues.push(
+        ...auditFrontmatterSpineOrder(rep.frontmatterSpine, pdfRules, label),
+      );
+      const tocHrefs = Array.isArray(rep.tocHrefs) ? rep.tocHrefs : [];
+      if (
+        rep.colophonExcludedFromToc !== true ||
+        tocHrefs.some(
+          (href) => typeof href === "string" && href.includes("colophon.xhtml"),
+        )
+      ) {
+        issues.push({ code: "COLOPHON_IN_TOC", item: label });
+      }
+      if (Array.isArray(rep.figureProvenance)) {
+        for (const prov of rep.figureProvenance) {
+          if (object(prov) && prov.generativeRedraw !== false) {
+            issues.push({ code: "GENERATIVE_REDRAW_FORBIDDEN", item: label });
+          }
+        }
+      }
+      const verObj = object(rep.verification) ? rep.verification : null;
+      if (verObj && Array.isArray(verObj.pagesRequiringVerification)) {
+        requiredVerificationPages = [
+          ...new Set([
+            ...requiredVerificationPages,
+            ...verObj.pagesRequiringVerification.filter(
+              (p): p is number => typeof p === "number",
+            ),
+          ]),
+        ];
+      }
+      if (verObj && typeof verObj.verificationFileSha256 === "string") {
+        expectedVerificationFileSha = verObj.verificationFileSha256;
+      }
+    }
+  }
+
+  if (typeof item.pdfRepairReport === "string") {
+    const loaded = await readEvidenceJson(item.pdfRepairReport);
+    if (!loaded.ok) {
+      issues.push({
+        code: "PDF_EVIDENCE_INVALID",
+        item: label,
+        role: "pdfRepairReport",
+        path: item.pdfRepairReport,
+      });
+    } else {
+      const rep = loaded.value;
+      if (rep.operation !== "pdf-repair-ocr" || rep.status !== "pass") {
+        issues.push({
+          code: "PDF_EVIDENCE_INVALID",
+          item: label,
+          role: "pdfRepairReport",
+          path: item.pdfRepairReport,
+        });
+      }
+      const repSrc = object(rep.source) ? rep.source : null;
+      const repOut = object(rep.output) ? rep.output : null;
+      if (expectedSourceSha && repSrc?.sha256 !== expectedSourceSha) {
+        issues.push({
+          code: "PDF_REPORT_SOURCE_MISMATCH",
+          item: label,
+          role: "pdfRepairReport",
+        });
+      }
+      if (expectedFinalSha && repOut?.sha256 !== expectedFinalSha) {
+        issues.push({
+          code: "PDF_REPORT_OUTPUT_MISMATCH",
+          item: label,
+          role: "pdfRepairReport",
+        });
+      }
+      const outDisk = await verifyDiskFileSha256(repOut?.path, repOut?.sha256);
+      if (outDisk !== "ok") {
+        issues.push({
+          code: "PDF_REPORT_OUTPUT_MISMATCH",
+          item: label,
+          role: "pdfRepairReport",
+          reason: outDisk,
+        });
+      }
+      if (rep.incrementalUpdate !== true) {
+        issues.push({ code: "PDF_REPAIR_NOT_INCREMENTAL", item: label });
+      }
+      if (rep.ocrLayerVerified !== true) {
+        issues.push({ code: "PDF_OCR_LAYER_UNVERIFIED", item: label });
+      }
+      const imgs = object(rep.preservedImageStreams)
+        ? rep.preservedImageStreams
+        : null;
+      if (imgs?.verifiedBitIdentical !== true) {
+        issues.push({ code: "PDF_IMAGE_STREAM_MUTATED", item: label });
+      }
+      const verObj = object(rep.verification) ? rep.verification : null;
+      if (verObj && Array.isArray(verObj.pagesRequiringVerification)) {
+        requiredVerificationPages = [
+          ...new Set([
+            ...requiredVerificationPages,
+            ...verObj.pagesRequiringVerification.filter(
+              (p): p is number => typeof p === "number",
+            ),
+          ]),
+        ];
+      }
+      if (
+        !expectedVerificationFileSha &&
+        verObj &&
+        typeof verObj.verificationFileSha256 === "string"
+      ) {
+        expectedVerificationFileSha = verObj.verificationFileSha256;
+      }
+    }
+  }
+
+  if (
+    item.verificationReport !== undefined ||
+    requiredVerificationPages.length > 0
+  ) {
+    issues.push(
+      ...(await auditPdfVerificationEvidence(
+        item.verificationReport,
+        label,
+        expectedSourceSha,
+        requiredVerificationPages,
+        expectedVerificationFileSha,
+      )),
+    );
+  }
+  issues.push(
+    ...(await auditPdfEnhanceEvidence(item.enhanceReports, label, pdfRules)),
+  );
+  return issues;
+}
+
 async function auditDeliveryItem(
   rawItem: unknown,
   index: number,
   reportStatus: string,
   statusRule: DeliveryStatusRule | undefined,
   bibRules: BibliographyRules,
+  pdfRules: PdfRules,
 ): Promise<AuditIssue[]> {
   const sourceObj =
     object(rawItem) && object(rawItem.source) ? rawItem.source : null;
@@ -753,14 +1264,16 @@ async function auditDeliveryItem(
     ...auditItemIsbn(rawItem.isbn, format, label, bibRules),
     ...auditItemEditionClass(rawItem, label, bibRules),
     ...auditItemSynopsis(rawItem, label),
+    ...(await auditItemPdfEvidence(rawItem, sourceObj, label, pdfRules)),
   );
   return issues;
 }
 
 async function auditDelivery(reportPath: string, beforePath?: string) {
-  const [bibRules, deliveryRules, reportInput] = await Promise.all([
+  const [bibRules, deliveryRules, pdfRules, reportInput] = await Promise.all([
     readBibliographyRules(),
     readDeliveryRules(),
+    readPdfRules(),
     readInput(reportPath),
   ]);
   const report = reportInput.value;
@@ -787,7 +1300,14 @@ async function auditDelivery(reportPath: string, beforePath?: string) {
   }
   const itemIssueGroups = await Promise.all(
     report.items.map((rawItem, index) =>
-      auditDeliveryItem(rawItem, index, reportStatus, statusRule, bibRules),
+      auditDeliveryItem(
+        rawItem,
+        index,
+        reportStatus,
+        statusRule,
+        bibRules,
+        pdfRules,
+      ),
     ),
   );
   issues.push(...itemIssueGroups.flat());

@@ -44,6 +44,7 @@ import {
   enhancePdfImage,
   buildEpubFromPdfSpec,
   convertPdfToEpub,
+  repairScannedPdf,
   enrichEpub,
   packageManga,
   checkNotes,
@@ -110,6 +111,7 @@ const HELP = [
   "quillbind pdf merge-shards <base-spec.json> --shards PATHS --output MERGED.json",
   "quillbind pdf enhance-image <input> --output <enhanced> [--deskew DEG] [--denoise] [--sharpen] [--normalize] [--upscale 1|2] [--verify-against SOURCE] [--reports DIR]",
   "quillbind pdf build-epub <spec.json> --output <book.epub> [--verification VER.json] [--render-manifest MANIFEST.json] [--release] [--to TARGET] [--online] [--reports DIR]",
+  "quillbind pdf repair-ocr <file.pdf> --spec <spec.json> --output <repaired.pdf> [--verification VER.json] [--render-manifest MANIFEST.json] [--backup BAK.pdf] [--reports DIR]",
   "quillbind epub repair-plan <file.epub> --purpose reading --output plan.json",
   "quillbind epub repair-copy <file.epub> --plan plan.json --output copy.epub [--reports directory]",
   "quillbind epub repair-directory <directory> --output <directory> [--jobs 2]",
@@ -184,6 +186,7 @@ try {
       upscale: { type: "string" },
       "verify-against": { type: "string" },
       spec: { type: "string" },
+      backup: { type: "string" },
       release: { type: "boolean" },
     },
   });
@@ -254,8 +257,15 @@ try {
       "ARGUMENT_CONFLICT",
       "--to is supported by build, preview, epub convert and pdf build-epub",
     );
-  if (values.spec && !(command === "epub" && subcommand === "convert"))
-    fail("ARGUMENT_CONFLICT", "--spec is supported by epub convert only");
+  if (
+    values.spec &&
+    !(command === "epub" && subcommand === "convert") &&
+    !(command === "pdf" && subcommand === "repair-ocr")
+  )
+    fail(
+      "ARGUMENT_CONFLICT",
+      "--spec is supported by epub convert and pdf repair-ocr only",
+    );
   if (
     command !== "pdf" &&
     !(command === "epub" && subcommand === "convert") &&
@@ -284,6 +294,7 @@ try {
       values.normalize,
       values.upscale,
       values["verify-against"],
+      values.backup,
       values.release,
     ].some((value) => value !== undefined)
   )
@@ -905,10 +916,23 @@ try {
               signal: abort.signal,
             },
           );
+        } else if (subcommand === "repair-ocr") {
+          output = await repairScannedPdf(
+            target,
+            required(values.spec, "--spec"),
+            required(values.output, "--output"),
+            {
+              verification: values.verification,
+              renderManifest: values["render-manifest"],
+              backup: values.backup,
+              reports: values.reports,
+              signal: abort.signal,
+            },
+          );
         } else {
           fail(
             "COMMAND_UNKNOWN",
-            "Use pdf inspect, init-spec, shard-init, validate-shard, check-spec, merge-shards, enhance-image or build-epub",
+            "Use pdf inspect, init-spec, shard-init, validate-shard, check-spec, merge-shards, enhance-image, build-epub or repair-ocr",
           );
         }
         break;

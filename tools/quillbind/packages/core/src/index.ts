@@ -32,6 +32,38 @@ export {
   isKindleBytes,
 } from "./kindle.js";
 export type { KindleFormat } from "./kindle.js";
+export * from "./pdf-model.js";
+export {
+  isPdfPath,
+  isPdfBytes,
+  normalizeExtractedPdfText,
+  parsePdftotextBboxLayout,
+  estimatePageImageTokens,
+  planPdfShards,
+  detectLineGeometryFromImage,
+  sliceRenderedPageTiles,
+  inspectPdf,
+  extractPdfRawPages,
+} from "./pdf-binary.js";
+export {
+  computePageContentSha256,
+  extractBlockPlainText,
+  collectPageTranscribedLines,
+  validateTableGrid,
+  collectNoteRefsInPage,
+  validateSpecFootnotes,
+  verifyPdfSpecPages,
+  assertPdfSpecVerified,
+  stripRunningHeadersAndFooters,
+  stitchPdfPagesInPlace,
+  guessLanguage,
+  initPdfSpec,
+  initPdfShards,
+  compilePdfPageMarkdown,
+  validatePdfShard,
+  mergePdfShards,
+  checkPdfSpec,
+} from "./pdf-shard.js";
 export {
   conversionTarget,
   conversionTargets,
@@ -56,6 +88,14 @@ export const formats = {
   inputs: ["markdown-book", "epub", "novel-url", "manga-scans"],
   outputs: ["epub", "cbz"],
   kindleInputFormats: ["mobi", "azw3"],
+  pdfInputModes: [
+    "inspect",
+    "init-spec",
+    "shard-init",
+    "validate-shard",
+    "check-spec",
+    "merge-shards",
+  ],
   mangaInputFormats: ["image-directory", "zip", "cbz"],
   epubInputModes: [
     "audit",

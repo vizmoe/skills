@@ -2,9 +2,9 @@
 name: quillbind
 description: Maintain metadata directly in EPUB files and CBZ ComicInfo.xml, using the library's controlled English tags, BookWalker for light novels and manga, and tiered publisher, public catalog and verified edition sources for Chinese, Japanese and English books, including self-made editions. Plan consistent light-novel series names, audit tag cleanup, build EPUB 3.3 from Markdown or supported novel websites, inspect and repair EPUBs, split existing EPUB, MOBI or AZW3 anthologies into independent volumes, check scripted popup notes, convert MOBI/AZW3 to EPUB and Chinese scripts, package manga scans as lossless JPEG XL CBZ, and parallelize isolated multi-slice tasks with coordinator, worker and verifier subagents. Arbitrary HTML, PDF and LaTeX import are unsupported.
 license: MIT
-compatibility: Standalone TypeScript tag, naming, rule-parsing and delivery-audit helpers need Node.js; file metadata writers and publishing operations use tools/quillbind from vizmoe/skills with dependencies installed, exposed through QUILLBIND_ROOT or quillbind on PATH. EPUB checks need Java, EPUBCheck and Chromium; CBZ checks need xmllint, and manga packaging needs libjxl cjxl and djxl. Online retrieval needs network; saved locks support offline replay. Calibre database access is never used.
+compatibility: Standalone TypeScript helpers need Node.js; file writers and publishing/PDF tools use tools/quillbind from vizmoe/skills via QUILLBIND_ROOT or quillbind on PATH. EPUB checks need Java, EPUBCheck and Chromium; PDF extraction/rendering uses Poppler pdftotext and pdftoppm; CBZ checks need xmllint; manga needs libjxl cjxl/djxl. Online lookup needs network; locks replay offline. Calibre databases are never accessed.
 metadata:
-  version: "0.2.1"
+  version: "0.2.2"
 ---
 
 # Quillbind
@@ -40,6 +40,7 @@ Select only the branches required by the user's request. Keep every action withi
 | Existing books | Split EPUB, MOBI or AZW3 anthology into single volumes | [local splitting](references/local-splitting.md) | `epub split-plan`, `epub split` |
 | Existing books | Reading copy, publication upgrade or directory repair | [repair](references/repair.md) | `epub repair-copy`, `epub repair`, `epub repair-dir` |
 | Existing books | MOBI/AZW3 to EPUB or Chinese script/vocabulary conversion | [conversion](references/conversion.md) | `epub convert` |
+| PDF workflows | PDF triage (`ocrTrust`), visual tiling, token-budget sharding, per-page Markdown transcription & deterministic QA | [PDF inspection and sharding](references/pdf.md) | `pdf inspect`, `pdf init-spec`, `pdf shard-init`, `pdf validate-shard`, `pdf check-spec`, `pdf merge-shards` |
 | New publications | Local Markdown authoring, init or preview | [authoring](references/authoring.md) | `init`, `preflight`, `preview`, `build` |
 | New publications | Supported novel website collection or volume merging | [novels](references/novels.md) | `novel collect`, `novel build` |
 | New publications | Authored-project metadata & electronic-ISBN approval | [authoring metadata](references/metadata.md) | `metadata resolve` |

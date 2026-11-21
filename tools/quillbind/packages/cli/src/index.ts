@@ -34,6 +34,12 @@ import {
   convertEpub,
   convertKindleToEpub,
   isKindlePath,
+  inspectPdf,
+  initPdfSpec,
+  initPdfShards,
+  validatePdfShard,
+  checkPdfSpec,
+  mergePdfShards,
   enrichEpub,
   packageManga,
   checkNotes,
@@ -92,6 +98,12 @@ const HELP = [
   "quillbind manga package <scan-directory|file.zip|file.cbz> --bookwalker LOCK.json --output volume.cbz [--page-order ORDER.json] [--reading-direction rtl|ltr]",
   "quillbind epub enrich <file.epub> --bookwalker LOCK.json --output enriched.epub",
   "quillbind epub convert <file.epub|file.mobi|file.azw3> [--to simplified|traditional|china|taiwan|hongkong] --output converted.epub [--online]",
+  "quillbind pdf inspect <file.pdf> [--pages RANGE] [--shard-size N | --token-budget N] [--render-dir DIR] [--dpi N] [--tiles]",
+  "quillbind pdf init-spec <file.pdf> --output SPEC.json [--pages RANGE] [--shard-size N | --token-budget N] [--render-dir DIR] [--dpi N] [--tiles] [--assets-dir DIR]",
+  "quillbind pdf shard-init <base-spec.json> --output SHARDS_DIR [--format md|json] [--render-manifest MANIFEST.json]",
+  "quillbind pdf validate-shard <shard-or-page-file-or-dir>",
+  "quillbind pdf check-spec <spec.json> [--render-manifest MANIFEST.json] [--verification VERIFICATION.json]",
+  "quillbind pdf merge-shards <base-spec.json> --shards PATHS --output MERGED.json",
   "quillbind epub repair-plan <file.epub> --purpose reading --output plan.json",
   "quillbind epub repair-copy <file.epub> --plan plan.json --output copy.epub [--reports directory]",
   "quillbind epub repair-directory <directory> --output <directory> [--jobs 2]",
@@ -148,6 +160,17 @@ try {
       author: { type: "string", multiple: true },
       description: { type: "string" },
       language: { type: "string" },
+      pages: { type: "string" },
+      "shard-size": { type: "string" },
+      "token-budget": { type: "string" },
+      "render-dir": { type: "string" },
+      dpi: { type: "string" },
+      tiles: { type: "boolean" },
+      "assets-dir": { type: "string" },
+      format: { type: "string" },
+      "render-manifest": { type: "string" },
+      verification: { type: "string" },
+      shards: { type: "string" },
     },
   });
   jsonMode = !!values.json;
@@ -216,6 +239,23 @@ try {
       "ARGUMENT_CONFLICT",
       "--to is supported by build, preview and epub convert",
     );
+  if (
+    command !== "pdf" &&
+    [
+      values.pages,
+      values["shard-size"],
+      values["token-budget"],
+      values["render-dir"],
+      values.dpi,
+      values.tiles,
+      values["assets-dir"],
+      values.format,
+      values["render-manifest"],
+      values.verification,
+      values.shards,
+    ].some((value) => value !== undefined)
+  )
+    fail("ARGUMENT_CONFLICT", "PDF options are supported by pdf commands only");
   if (
     values.bookwalker &&
     !(command === "epub" && subcommand === "enrich") &&
@@ -710,6 +750,80 @@ try {
             signal: abort.signal,
           });
         else fail("COMMAND_UNKNOWN", "Unknown EPUB operation");
+        break;
+      }
+      case "pdf": {
+        const target = required(third, "PDF, spec or shard path");
+        const parsePositiveInt = (raw: string | undefined, label: string) => {
+          if (raw === undefined) return undefined;
+          if (!/^\d+$/.test(raw) || Number(raw) <= 0) {
+            fail("ARGUMENT_CONFLICT", `${label} must be a positive integer`);
+          }
+          return Number(raw);
+        };
+        if (subcommand === "inspect") {
+          output = await inspectPdf(target, {
+            pages: values.pages,
+            shardSize: parsePositiveInt(values["shard-size"], "--shard-size"),
+            tokenBudget: parsePositiveInt(
+              values["token-budget"],
+              "--token-budget",
+            ),
+            renderDir: values["render-dir"],
+            dpi: parsePositiveInt(values.dpi, "--dpi"),
+            tiles: values.tiles,
+            signal: abort.signal,
+          });
+        } else if (subcommand === "init-spec") {
+          output = await initPdfSpec(
+            target,
+            required(values.output, "--output"),
+            {
+              pages: values.pages,
+              shardSize: parsePositiveInt(values["shard-size"], "--shard-size"),
+              tokenBudget: parsePositiveInt(
+                values["token-budget"],
+                "--token-budget",
+              ),
+              renderDir: values["render-dir"],
+              dpi: parsePositiveInt(values.dpi, "--dpi"),
+              tiles: values.tiles,
+              assetsDir: values["assets-dir"],
+              signal: abort.signal,
+            },
+          );
+        } else if (subcommand === "shard-init") {
+          const fmt = values.format ?? "md";
+          if (fmt !== "md" && fmt !== "json") {
+            fail("ARGUMENT_CONFLICT", "--format must be md or json");
+          }
+          output = await initPdfShards(
+            target,
+            required(values.output, "--output"),
+            {
+              format: fmt,
+              renderManifest: values["render-manifest"],
+            },
+          );
+        } else if (subcommand === "validate-shard") {
+          output = await validatePdfShard(target);
+        } else if (subcommand === "check-spec") {
+          output = await checkPdfSpec(target, {
+            renderManifest: values["render-manifest"],
+            verification: values.verification,
+          });
+        } else if (subcommand === "merge-shards") {
+          output = await mergePdfShards(
+            target,
+            required(values.shards, "--shards"),
+            required(values.output, "--output"),
+          );
+        } else {
+          fail(
+            "COMMAND_UNKNOWN",
+            "Use pdf inspect, init-spec, shard-init, validate-shard, check-spec or merge-shards",
+          );
+        }
         break;
       }
       case "taxonomy": {

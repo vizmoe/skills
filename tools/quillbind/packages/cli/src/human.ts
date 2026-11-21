@@ -112,10 +112,30 @@ function appendSubjectAndFormatLists(
     ["inputs", "Inputs"],
     ["outputs", "Outputs"],
     ["epubInputModes", "EPUB maintenance"],
+    ["pdfInputModes", "PDF tools"],
   ]) {
     if (Array.isArray(item[key])) {
       lines.push(`${label}: ${item[key].join(", ")}`);
     }
+  }
+  if (
+    typeof item.classification === "string" &&
+    typeof item.pageCount === "number"
+  ) {
+    lines.push(
+      `PDF classification: ${item.classification} (${item.pageCount} pages)`,
+    );
+  }
+  if (typeof item.renderManifestPath === "string") {
+    lines.push(`Render manifest: ${item.renderManifestPath}`);
+  }
+  if (Array.isArray(item.shards)) {
+    lines.push(`Shards: ${item.shards.length}`);
+  }
+  if (Array.isArray(item.unverifiedPages) && item.unverifiedPages.length > 0) {
+    lines.push(
+      `Pages requiring verification: ${item.unverifiedPages.join(", ")}`,
+    );
   }
   if (Array.isArray(item.subjects)) {
     for (const subject of item.subjects) {

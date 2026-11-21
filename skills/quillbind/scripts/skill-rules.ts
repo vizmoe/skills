@@ -51,6 +51,23 @@ export interface ParallelWorkflowRules {
   roles: Record<string, ParallelRoleRule>;
 }
 
+export interface PdfFrontmatterRule {
+  order: number;
+  role: string;
+  path: string;
+  spinePosition: string;
+  tocInclusion: string;
+}
+
+export interface ImageOperationRule {
+  allowed: boolean;
+}
+
+export interface PdfRules {
+  frontmatter: PdfFrontmatterRule[];
+  imageOperations: Record<string, ImageOperationRule>;
+}
+
 const defaultReferencesDir = fileURLToPath(
   new URL("../references", import.meta.url),
 );
@@ -376,4 +393,83 @@ export async function readParallelWorkflowRules(
     "parallel-workflow.md must keep verifier read-only and forbid worker/coordinator self-approval",
   );
   return { roles };
+}
+
+export async function readPdfRules(
+  referencesDir: string = defaultReferencesDir,
+): Promise<PdfRules> {
+  const content = await fs.readFile(path.join(referencesDir, "pdf.md"), "utf8");
+  const frontmatterRows = parseMarkdownSectionTables(
+    content,
+    "Canonical PDF frontmatter order",
+  );
+  const frontmatter: PdfFrontmatterRule[] = frontmatterRows.map((row) => {
+    const order = Number(singleCode(row["Order"], "Order"));
+    checkRule(
+      Number.isInteger(order) && order >= 1,
+      `Invalid frontmatter order: ${row["Order"]}`,
+    );
+    return {
+      order,
+      role: singleCode(row["Role"], "Role"),
+      path: singleCode(row["Path"], "Path"),
+      spinePosition: singleCode(row["Spine position"], "Spine position"),
+      tocInclusion: singleCode(row["TOC inclusion"], "TOC inclusion"),
+    };
+  });
+  const expectedRoles = ["cover", "titlepage", "colophon", "toc"];
+  checkRule(
+    frontmatter.length === expectedRoles.length &&
+      expectedRoles.every((role, index) => frontmatter[index]?.role === role),
+    "pdf.md must declare canonical frontmatter roles in order: cover, titlepage, colophon, toc",
+  );
+  checkRule(
+    frontmatter.find((item) => item.role === "colophon")?.tocInclusion ===
+      "forbidden",
+    'pdf.md must keep colophon TOC inclusion set to "forbidden"',
+  );
+
+  const imageRows = parseMarkdownSectionTables(
+    content,
+    "Image restoration policy",
+  );
+  const imageOperations: Record<string, ImageOperationRule> = {};
+  for (const row of imageRows) {
+    const op = singleCode(row["Operation"], "Operation");
+    checkRule(
+      !Object.hasOwn(imageOperations, op),
+      `Duplicate image restoration operation: ${op}`,
+    );
+    const allowedCode = singleCode(row["Allowed"], "Allowed");
+    checkRule(
+      allowedCode === "yes" || allowedCode === "no",
+      `Allowed must be yes or no for ${op}`,
+    );
+    imageOperations[op] = { allowed: allowedCode === "yes" };
+  }
+  for (const allowedOp of [
+    "deskew",
+    "dewarp",
+    "denoise",
+    "deblur",
+    "super-resolution",
+    "background-clean",
+  ]) {
+    checkRule(
+      imageOperations[allowedOp]?.allowed === true,
+      `pdf.md must allow non-destructive image operation "${allowedOp}"`,
+    );
+  }
+  for (const forbiddenOp of [
+    "generative-redraw",
+    "content-alteration",
+    "style-transfer",
+    "text-hallucination",
+  ]) {
+    checkRule(
+      imageOperations[forbiddenOp]?.allowed === false,
+      `pdf.md must forbid generative image operation "${forbiddenOp}"`,
+    );
+  }
+  return { frontmatter, imageOperations };
 }

@@ -65,6 +65,12 @@ export {
   checkPdfSpec,
 } from "./pdf-shard.js";
 export {
+  enhancePdfImage,
+  renderPdfSpecToEpub,
+  buildEpubFromPdfSpec,
+  convertPdfToEpub,
+} from "./pdf-epub.js";
+export {
   conversionTarget,
   conversionTargets,
   zhconvertNotice,
@@ -85,7 +91,7 @@ export { VERSION } from "./runtime.js";
 
 /** Supported workflows; EPUB publication retains every EPUB release gate. */
 export const formats = {
-  inputs: ["markdown-book", "epub", "novel-url", "manga-scans"],
+  inputs: ["markdown-book", "epub", "pdf", "novel-url", "manga-scans"],
   outputs: ["epub", "cbz"],
   kindleInputFormats: ["mobi", "azw3"],
   pdfInputModes: [
@@ -95,6 +101,9 @@ export const formats = {
     "validate-shard",
     "check-spec",
     "merge-shards",
+    "enhance-image",
+    "build-epub",
+    "convert",
   ],
   mangaInputFormats: ["image-directory", "zip", "cbz"],
   epubInputModes: [

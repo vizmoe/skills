@@ -7,6 +7,7 @@ import {
   readDeliveryRules,
   readNamingRules,
   readParallelWorkflowRules,
+  readPdfRules,
   readWorkTypeTagRules,
 } from "../../../skills/quillbind/scripts/skill-rules.ts";
 import { installSkillCopy, runNode, sha256, SKILL_DIR } from "./support.ts";
@@ -38,13 +39,15 @@ async function runDeliveryCli(
 describe("reference rule table parser", () => {
   it("parses all reference rule tables and detects table mutations", async () => {
     const refsDir = path.join(SKILL_DIR, "references");
-    const [tags, naming, bibliography, delivery, parallel] = await Promise.all([
-      readWorkTypeTagRules(refsDir),
-      readNamingRules(refsDir),
-      readBibliographyRules(refsDir),
-      readDeliveryRules(refsDir),
-      readParallelWorkflowRules(refsDir),
-    ]);
+    const [tags, naming, bibliography, delivery, parallel, pdf] =
+      await Promise.all([
+        readWorkTypeTagRules(refsDir),
+        readNamingRules(refsDir),
+        readBibliographyRules(refsDir),
+        readDeliveryRules(refsDir),
+        readParallelWorkflowRules(refsDir),
+        readPdfRules(refsDir),
+      ]);
 
     expect(tags["light-novel"]).toEqual({
       required: "Literature.Light Novel",
@@ -79,6 +82,17 @@ describe("reference rule table parser", () => {
     expect(parallel.roles.verifier?.writeScope).toBe("read-only-reports");
     expect(parallel.roles.worker?.selfApproval).toBe(false);
     expect(parallel.roles.coordinator?.selfApproval).toBe(false);
+    expect(pdf.frontmatter.map((item) => item.role)).toEqual([
+      "cover",
+      "titlepage",
+      "colophon",
+      "toc",
+    ]);
+    expect(
+      pdf.frontmatter.find((item) => item.role === "colophon")?.tocInclusion,
+    ).toBe("forbidden");
+    expect(pdf.imageOperations["super-resolution"]?.allowed).toBe(true);
+    expect(pdf.imageOperations["generative-redraw"]?.allowed).toBe(false);
 
     const tmp1 = await fs.mkdtemp(path.join(os.tmpdir(), "quillbind-rules-1-"));
     tempDirs.push(tmp1);
@@ -111,6 +125,23 @@ describe("reference rule table parser", () => {
       "utf8",
     );
     await expect(readParallelWorkflowRules(copied2)).rejects.toMatchObject({
+      code: "RULE_TABLE_INVALID",
+    });
+
+    const tmp3 = await fs.mkdtemp(path.join(os.tmpdir(), "quillbind-rules-3-"));
+    tempDirs.push(tmp3);
+    const copied3 = path.join(tmp3, "references");
+    await fs.cp(refsDir, copied3, { recursive: true });
+    const pdfMd = path.join(copied3, "pdf.md");
+    await fs.writeFile(
+      pdfMd,
+      (await fs.readFile(pdfMd, "utf8")).replace(
+        "| `3` | `colophon` | `EPUB/colophon.xhtml` | `after-titlepage` | `forbidden` |",
+        "| `3` | `colophon` | `EPUB/colophon.xhtml` | `after-titlepage` | `optional` |",
+      ),
+      "utf8",
+    );
+    await expect(readPdfRules(copied3)).rejects.toMatchObject({
       code: "RULE_TABLE_INVALID",
     });
   });

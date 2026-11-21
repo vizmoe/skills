@@ -5,8 +5,17 @@ import zlib from "node:zlib";
 import { chromium } from "@playwright/test";
 import sharp from "sharp";
 import { afterEach, describe, expect, it } from "vitest";
+import { readPdfRules } from "../../../skills/quillbind/scripts/skill-rules.js";
+import { checkNotes } from "../packages/core/src/check-notes.js";
+import { inspectBytes } from "../packages/core/src/epub.js";
 import { sha256 } from "../packages/core/src/hash.js";
 import { json, readJson } from "../packages/core/src/json.js";
+import {
+  buildEpubFromPdfSpec,
+  convertPdfToEpub,
+  enhancePdfImage,
+  renderPdfSpecToEpub,
+} from "../packages/core/src/pdf-epub.js";
 import {
   detectLineGeometryFromImage,
   estimatePageImageTokens,
@@ -44,6 +53,7 @@ import {
 import { run } from "../packages/core/src/process.js";
 import { browserPath } from "../packages/core/src/qa-environment.js";
 import { repoRoot } from "../packages/core/src/runtime.js";
+import { validateInternal } from "../packages/core/src/validate.js";
 
 const temporary: string[] = [];
 
@@ -1302,4 +1312,749 @@ $$
     expect(synRes.status).toBe("fail");
     expect(synRes.diagnostics[0]?.code).toBe("PDF_SHARD_JSON_SYNTAX");
   });
+});
+
+async function makeStructuredFigurePng(filePath: string): Promise<void> {
+  const w = 160;
+  const h = 120;
+  const raw = Buffer.alloc(w * h * 3, 242);
+  for (let y = 16; y < 104; y++) {
+    for (let x = 20; x < 140; x++) {
+      const i = (y * w + x) * 3;
+      const border = y < 22 || y > 98 || x < 26 || x > 134;
+      const stripe = (x + y) % 16 < 5;
+      raw[i] = border ? 30 : stripe ? 70 : 210;
+      raw[i + 1] = border ? 45 : stripe ? 110 : 225;
+      raw[i + 2] = border ? 90 : stripe ? 175 : 240;
+    }
+  }
+  await sharp(raw, { raw: { width: w, height: h, channels: 3 } })
+    .png()
+    .toFile(filePath);
+}
+
+describe("PDF-to-EPUB 3.3 builder, non-destructive image restoration and P0-3/P0-4/P1-B2 regressions", () => {
+  it("restores figures deterministically with rule-aligned ops, comparison PNG, and fidelity guards", async () => {
+    const root = await makeTempDir();
+    const srcImg = path.join(root, "fig.png");
+    await makeStructuredFigurePng(srcImg);
+
+    const outImg = path.join(root, "fig-restored.png");
+    const repDir = path.join(root, "enhance-reports");
+    const report = await enhancePdfImage(srcImg, outImg, {
+      deskew: -1.2,
+      denoise: true,
+      normalize: true,
+      upscale: 2,
+      sharpen: true,
+      reports: repDir,
+    });
+
+    expect(report.mode).toBe("non-destructive-restoration");
+    expect(report.generativeRedraw).toBe(false);
+    expect(report.multiScaleSsim).toBeGreaterThan(0.65);
+    expect(report.edgeCorrelation).toBeGreaterThan(0.5);
+    expect(report.output.width).toBeGreaterThanOrEqual(320);
+
+    // Every emitted operation prefix matches pdf.md "Image restoration policy"
+    const pdfRules = await readPdfRules(
+      path.resolve(repoRoot, "../../skills/quillbind/references"),
+    );
+    expect(report.operations.length).toBe(5);
+    for (const op of report.operations) {
+      const key = op.split(":")[0];
+      expect(pdfRules.imageOperations[key]?.allowed).toBe(true);
+    }
+
+    // Comparison 3-panel PNG and enhance JSON report exist on disk
+    const compareBytes = await fs.readFile(report.comparisonImage);
+    expect(sha256(compareBytes)).toBe(report.comparisonImageSha256);
+    const compareMeta = await sharp(compareBytes).metadata();
+    expect(compareMeta.width).toBeGreaterThan(compareMeta.height ?? 0);
+    const savedJson = await readJson<typeof report>(
+      path.join(repDir, "fig-restored.png.enhance.json"),
+    );
+    expect(savedJson.output.sha256).toBe(report.output.sha256);
+
+    // JPEG & WebP output paths work without overwriting
+    const outJpg = path.join(root, "fig.jpg");
+    const jpgReport = await enhancePdfImage(srcImg, outJpg, { sharpen: true });
+    expect(jpgReport.output.format).toBe("jpeg");
+    const outWebp = path.join(root, "fig.webp");
+    const webpReport = await enhancePdfImage(srcImg, outWebp);
+    expect(webpReport.output.format).toBe("webp");
+
+    // Existing output & out-of-range deskew rejected
+    await expect(enhancePdfImage(srcImg, outImg)).rejects.toMatchObject({
+      code: "OUTPUT_EXISTS",
+    });
+    await expect(
+      enhancePdfImage(srcImg, path.join(root, "bad-deskew.png"), {
+        deskew: 25,
+      }),
+    ).rejects.toMatchObject({ code: "ARGUMENT_CONFLICT" });
+
+    // Altered/inverted image rejected by SSIM/edge guard
+    const inverted = path.join(root, "inverted.png");
+    await sharp(srcImg).negate().png().toFile(inverted);
+    await expect(
+      enhancePdfImage(inverted, path.join(root, "bad-inv.png"), {
+        verifyAgainst: srcImg,
+      }),
+    ).rejects.toMatchObject({ code: "IMAGE_FIDELITY_VIOLATION" });
+
+    // Aspect-ratio altered image rejected by geometry guard
+    const squashed = path.join(root, "squashed.png");
+    await sharp(srcImg).resize(260, 80, { fit: "fill" }).png().toFile(squashed);
+    await expect(
+      enhancePdfImage(squashed, path.join(root, "bad-aspect.png"), {
+        verifyAgainst: srcImg,
+      }),
+    ).rejects.toMatchObject({ code: "IMAGE_FIDELITY_VIOLATION" });
+  });
+
+  it("retains orphan continuations with warnings, rejects unreferenced/missing footnotes, and prevents footnote continuation duplication", async () => {
+    const root = await makeTempDir();
+    const figPath = path.join(root, "illu.png");
+    await makeStructuredFigurePng(figPath);
+
+    const makeBaseSpec = (pages: PdfSpec["pages"]): PdfSpec => ({
+      schemaVersion: PDF_SPEC_SCHEMA_VERSION,
+      kind: "quillbind-pdf-spec",
+      source: {
+        path: path.join(root, "doc.pdf"),
+        sha256: "a".repeat(64),
+        pdfVersion: "1.6",
+        pageCount: pages.length,
+        classification: "digital",
+      },
+      metadata: {
+        title: "续接与脚注测试",
+        authors: ["作者甲"],
+        language: "zh-Hans",
+        description: "测试跨页续接与脚注规则。",
+        tags: [],
+        modified: "2000-01-01T00:00:00Z",
+      },
+      frontmatter: {
+        includeTitlepage: true,
+        includeColophon: false,
+      },
+      outline: [],
+      shards: [],
+      pages,
+    });
+
+    // P0-3: orphan continueFromPrevPage paragraph (chapter start & after figure), orphan table, orphan footnote
+    // P0-4: cross-page footnote continuation with inlines joins cleanly without duplicating text
+    const orphanSpec = makeBaseSpec([
+      {
+        page: 1,
+        widthPt: 595,
+        heightPt: 842,
+        rotate: 0,
+        classification: "digital",
+        ocrTrust: "digital-native",
+        blocks: [
+          { kind: "heading", level: 1, text: "第一章 边界测试" },
+          {
+            kind: "paragraph",
+            text: "章首误标续接的段落必须保留，不能静默丢弃。",
+            continueFromPrevPage: true,
+          },
+          {
+            kind: "figure",
+            src: figPath,
+            alt: "插图",
+          },
+          {
+            kind: "paragraph",
+            text: "插图之后误标续接的段落也必须保留。",
+            continueFromPrevPage: true,
+            inlines: [
+              { kind: "text", text: "插图之后误标续接的段落也必须保留" },
+              { kind: "noteref", id: "p1-1", label: "1" },
+              { kind: "text", text: "。" },
+              { kind: "noteref", id: "p1-2", label: "2" },
+            ],
+          },
+          {
+            kind: "table",
+            caption: "孤立续表",
+            continueFromPrevPage: true,
+            head: [
+              [
+                { text: "项", header: true },
+                { text: "值", header: true },
+              ],
+            ],
+            body: [[{ text: "甲" }, { text: "1" }]],
+          },
+        ],
+        footnotes: [
+          {
+            id: "p1-1",
+            label: "1",
+            text: "孤立续注首句",
+            continueFromPrevPage: true,
+          },
+          {
+            id: "p1-2",
+            label: "2",
+            text: "跨页注前半段",
+            inlines: [
+              { kind: "text", text: "跨页注" },
+              { kind: "text", text: "前半段", bold: true },
+            ],
+          },
+        ],
+      },
+      {
+        page: 2,
+        widthPt: 595,
+        heightPt: 842,
+        rotate: 0,
+        classification: "digital",
+        ocrTrust: "digital-native",
+        blocks: [{ kind: "paragraph", text: "第二页正文。" }],
+        footnotes: [
+          {
+            id: "p1-2",
+            label: "2",
+            text: "跨页注后半段。",
+            continueFromPrevPage: true,
+            inlines: [{ kind: "text", text: "跨页注后半段。", italic: true }],
+          },
+        ],
+      },
+    ]);
+
+    const rendered = await renderPdfSpecToEpub(orphanSpec, root);
+    expect(validateInternal(rendered.bytes).status).toBe("pass");
+    const warnCodes = rendered.warnings.map((w) => w.code);
+    expect(warnCodes).toContain("STITCH_ORPHAN_PARAGRAPH");
+    expect(warnCodes).toContain("STITCH_ORPHAN_TABLE");
+    expect(warnCodes).toContain("STITCH_ORPHAN_FOOTNOTE");
+
+    const inspected = inspectBytes(rendered.bytes, true);
+    const ch1 = inspected.entries
+      .get("EPUB/text/ch-001.xhtml")!
+      .bytes.toString();
+    expect(ch1).toContain("章首误标续接的段落必须保留，不能静默丢弃。");
+    expect(ch1).toContain("插图之后误标续接的段落也必须保留");
+    expect(ch1).toContain("孤立续表");
+    expect(ch1).toContain("孤立续注首句");
+    // P0-4: footnote continuation inlines must NOT duplicate "跨页注前半段"
+    expect(ch1.split("跨页注后半段。").length - 1).toBe(1);
+    expect(ch1.split("前半段").length - 1).toBe(1);
+    expect(ch1).toContain("<strong>前半段</strong><em>跨页注后半段。</em>");
+
+    // P0-3: unreferenced footnote MUST fail with FOOTNOTE_UNREFERENCED (no fabricated <sup>)
+    const unrefSpec = makeBaseSpec([
+      {
+        page: 1,
+        widthPt: 595,
+        heightPt: 842,
+        rotate: 0,
+        classification: "digital",
+        ocrTrust: "digital-native",
+        blocks: [{ kind: "paragraph", text: "正文漏掉了脚注编号。" }],
+        footnotes: [{ id: "p1-1", label: "1", text: "孤立脚注文本。" }],
+      },
+    ]);
+    await expect(renderPdfSpecToEpub(unrefSpec, root)).rejects.toMatchObject({
+      code: "FOOTNOTE_UNREFERENCED",
+    });
+
+    // P0-3: missing footnote target MUST fail with FOOTNOTE_MISSING
+    const missingFnSpec = makeBaseSpec([
+      {
+        page: 1,
+        widthPt: 595,
+        heightPt: 842,
+        rotate: 0,
+        classification: "digital",
+        ocrTrust: "digital-native",
+        blocks: [
+          {
+            kind: "paragraph",
+            text: "引用不存在脚注",
+            inlines: [
+              { kind: "text", text: "引用不存在脚注" },
+              { kind: "noteref", id: "p1-9", label: "9" },
+            ],
+          },
+        ],
+        footnotes: [],
+      },
+    ]);
+    await expect(
+      renderPdfSpecToEpub(missingFnSpec, root),
+    ).rejects.toMatchObject({
+      code: "FOOTNOTE_MISSING",
+    });
+  });
+
+  it("builds a verified canonical reflowable EPUB 3.3 from a scanned PDF spec with rich features and enforces independent verifier", async () => {
+    const root = await makeTempDir();
+    const scanPdf = path.join(root, "scan-rich.pdf");
+    await fs.writeFile(scanPdf, buildScannedPdf());
+    const baseSpecPath = path.join(root, "base.spec.json");
+    await initPdfSpec(scanPdf, baseSpecPath);
+    const spec = await readJson<PdfSpec>(baseSpecPath);
+
+    const coverImg = path.join(root, "cover.png");
+    const figImg = path.join(root, "figure.png");
+    const p1Png = path.join(root, "p1.png");
+    const p2Png = path.join(root, "p2.png");
+    const p3Png = path.join(root, "p3.png");
+    await Promise.all([
+      makeStructuredFigurePng(coverImg),
+      makeStructuredFigurePng(figImg),
+      makeSyntheticPagePng(p1Png),
+      makeSyntheticPagePng(p2Png),
+      makeSyntheticPagePng(p3Png),
+    ]);
+    const [p1Sha, p2Sha, p3Sha] = await Promise.all([
+      fs.readFile(p1Png).then(sha256),
+      fs.readFile(p2Png).then(sha256),
+      fs.readFile(p3Png).then(sha256),
+    ]);
+
+    spec.metadata = {
+      title: "金石与数理札记",
+      authors: ["林清玄"],
+      translators: ["王译者"],
+      publisher: "学术出版社",
+      isbn: "9780306406157",
+      language: "zh-Hans",
+      description: "包含数学公式、复杂表格、注音与双向脚注的扫描书重建。",
+      tags: ["Literature.Essays"],
+      modified: "2026-11-21T00:00:00Z",
+    };
+    spec.frontmatter = {
+      coverImage: coverImg,
+      coverAlt: "金石与数理札记封面",
+      titlepage: {
+        title: "金石与数理札记",
+        subtitle: "校订本",
+        authors: ["林清玄"],
+        translators: ["王译者"],
+        publisher: "学术出版社",
+        imprint: "典藏系列",
+        extraLines: ["第一版"],
+      },
+      colophon: {
+        copyright: "© 2026 学术出版社",
+        publisher: "学术出版社",
+        edition: "2026年11月第1版",
+        isbn: "978-0-306-40615-7",
+        lines: ["版权所有，翻印必究。"],
+      },
+      includeTitlepage: true,
+      includeColophon: true,
+    };
+
+    spec.pages[0] = {
+      ...spec.pages[0],
+      render: { path: p1Png, sha256: p1Sha, dpi: 300 },
+      transcription: { transcribedBy: "worker-01", unresolved: [] },
+      blocks: [
+        {
+          kind: "heading",
+          level: 1,
+          text: "第一章 绪论",
+          subtitle: "山川与数理",
+          byline: "林清玄",
+        },
+        {
+          kind: "paragraph",
+          text: "凡治金石学者，必察方程。",
+          voice: "epigraph",
+        },
+        {
+          kind: "math-block",
+          tex: "\\int_0^1 x\\,dx = \\frac{1}{2}",
+          alt: "integral of x from 0 to 1 equals 1/2",
+        },
+        {
+          kind: "math-block",
+          mathml:
+            "<math><msup><mi>e</mi><mrow><mi>i</mi><mi>π</mi></mrow></msup><mo>+</mo><mn>1</mn><mo>=</mo><mn>0</mn></math>",
+          alt: "Euler identity",
+        },
+        {
+          kind: "paragraph",
+          text: "正文含注音、行内公式与脚注，且跨页延续",
+          stitchWithNextPage: true,
+          inlines: [
+            { kind: "text", text: "正文含" },
+            { kind: "ruby", base: "金石", rt: "jīn shí" },
+            { kind: "text", text: "、" },
+            { kind: "math-inline", tex: "a^2 + b^2 = c^2", alt: "a^2+b^2=c^2" },
+            { kind: "text", text: "与脚注" },
+            { kind: "noteref", id: "p1-1", label: "①" },
+            { kind: "text", text: "，且跨页延续" },
+          ],
+        },
+      ],
+      footnotes: [
+        {
+          id: "p1-1",
+          label: "①",
+          text: "金石指钟鼎碑刻。",
+        },
+      ],
+    };
+
+    spec.pages[1] = {
+      ...spec.pages[1],
+      render: { path: p2Png, sha256: p2Sha, dpi: 300 },
+      transcription: { transcribedBy: "worker-01", unresolved: [] },
+      blocks: [
+        {
+          kind: "paragraph",
+          text: "至此完整结束。",
+          continueFromPrevPage: true,
+        },
+        {
+          kind: "heading",
+          level: 2,
+          text: "第一节 表格与体裁",
+        },
+        {
+          kind: "table",
+          caption: "跨行列数据表",
+          head: [
+            [
+              { text: "类别", header: true, scope: "col", rowspan: 2 },
+              { text: "观测指标", header: true, scope: "col", colspan: 2 },
+            ],
+            [
+              { text: "春", header: true, scope: "col", align: "right" },
+              { text: "秋", header: true, scope: "col", align: "right" },
+            ],
+          ],
+          body: [
+            [
+              { text: "山谷", header: true, scope: "row" },
+              { text: "12.5", align: "right" },
+              { text: "18.0", align: "right" },
+            ],
+          ],
+          foot: [
+            [
+              { text: "合计", colspan: 2 },
+              { text: "30.5", align: "right" },
+            ],
+          ],
+        },
+        { kind: "paragraph", text: "引文一段。", voice: "quote" },
+        {
+          kind: "paragraph",
+          text: "孤云独去闲",
+          voice: "verse",
+          gapBefore: true,
+        },
+        { kind: "paragraph", text: "“此地甚佳。”", voice: "dialogue" },
+        { kind: "paragraph", text: "——癸卯秋记", voice: "signature" },
+        {
+          kind: "list",
+          ordered: true,
+          items: [
+            "条款一",
+            {
+              text: "条款二",
+              inlines: [
+                { kind: "text", text: "条款", bold: true },
+                { kind: "text", text: "二", code: true },
+              ],
+            },
+          ],
+        },
+        { kind: "hr" },
+      ],
+      footnotes: [],
+    };
+
+    spec.pages[2] = {
+      ...spec.pages[2],
+      render: { path: p3Png, sha256: p3Sha, dpi: 300 },
+      transcription: { transcribedBy: "worker-02", unresolved: [] },
+      blocks: [
+        { kind: "heading", level: 1, text: "第二章 插图" },
+        {
+          kind: "figure",
+          src: figImg,
+          alt: "山谷示意图",
+          caption: "图 2-1 山谷示意图",
+          provenance: {
+            sourceSha256: p3Sha,
+            outputSha256: sha256(await fs.readFile(figImg)),
+            mode: "non-destructive-restoration",
+            generativeRedraw: false,
+          },
+        },
+      ],
+      footnotes: [],
+    };
+
+    const specFile = path.join(root, "rich.spec.json");
+    await json(specFile, spec);
+
+    // Without verification file: blocked
+    await expect(
+      buildEpubFromPdfSpec(specFile, path.join(root, "no-ver.epub")),
+    ).rejects.toMatchObject({ code: "PDF_OCR_VERIFICATION_REQUIRED" });
+
+    // Self-approved verification file: blocked
+    const selfVerPath = path.join(root, "self-ver.json");
+    await json(selfVerPath, {
+      schemaVersion: PDF_SPEC_SCHEMA_VERSION,
+      kind: "quillbind-pdf-verification",
+      sourceSha256: spec.source.sha256,
+      verifierId: "worker-01",
+      verifiedAt: "2026-11-21T00:00:00Z",
+      pages: spec.pages.map((p) => ({
+        page: p.page,
+        renderSha256: p.render!.sha256,
+        dpi: 300,
+        tilesReviewed: [],
+        transcribedBy: p.transcription!.transcribedBy,
+        verifiedBy: p.transcription!.transcribedBy,
+        contentSha256: computePageContentSha256(p),
+        status: "verified",
+        unresolved: [],
+      })),
+    } satisfies PdfVerificationFile);
+    await expect(
+      buildEpubFromPdfSpec(specFile, path.join(root, "self-ver.epub"), {
+        verification: selfVerPath,
+      }),
+    ).rejects.toMatchObject({ code: "PDF_SELF_APPROVAL_FORBIDDEN" });
+
+    // Independent verifier file: succeeds and passes EPUBCheck + checkNotes
+    const verPath = path.join(root, "verifier.json");
+    await json(verPath, {
+      schemaVersion: PDF_SPEC_SCHEMA_VERSION,
+      kind: "quillbind-pdf-verification",
+      sourceSha256: spec.source.sha256,
+      verifierId: "verifier-01",
+      verifiedAt: "2026-11-21T00:00:00Z",
+      pages: spec.pages.map((p) => ({
+        page: p.page,
+        renderSha256: p.render!.sha256,
+        dpi: 300,
+        tilesReviewed: [],
+        transcribedBy: p.transcription!.transcribedBy,
+        verifiedBy: "verifier-01",
+        contentSha256: computePageContentSha256(p),
+        status: "verified",
+        unresolved: [],
+      })),
+    } satisfies PdfVerificationFile);
+
+    const outEpub = path.join(root, "rich.epub");
+    const reportsDir = path.join(root, "rich-reports");
+    const result = await buildEpubFromPdfSpec(specFile, outEpub, {
+      verification: verPath,
+      reports: reportsDir,
+    });
+
+    expect(result.status).toBe("pass");
+    expect(result.reproducible).toBe(true);
+    expect(result.frontmatterSpine).toEqual([
+      "EPUB/cover.xhtml",
+      "EPUB/titlepage.xhtml",
+      "EPUB/colophon.xhtml",
+      "EPUB/toc.xhtml",
+    ]);
+    expect(result.colophonExcludedFromToc).toBe(true);
+    expect(result.tocHrefs.some((h) => h.includes("colophon"))).toBe(false);
+    expect(result.validation.status).toBe("pass");
+    expect(result.verification.verifierId).toBe("verifier-01");
+    expect(result.verification.pagesRequiringVerification).toEqual([1, 2, 3]);
+
+    const epubBytes = await fs.readFile(outEpub);
+    expect(sha256(epubBytes)).toBe(result.outputSha256);
+    const inspected = inspectBytes(epubBytes, true);
+    const navStr = inspected.entries.get("EPUB/nav.xhtml")!.bytes.toString();
+    const tocStr = inspected.entries.get("EPUB/toc.xhtml")!.bytes.toString();
+    expect(navStr).not.toContain("colophon.xhtml");
+    expect(tocStr).not.toContain("colophon.xhtml");
+    expect(navStr).toContain('epub:type="page-list"');
+    const opfStr = inspected.packageDocument.toString();
+    expect(opfStr).toContain('properties="mathml"');
+    expect(opfStr).toContain('rendition:layout">reflowable<');
+    expect(opfStr).toContain('page-progression-direction="ltr"');
+
+    const ch1 = inspected.entries
+      .get("EPUB/text/ch-001.xhtml")!
+      .bytes.toString();
+    expect(ch1).toContain("<ruby>金石<rt>jīn shí</rt></ruby>");
+    expect(ch1).toContain("且跨页延续至此完整结束。");
+    expect(ch1).toContain('rowspan="2"');
+    expect(ch1).toContain('colspan="2"');
+    expect(ch1).toContain('class="voice-epigraph"');
+    expect(ch1).toContain('class="voice-verse gap-before"');
+    expect(ch1).toContain('class="voice-signature"');
+
+    // Bidirectional popup footnotes pass static checkNotes without issues
+    const noteReport = await checkNotes(outEpub);
+    expect(noteReport.status).toBe("inspected");
+    expect(noteReport.notes.issues).toEqual([]);
+    expect(noteReport.notes.references.length).toBeGreaterThanOrEqual(1);
+
+    // pdf-import.json report saved cleanly
+    const importReport = await readJson<typeof result>(
+      path.join(reportsDir, "pdf-import.json"),
+    );
+    expect(importReport.outputSha256).toBe(result.outputSha256);
+  }, 60_000);
+
+  it("wires pdf enhance-image, pdf build-epub, and epub convert <pdf> through the CLI", async () => {
+    const root = await makeTempDir();
+    const cli = path.join(repoRoot, "packages/cli/src/index.ts");
+    const invoke = (args: string[]) =>
+      run(process.execPath, ["--import", "tsx", cli, ...args], {
+        cwd: repoRoot,
+      });
+
+    // 1. Direct digital+photo hybrid PDF conversion via CLI `epub convert`
+    const hybridPdf = path.join(root, "hybrid.pdf");
+    await fs.writeFile(hybridPdf, buildDigitalHybridPdf());
+    const hybridBefore = sha256(await fs.readFile(hybridPdf));
+    const hybridOut = path.join(root, "hybrid.epub");
+    const convCli = await invoke([
+      "epub",
+      "convert",
+      hybridPdf,
+      "--output",
+      hybridOut,
+      "--json",
+    ]);
+    expect(convCli.exitCode, convCli.stderr).toBe(0);
+    const convPayload = JSON.parse(convCli.stdout) as {
+      status: string;
+      validation: { status: string };
+      outputSha256: string;
+    };
+    expect(convPayload.status).toBe("pass");
+    expect(convPayload.validation.status).toBe("pass");
+    expect(sha256(await fs.readFile(hybridPdf))).toBe(hybridBefore);
+    expect(sha256(await fs.readFile(hybridOut))).toBe(convPayload.outputSha256);
+
+    // 2. CLI `pdf enhance-image` and argument error guards
+    const figIn = path.join(root, "cli-fig.png");
+    await makeStructuredFigurePng(figIn);
+    const figOut = path.join(root, "cli-fig-out.png");
+    const enhCli = await invoke([
+      "pdf",
+      "enhance-image",
+      figIn,
+      "--output",
+      figOut,
+      "--denoise",
+      "--upscale",
+      "2",
+      "--json",
+    ]);
+    expect(enhCli.exitCode, enhCli.stderr).toBe(0);
+    expect(JSON.parse(enhCli.stdout).generativeRedraw).toBe(false);
+
+    const badUpscale = await invoke([
+      "pdf",
+      "enhance-image",
+      figIn,
+      "--output",
+      path.join(root, "bad-up.png"),
+      "--upscale",
+      "4",
+      "--json",
+    ]);
+    expect(badUpscale.exitCode).toBe(1);
+
+    // 3. CLI `pdf build-epub` and `--spec` hash mismatch guard on `epub convert`
+    const specPath = path.join(root, "hybrid.spec.json");
+    await initPdfSpec(hybridPdf, specPath);
+    const builtOut = path.join(root, "from-spec.epub");
+    const buildCli = await invoke([
+      "pdf",
+      "build-epub",
+      specPath,
+      "--output",
+      builtOut,
+      "--json",
+    ]);
+    expect(buildCli.exitCode, buildCli.stderr).toBe(0);
+    expect(JSON.parse(buildCli.stdout).validation.status).toBe("pass");
+
+    const otherPdf = path.join(root, "other.pdf");
+    await fs.writeFile(otherPdf, buildScannedPdf());
+    await expect(
+      convertPdfToEpub(otherPdf, path.join(root, "mismatch.epub"), {
+        spec: specPath,
+      }),
+    ).rejects.toMatchObject({ code: "SOURCE_HASH_MISMATCH" });
+  }, 60_000);
+
+  it("converts a real Chrome 2-column CJK + photo PDF directly to a validated EPUB 3.3", async () => {
+    let executable: string;
+    try {
+      executable = await browserPath();
+    } catch {
+      return;
+    }
+    const root = await makeTempDir();
+    const imgBuf = await sharp({
+      create: {
+        width: 240,
+        height: 240,
+        channels: 3,
+        background: { r: 70, g: 120, b: 185 },
+      },
+    })
+      .png()
+      .toBuffer();
+    const html = `<!doctype html><html><head><meta charset="utf-8"><style>
+      body { font-family: sans-serif; margin: 36pt; }
+      .cols { display: flex; gap: 36pt; }
+      .col { flex: 1; font-size: 12pt; line-height: 1.5; }
+    </style></head><body>
+      <h1>Chrome EPUB Conversion</h1>
+      <div class="cols">
+        <div class="col"><p>LEFT_COLUMN 中⽂康熙部首正文。</p></div>
+        <div class="col">
+          <p>RIGHT_COLUMN second column paragraph.</p>
+          <img src="data:image/png;base64,${imgBuf.toString("base64")}" width="140" height="140" alt="photo"/>
+        </div>
+      </div>
+    </body></html>`;
+    const chromePdf = path.join(root, "chrome-convert.pdf");
+    const browser = await chromium.launch({
+      executablePath: executable,
+      headless: true,
+    });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(html);
+      await page.pdf({ path: chromePdf, format: "A4" });
+    } finally {
+      await browser.close();
+    }
+    const chromeOut = path.join(root, "chrome-convert.epub");
+    const chromeBuilt = await convertPdfToEpub(chromePdf, chromeOut);
+    expect(chromeBuilt.status).toBe("pass");
+    expect(chromeBuilt.validation.status).toBe("pass");
+    const chromeInspected = inspectBytes(await fs.readFile(chromeOut), true);
+    expect(
+      chromeInspected.manifest.some((m) => m.mediaType.startsWith("image/")),
+    ).toBe(true);
+    const chromeBody = [...chromeInspected.entries.entries()]
+      .filter(([k]) => k.startsWith("EPUB/text/"))
+      .map(([, v]) => v.bytes.toString())
+      .join("\n");
+    expect(chromeBody).toContain("中文康熙部首正文");
+    expect(chromeBody).not.toContain("⽂");
+  }, 60_000);
 });

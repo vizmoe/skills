@@ -24,31 +24,31 @@ Use [local anthology splitting](../../../skills/quillbind/references/local-split
 
 For existing-file official covers, use the [cover workflow](../../../skills/quillbind/references/covers.md). It binds source/candidate images, preserves non-target ZIP members and runs actual format and whole-cover render checks before publishing a new maintenance output. Browser screenshots are not native-reader certification.
 
-| Command                                                                        | Result                                                                    |
-| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
-| `init DIRECTORY [--theme literature\|technical]`                               | New book skeleton with required metadata left to the author               |
-| `init NEW_DIRECTORY --from SOURCE_DIRECTORY --config PLAN.yaml`                | Prepare a project from declared chapters and referenced local assets      |
-| `doctor`                                                                       | Required runtime and validator availability                               |
-| `metadata resolve DIRECTORY [--online]`                                        | Metadata status, candidates and provenance locks                          |
-| `metadata bookwalker-search QUERY.json --output LOCK.json`                     | Candidate BookWalker JP/TW product URLs in a replayable search lock       |
-| `metadata catalog QUERY.json --output LOCK.json [--online]`                    | Normalized multi-provider catalog records in a replayable lock            |
-| `metadata edition SELECTION.json --output LOCK.json`                           | Cleaned ordinary-book edition candidates in a replayable lock             |
-| `metadata cover-fetch SELECTION.json --output COVER.jpg`                       | Verified upstream JPEG/PNG cover download with an immutable cover lock    |
-| `metadata bibliography-audit FILE.epub\|FILE.cbz [--output P]`                 | EPUB/CBZ bibliography inventory and cleanup findings for review           |
-| `metadata bibliography-clean FILE.epub\|FILE.cbz --plan P ...`                 | Reviewed EPUB/CBZ bibliography cleanup through verified delivery          |
-| `metadata tags-audit FILE.epub\|FILE.cbz [--output PLAN.json]`                 | Controlled library tag inventory, normalization and conflict findings     |
-| `metadata tags-apply FILE.epub\|FILE.cbz --plan P --output N`                  | Reviewed EPUB `dc:subject` or CBZ `Genre` application and validation      |
-| `preflight DIRECTORY`                                                          | Standalone chapter validation                                             |
-| `build DIRECTORY`                                                              | All release gates and one canonical EPUB                                  |
-| `validate FILE.epub`                                                           | Internal validation and EPUBCheck                                         |
-| `qa FILE.epub`                                                                 | Browser/axe reports after internal safety validation                      |
-| `inspect FILE.epub [--summary]`                                                | Read-only NAV/NCX, reading order, metadata, cover and reference inventory |
-| `epub audit FILE.epub`                                                         | Read-only audit and suggested repair classifications                      |
-| `epub repair-plan FILE.epub --output PLAN.json`                                | Input-bound plan                                                          |
-| `epub repair FILE.epub --plan PLAN.json --output NEW.epub`                     | Controlled repair and all release gates                                   |
-| `pdf inspect\|init-spec\|shard-init\|validate-shard\|check-spec\|merge-shards` | PDF triage (`ocrTrust`), visual tiling, per-page Markdown sharding and QA |
-| `taxonomy list`, `taxonomy explain TAG`                                        | Controlled English subject definitions                                    |
-| `schema`, `formats`, `version`                                                 | Machine-readable contracts                                                |
+| Command                                                                                                   | Result                                                                               |
+| --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `init DIRECTORY [--theme literature\|technical]`                                                          | New book skeleton with required metadata left to the author                          |
+| `init NEW_DIRECTORY --from SOURCE_DIRECTORY --config PLAN.yaml`                                           | Prepare a project from declared chapters and referenced local assets                 |
+| `doctor`                                                                                                  | Required runtime and validator availability                                          |
+| `metadata resolve DIRECTORY [--online]`                                                                   | Metadata status, candidates and provenance locks                                     |
+| `metadata bookwalker-search QUERY.json --output LOCK.json`                                                | Candidate BookWalker JP/TW product URLs in a replayable search lock                  |
+| `metadata catalog QUERY.json --output LOCK.json [--online]`                                               | Normalized multi-provider catalog records in a replayable lock                       |
+| `metadata edition SELECTION.json --output LOCK.json`                                                      | Cleaned ordinary-book edition candidates in a replayable lock                        |
+| `metadata cover-fetch SELECTION.json --output COVER.jpg`                                                  | Verified upstream JPEG/PNG cover download with an immutable cover lock               |
+| `metadata bibliography-audit FILE.epub\|FILE.cbz [--output P]`                                            | EPUB/CBZ bibliography inventory and cleanup findings for review                      |
+| `metadata bibliography-clean FILE.epub\|FILE.cbz --plan P ...`                                            | Reviewed EPUB/CBZ bibliography cleanup through verified delivery                     |
+| `metadata tags-audit FILE.epub\|FILE.cbz [--output PLAN.json]`                                            | Controlled library tag inventory, normalization and conflict findings                |
+| `metadata tags-apply FILE.epub\|FILE.cbz --plan P --output N`                                             | Reviewed EPUB `dc:subject` or CBZ `Genre` application and validation                 |
+| `preflight DIRECTORY`                                                                                     | Standalone chapter validation                                                        |
+| `build DIRECTORY`                                                                                         | All release gates and one canonical EPUB                                             |
+| `validate FILE.epub`                                                                                      | Internal validation and EPUBCheck                                                    |
+| `qa FILE.epub`                                                                                            | Browser/axe reports after internal safety validation                                 |
+| `inspect FILE.epub [--summary]`                                                                           | Read-only NAV/NCX, reading order, metadata, cover and reference inventory            |
+| `epub audit FILE.epub`                                                                                    | Read-only audit and suggested repair classifications                                 |
+| `epub repair-plan FILE.epub --output PLAN.json`                                                           | Input-bound plan                                                                     |
+| `epub repair FILE.epub --plan PLAN.json --output NEW.epub`                                                | Controlled repair and all release gates                                              |
+| `pdf inspect\|init-spec\|shard-init\|validate-shard\|check-spec\|merge-shards\|enhance-image\|build-epub` | PDF triage, tiling, per-page Markdown sharding, QA signals, image restore & EPUB 3.3 |
+| `taxonomy list`, `taxonomy explain TAG`                                                                   | Controlled English subject definitions                                               |
+| `schema`, `formats`, `version`                                                                            | Machine-readable contracts                                                           |
 
 Every command accepts `--json`. JSON occupies stdout without progress logs; human output uses stderr. Failed commands exit nonzero with stable error codes. Ctrl-C cancels long-running subprocesses. Inspection and audit do not modify source artifacts. `build` and `preview` acquire a shared per-book `dist/.build.lock`; inspect the running process before removing a lock left by a killed process.
 

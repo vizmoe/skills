@@ -92,6 +92,7 @@ it("keeps CLI JSON stdout parseable on success and failure", async () => {
   expect(JSON.parse(good.stdout).inputs).toEqual([
     "markdown-book",
     "epub",
+    "pdf",
     "novel-url",
     "manga-scans",
   ]);

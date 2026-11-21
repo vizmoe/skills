@@ -484,3 +484,30 @@ export const pdfCheckReportSchema = z.strictObject({
   warnings: z.array(pdfDiagnosticSchema),
 });
 export type PdfCheckReport = z.infer<typeof pdfCheckReportSchema>;
+
+export const pdfImageEnhanceReportSchema = z.strictObject({
+  schemaVersion: z.literal(PDF_SPEC_SCHEMA_VERSION),
+  source: z.strictObject({
+    path: z.string().min(1),
+    sha256: sha256Schema,
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    format: z.string().min(1),
+  }),
+  output: z.strictObject({
+    path: z.string().min(1),
+    sha256: sha256Schema,
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    format: z.string().min(1),
+  }),
+  comparisonImage: z.string().min(1),
+  comparisonImageSha256: sha256Schema,
+  operations: z.array(z.string()),
+  multiScaleSsim: z.number().min(-1).max(1),
+  edgeCorrelation: z.number().min(-1).max(1),
+  aspectRatioDelta: z.number().nonnegative(),
+  mode: z.literal("non-destructive-restoration"),
+  generativeRedraw: z.literal(false),
+});
+export type PdfImageEnhanceReport = z.infer<typeof pdfImageEnhanceReportSchema>;

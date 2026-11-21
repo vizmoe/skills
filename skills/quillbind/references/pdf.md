@@ -118,3 +118,78 @@ node <skill-directory>/scripts/quillbind.ts pdf check-spec /tmp/work/spec.merged
 | Structure | 2D table grid occupancy (`rowspan`/`colspan` column alignment) and 1-to-1 `noteref` ↔ `footnote` pairing | Broken tables, missing or unreferenced footnotes, ID collisions |
 
 After visually auditing the rendered pages, tiles, and flagged signals, the `verifier` writes a separate read-only verification file (`quillbind-pdf-verification`) binding `sourceSha256`, `verifierId` (strictly distinct from every page's `transcribedBy`), and per-page `renderSha256`, `dpi`, `tilesReviewed[]`, `contentSha256`, `status: "verified" | "rejected"`, and `unresolved[]`. Re-run `pdf check-spec --verification <verification.json> --render-manifest <render-manifest.json>` to confirm zero errors (`PDF_SELF_APPROVAL_FORBIDDEN`, `PDF_VERIFICATION_STALE`, `PDF_RENDER_HASH_MISMATCH`, `PDF_UNRESOLVED_ITEMS`).
+
+## Reflowable horizontal layout and typographic preservation
+
+PDF-to-EPUB output defaults to **single-column horizontal reflowable EPUB 3.3**:
+
+- Package metadata sets `rendition:layout` to `reflowable`, `rendition:spread` to `none`, and `rendition:orientation` to `auto`; `<spine page-progression-direction="ltr">` marks every `<itemref>` with `properties="rendition:spread-none"`.
+- Stylesheets set `writing-mode: horizontal-tb` and `column-count: 1` without `@charset`, fixed viewport heights or `body` font-size/color/line-height overrides (`BODY_OVERRIDE`). Note in handoff when relevant that wide desktop viewers such as Calibre `ebook-viewer` default to multi-column paged view above `70em` unless switched to Flow mode or 1 column per screen in viewer preferences.
+- Preserve source typographic hierarchy semantically: chapter `<h1>` headings (one top `<h1>` per spine file with monotonic `<h2>`–`<h6>` subheadings), `.chapter-subtitle`, `.chapter-byline`, `<ruby>漢字<rt>かんじ</rt></ruby>`, typographic voices (`epigraph`, `quote`, `verse`, `dialogue`, right-aligned `signature`), scene-break spacing (`gapBefore`), and bidirectional popup footnotes (`a[epub:type="noteref"][role="doc-noteref"]` paired 1-to-1 with `aside[epub:type="footnote"][role="doc-footnote"]` and `role="doc-backlink"`).
+- Orphan `continueFromPrevPage` paragraphs, tables, or footnotes that cannot merge into a preceding block are never silently dropped: they are preserved as standalone elements with an explicit `STITCH_ORPHAN_*` warning. Footnotes without a matching in-text `noteref` fail immediately with `FOOTNOTE_UNREFERENCED` rather than fabricating a chapter-top anchor.
+
+### Canonical PDF frontmatter order
+
+Parsed directly by [scripts/skill-rules.ts](../scripts/skill-rules.ts):
+
+| Order | Role | Path | Spine position | TOC inclusion |
+| --- | --- | --- | --- | --- |
+| `1` | `cover` | `EPUB/cover.xhtml` | `first` | `optional` |
+| `2` | `titlepage` | `EPUB/titlepage.xhtml` | `after-cover` | `optional` |
+| `3` | `colophon` | `EPUB/colophon.xhtml` | `after-titlepage` | `forbidden` |
+| `4` | `toc` | `EPUB/toc.xhtml` | `after-colophon` | `landmarks-only` |
+
+- **① Cover (`EPUB/cover.xhtml`)**: book title, author and original cover artwork (`epub:type="cover"`, `properties="cover-image"` on the manifest asset).
+- **② Titlepage (`EPUB/titlepage.xhtml`)**: book title, subtitle, author/translator credits and publisher (`epub:type="titlepage"`).
+- **③ Colophon (`EPUB/colophon.xhtml`)**: copyright notice, publishing record, edition/impression and ISBN (`epub:type="colophon"`). **Never place the colophon at the end of the book, and never include `colophon.xhtml` in `EPUB/toc.xhtml`, `EPUB/nav.xhtml` (`epub:type="toc"`) or any NCX navigation map.**
+- **④ Table of contents (`EPUB/toc.xhtml`)**: single-column hierarchical links to parts, chapters and sections (`epub:type="toc"`, `role="doc-toc"`), immediately preceding bodymatter.
+
+## Chapter ToC, formulas, complex tables and deterministic image restoration
+
+- **Chapter ToC and landmarks**: generate complete hierarchical navigation in both `EPUB/nav.xhtml` (`toc`, `landmarks`, and `page-list` linked to per-page `doc-pagebreak` anchors) and `EPUB/toc.xhtml` with monotonic spine order and zero broken fragments.
+- **Formulas (`math-inline` and `math-block`)**: reconstruct inline and display equations as native EPUB 3.3 **MathML** (`<math xmlns="http://www.w3.org/1998/Math/MathML" alttext="...">`), setting `properties="mathml"` on every containing XHTML item in `package.opf`. Reject unsafe TeX macros (`\require`, `\href`, `\includegraphics`).
+- **Complex tables (`table`)**: reconstruct semantic HTML tables inside `<div class="table-container" tabindex="0" role="region" aria-label="...">` with `<caption>`, `<thead>`, `<tbody>`, optional `<tfoot>`, explicit `<th scope="col|row|colgroup|rowgroup">`, `rowspan`, `colspan`, and alignment classes. Every table passes 2D grid occupancy validation (`PDF_TABLE_GRID_INVALID`).
+- **Deterministic image restoration (`pdf enhance-image`)**: extract native raster streams or clean crops from high-DPI page renders. To stay consistent with the no-external-model policy, enhance blurry, noisy, or skewed figures strictly through deterministic non-generative image processing (`pdf enhance-image` powered by `sharp`), never external generative or AI redraw models:
+
+```sh
+node <skill-directory>/scripts/quillbind.ts pdf enhance-image /tmp/work/raw-fig-01.png --output /tmp/work/restored-fig-01.png --deskew -1.2 --denoise --sharpen --normalize --upscale 2 --verify-against /tmp/work/raw-fig-01.png --reports /tmp/work/image-reports --json
+```
+
+`pdf enhance-image` computes coarse geometric/structural sanity metrics (`multiScaleSsim`, `edgeCorrelation`, `aspectRatioDelta`) and emits a side-by-side plus amplified difference-heatmap PNG (`comparisonImage`: `[Original | Restored | Diff Heatmap]`). Numeric scores guard only coarse geometry and global structure; the `verifier` must still inspect `comparisonImage` visually to confirm zero glyph or detail distortion before recording `provenance` (`sourceSha256`, `outputSha256`, `mode: "non-destructive-restoration"`, `generativeRedraw: false`).
+
+### Image restoration policy
+
+Parsed directly by [scripts/skill-rules.ts](../scripts/skill-rules.ts) and aligned with the canonical operation prefixes emitted by `pdf enhance-image` (`IMAGE_FIDELITY_VIOLATION`):
+
+| Operation | Allowed | Fidelity rule |
+| --- | --- | --- |
+| `deskew` | `yes` | Correct scan rotation/tilt within bounded geometry without cropping away figure content. |
+| `dewarp` | `yes` | Flatten page-curl or perspective distortion while preserving original linework and text glyphs. |
+| `denoise` | `yes` | Suppress scanner speckle or JPEG mosquito/block artifacts without erasing fine strokes or halftones. |
+| `deblur` | `yes` | Apply restrained unsharp masking/deconvolution without haloing or inventing strokes. |
+| `super-resolution` | `yes` | Upscale low-DPI figures conservatively (`lanczos3`) while preserving exact composition, aspect ratio and lettering. |
+| `background-clean` | `yes` | Normalize uneven paper tint or bleed-through without clipping highlights or greyscale tonal ramps. |
+| `generative-redraw` | `no` | Never redraw, restyle or replace original illustrations, diagrams or photographs (`generativeRedraw: false`). |
+| `content-alteration` | `no` | Never add, remove, rearrange or inpaint semantic objects, labels or watermarks. |
+| `style-transfer` | `no` | Never alter artistic medium, color palette intent or typographic character. |
+| `text-hallucination` | `no` | Never fabricate or rewrite illegible in-image characters; keep faithful pixels or transcribe in caption/body notes. |
+
+## Build and mandatory post-generation validation
+
+Build the EPUB from the verified spec and verifier record (or pass a digital/hybrid PDF with `ocrTrust: "digital-native"` directly to `epub convert`):
+
+```sh
+node <skill-directory>/scripts/quillbind.ts doctor --json
+node <skill-directory>/scripts/quillbind.ts pdf build-epub /tmp/work/spec.merged.json --verification /tmp/work/verification.json --render-manifest /tmp/work/pages-view/render-manifest.json --output /tmp/work/staged.epub --json
+# Digital/native-text PDF direct shortcut (also accepts --spec and --verification):
+node <skill-directory>/scripts/quillbind.ts epub convert /absolute/books/digital.pdf --output /tmp/work/staged.epub --json
+```
+
+**Never hand off a generated EPUB immediately after packaging.** Complete metadata supplementation and run the full post-generation standard verification gates (ideally delegated to a read-only `verifier` subagent per [parallel workflow](parallel-workflow.md)):
+
+1. **Supplement bibliography and controlled tags** when requested or incomplete via [bibliography](bibliography.md) (`metadata catalog`, `metadata edition` or [BookWalker](bookwalker.md)) and reviewed `metadata bibliography-clean` / `metadata tags-apply` ([tags](tags.md)).
+2. **Verify structure and frontmatter contract**: run `inspect <staged.epub> --json` and confirm spine order `EPUB/cover.xhtml` → `EPUB/titlepage.xhtml` → `EPUB/colophon.xhtml` → `EPUB/toc.xhtml` → chapters, `colophon.xhtml` absent from all TOC lists, `mathml` manifest properties present on formula chapters, and 0 missing assets.
+3. **Run EPUB 3.3 conformance**: run `validate <staged.epub> --json` and require internal checks plus actual **EPUBCheck** to pass with **0 errors and 0 warnings**.
+4. **Audit reading structure and footnotes**: run `epub audit <staged.epub> --json` and `epub check-notes <staged.epub> --json` to confirm popup `noteref` / `footnote` round-trip integrity.
+5. **Run browser QA**: run `qa <staged.epub> --json` when the host environment permits Chromium (`ENVIRONMENT_ERROR` on restricted sandboxes must be reported explicitly per [environment](environment.md)).
+6. **Verify Calibre sidecar safety and hash chain**: run `scripts/delivery-audit.ts audit` against the pre-run `snapshot` ([quality](quality.md)) before delivering the final `.epub`.

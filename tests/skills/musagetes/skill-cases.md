@@ -80,7 +80,10 @@
 | 一个例外字段已有可靠值，另一个仍无法确定 | 保留可靠值，只为实际缺失字段提供 omissions；不因允许缺失而丢弃可信标签 |
 | 以缺失例外省略 TITLE、DATE 等其它必填项，或缺失原因为空 | 校验阻断；允许字段从白名单表读取，例外不扩大范围 |
 | 根目录是指向外置卷的链接 | 错误包含可传入的解析后真实路径；库内链接仍保持原样 |
-| 通过 skills CLI 安装到临时项目 | helper 与白名单解析正常，无安装目录缓存或媒体写入 |
+| 通过 skills CLI 安装到临时项目 | helper 与白名单、暂存规则解析正常，无安装目录缓存或媒体写入 |
+| 全库整理包含多张整轨与内嵌 CUE 专辑 | 按 `batch_size` 逐批进入专辑隔离 staging，禁止全库前置暂存；每批完成专辑在进入下一批前清空 staging/回滚副本，不留旁路 `.staging/` 或 `tools/` |
+| CUE 边界校验失败或外部解码器中断 | 解码中间 `.pcm` / WAV 在异常路径立即清理，不泄漏到磁盘；仅非 `COMPLETED` 专辑保留恢复所需的 staging 文件 |
+| `COMPLETED` 终态快照仍含 `role: "staging"`，或存在孤立 staging / 反向回流的 `track-map.json` / 未登记 `.staging` / 残留 `.part` 或 `.pcm` | `history` 拒绝带 `staging` 的 `COMPLETED` 快照；`staging-audit` 报具体问题码与精确字节数并阻断“临时文件为 0”的交付宣称，同时放行 `REVIEW_REQUIRED` 专辑的活跃恢复副本 |
 
 ## 自动化检查
 

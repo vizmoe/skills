@@ -23,8 +23,8 @@ import unicodedata
 
 import yaml
 
-from music_rules import (RuleError, check_tags, inspect_audio, inspect_cover, read_vocabulary,
-                         read_whitelist, render_path, sanitize_component)
+from music_rules import (RuleError, check_tags, inspect_audio, inspect_cover, read_staging_policy,
+                         read_vocabulary, read_whitelist, render_path, sanitize_component)
 
 
 class GuardError(ValueError):
@@ -374,8 +374,8 @@ def _validate_event_header(event: dict, root: Path, run_id: str, album_id: str, 
         raise GuardError("INVALID_HISTORY", filename, "Invalid event identity, phase, status or file manifest.")
 
 
-def _validate_expected_files(expected_files: list, filename: str, state_dirs: list[str] | None, seen: set) -> int:
-    outputs = 0
+def _validate_expected_files(expected_files: list, filename: str, state_dirs: list[str] | None, seen: set) -> tuple[int, int]:
+    outputs, staging = 0, 0
     for entry in expected_files:
         if (not isinstance(entry, dict) or set(entry) != {"path", "sha256", "role"}
                 or entry["role"] not in ("source", "output", "preserved", "staging")
@@ -389,7 +389,9 @@ def _validate_expected_files(expected_files: list, filename: str, state_dirs: li
             reject_state_path(entry["path"], state_dirs)
         if entry["role"] == "output":
             outputs += 1
-    return outputs
+        elif entry["role"] == "staging":
+            staging += 1
+    return outputs, staging
 
 
 def validate_event(event: dict, root: Path, run_id: str, album_id: str, filename: str,
@@ -397,15 +399,15 @@ def validate_event(event: dict, root: Path, run_id: str, album_id: str, filename
     vocabulary = vocabulary or read_vocabulary()
     _validate_event_header(event, root, run_id, album_id, filename, vocabulary)
     seen: set = set()
-    outputs = _validate_expected_files(event["expected_files"], filename, state_dirs, seen)
+    outputs, staging = _validate_expected_files(event["expected_files"], filename, state_dirs, seen)
     for removed in event["removed_paths"]:
         key = tuple(collision_key(p) for p in parts(removed))
         if key in seen:
             raise GuardError("INVALID_HISTORY", removed, "Removed path duplicates an expected or removed path.")
         seen.add(key)
-    if event["status"] == "COMPLETED" and (event["phase"] != vocabulary.phases[-1] or not outputs):
+    if event["status"] == "COMPLETED" and (event["phase"] != vocabulary.phases[-1] or not outputs or staging):
         raise GuardError("INVALID_HISTORY", filename,
-                         f"COMPLETED requires {vocabulary.phases[-1]} and verified output manifest entries.")
+                         f"COMPLETED requires {vocabulary.phases[-1]}, verified output manifest entries, and no remaining staging files.")
 
 
 def _check_expected_file(root: Path, item: dict) -> dict | None:
@@ -534,6 +536,233 @@ def history(root: Path, state_dirs: list[str] | None = None) -> dict:
             "scope": "recorded_files_only", "albums": results, "issues": issues}
 
 
+def _collect_album_staging_refs(root: Path, album_id: str, view: dict,
+                                active: set[tuple[str, ...]], issues: list[dict]) -> None:
+    records = sorted(view["records"], key=lambda r: r["event"]["sequence"])
+    sequences = [r["event"]["sequence"] for r in records]
+    if len(sequences) != len(set(sequences)):
+        view["issues"].append({"code": "DUPLICATE_SEQUENCE", "path": album_id})
+    issues.extend(view["issues"])
+    if view["issues"] or not records:
+        return
+    latest = records[-1]
+    event = latest["event"]
+    if event["status"] == "COMPLETED":
+        return
+    for item in event["expected_files"]:
+        if item["role"] != "staging":
+            continue
+        active.add(tuple(collision_key(p) for p in parts(item["path"])))
+        issue = _check_expected_file(root, item)
+        if issue is not None:
+            issues.append({**issue, "record_path": latest["record_path"],
+                           "sequence": event["sequence"], "run_id": event["run_id"]})
+
+
+def _load_latest_staging_state(root: Path, state_dirs: list[str] | None) -> tuple[set[tuple[str, ...]], list[dict]]:
+    vocabulary = read_vocabulary()
+    states, state_issues = actual_state_roots(root, state_dirs)
+    albums: dict = {}
+    history_issues: list[dict] = []
+    for state in states:
+        try:
+            entries = directory_entries(root, state)
+            if any(p.name == "runs" for p in entries):
+                _collect_state_history(root, state, state_dirs, vocabulary, albums, history_issues)
+        except (OSError, ValueError) as error:
+            history_issues.append(_format_issue(error, "INVALID_HISTORY", state))
+    active: set[tuple[str, ...]] = set()
+    issues: list[dict] = [*state_issues, *history_issues]
+    for album_id, view in sorted(albums.items()):
+        _collect_album_staging_refs(root, album_id, view, active, issues)
+    return active, issues
+
+
+def _is_temp_residue(name: str, in_state_or_staging: bool, policy) -> bool:
+    normalized = collision_key(name)
+    if any(normalized.endswith(suffix) for suffix in policy.root_temp_suffixes):
+        return True
+    if any(marker in normalized for marker in policy.root_temp_infixes):
+        return True
+    return in_state_or_staging and any(normalized.endswith(suffix) for suffix in policy.staging_temp_suffixes)
+
+
+def _has_runs_dir(directory: Path) -> bool:
+    with os.scandir(directory) as scan:
+        for entry in scan:
+            if collision_key(entry.name) == "runs" and stat.S_ISDIR((directory / entry.name).lstat().st_mode):
+                return True
+    return False
+
+
+def _inspect_bypass_entry(root: Path, path: Path, pending: list[Path], issues: list[dict]) -> tuple[int, int]:
+    rel = path.relative_to(root).as_posix()
+    try:
+        info = path.lstat()
+    except OSError as error:
+        issues.append(_format_issue(error, "READ_ERROR", rel))
+        return 0, 0
+    if stat.S_ISLNK(info.st_mode):
+        issues.append({"code": "SYMLINK", "path": rel, "detail": "Bypass staging entry is a symlink; not followed."})
+        return 0, 0
+    if stat.S_ISDIR(info.st_mode):
+        pending.append(path)
+        return 0, 0
+    if stat.S_ISREG(info.st_mode):
+        return 1, info.st_size
+    issues.append({"code": "NOT_REGULAR", "path": rel, "detail": "Special file inside bypass staging directory."})
+    return 0, 0
+
+
+def _summarize_bypass_dir(root: Path, bypass: Path, issues: list[dict]) -> dict:
+    file_count, total_bytes = 0, 0
+    pending = [bypass]
+    while pending:
+        current = pending.pop()
+        if not stat.S_ISDIR(current.lstat().st_mode):
+            continue
+        with os.scandir(current) as scan:
+            entries = sorted(scan, key=lambda e: e.name)
+        for entry in entries:
+            count, size = _inspect_bypass_entry(root, current / entry.name, pending, issues)
+            file_count += count
+            total_bytes += size
+    return {"path": bypass.relative_to(root).as_posix(), "file_count": file_count, "bytes": total_bytes}
+
+
+def _record_regular_staging_file(rel: str, size: int, in_state: bool, in_staging: bool, policy,
+                                 active: set[tuple[str, ...]], state: dict) -> None:
+    if _is_temp_residue(Path(rel).name, in_state or in_staging, policy):
+        state["temp_files"].append({"path": rel, "size": size})
+        state["issues"].append({"code": "TEMP_FILE_RESIDUE", "path": rel, "size": size,
+                                "detail": "Temporary or decode scratch file remains in workspace."})
+        return
+    if not in_staging:
+        return
+    key = tuple(collision_key(p) for p in parts(rel))
+    if key in active:
+        state["active_recovery_files"].append({"path": rel, "size": size})
+    else:
+        state["orphaned_staging_files"].append({"path": rel, "size": size})
+        state["issues"].append({"code": "ORPHANED_STAGING_FILE", "path": rel, "size": size,
+                                "detail": "Staging or quarantine file is not referenced by any active non-COMPLETED snapshot."})
+
+
+def _handle_staging_subdir(root: Path, directory: Path, path: Path, rel: str, in_state: bool, in_staging: bool,
+                           state_dirs: list[str] | None, policy, state: dict) -> tuple[Path, bool, bool] | None:
+    name_key = collision_key(path.name)
+    protected = is_protected(rel, state_dirs)
+    if directory == root and not protected and name_key in policy.bypass_dirs:
+        summary = _summarize_bypass_dir(root, path, state["issues"])
+        state["unregistered_staging_dirs"].append(summary)
+        state["issues"].append({"code": "UNREGISTERED_STAGING_DIR", **summary,
+                                "detail": "Unregistered bypass staging directory found at root; register via --state-dir or evict it."})
+        return None
+    if protected and not in_state:
+        whole_staging = collision_key(rel) != ".musagetes" and not _has_runs_dir(path)
+        return (path, True, whole_staging)
+    next_staging = in_staging or (in_state and name_key in policy.state_staging_dirs)
+    return (path, in_state or protected, next_staging)
+
+
+def _inspect_staging_entry(root: Path, directory: Path, path: Path, in_state: bool, in_staging: bool,
+                           state_dirs: list[str] | None, policy, active: set[tuple[str, ...]],
+                           state: dict) -> tuple[Path, bool, bool] | None:
+    rel = path.relative_to(root).as_posix()
+    try:
+        info = path.lstat()
+    except OSError as error:
+        state["issues"].append(_format_issue(error, "READ_ERROR", rel))
+        return None
+    if stat.S_ISLNK(info.st_mode):
+        is_bypass = directory == root and collision_key(path.name) in policy.bypass_dirs
+        if in_staging or is_bypass:
+            state["issues"].append({"code": "SYMLINK", "path": rel, "detail": "Staging entry is a symlink; not followed."})
+        return None
+    if stat.S_ISDIR(info.st_mode):
+        return _handle_staging_subdir(root, directory, path, rel, in_state, in_staging, state_dirs, policy, state)
+    if stat.S_ISREG(info.st_mode):
+        _record_regular_staging_file(rel, info.st_size, in_state, in_staging, policy, active, state)
+        return None
+    if in_staging:
+        state["issues"].append({"code": "NOT_REGULAR", "path": rel, "detail": "Special file inside staging directory."})
+    return None
+
+
+def _scan_staging_directory(root: Path, directory: Path, in_state: bool, in_staging: bool,
+                            state_dirs: list[str] | None, policy, active: set[tuple[str, ...]],
+                            state: dict) -> list[tuple[Path, bool, bool]]:
+    if not stat.S_ISDIR(directory.lstat().st_mode):
+        raise GuardError("DIRECTORY_CHANGED", str(directory), "Directory changed during staging audit.")
+    with os.scandir(directory) as scan:
+        entries = sorted(scan, key=lambda e: e.name)
+    if in_staging and not entries:
+        rel_dir = directory.relative_to(root).as_posix()
+        state["empty_staging_dirs"].append(rel_dir)
+        state["issues"].append({"code": "EMPTY_STAGING_DIR", "path": rel_dir,
+                                "detail": "Empty staging or quarantine directory remains after cleanup."})
+        return []
+    subdirs: list[tuple[Path, bool, bool]] = []
+    for entry in entries:
+        queued = _inspect_staging_entry(root, directory, directory / entry.name, in_state, in_staging,
+                                        state_dirs, policy, active, state)
+        if queued is not None:
+            subdirs.append(queued)
+    return subdirs
+
+
+def staging_audit(root: Path, state_dirs: list[str] | None = None) -> dict:
+    """Audit staging/quarantine drainage, temp/PCM residue, and unregistered bypass staging dirs."""
+    protected_roots(state_dirs)
+    policy = read_staging_policy()
+    active, initial_issues = _load_latest_staging_state(root, state_dirs)
+    state: dict = {
+        "active_recovery_files": [],
+        "orphaned_staging_files": [],
+        "temp_files": [],
+        "empty_staging_dirs": [],
+        "unregistered_staging_dirs": [],
+        "issues": initial_issues,
+    }
+    pending: list[tuple[Path, bool, bool]] = [(root, False, False)]
+    while pending:
+        directory, in_state, in_staging = pending.pop()
+        try:
+            pending.extend(_scan_staging_directory(root, directory, in_state, in_staging, state_dirs, policy, active, state))
+        except (OSError, GuardError) as error:
+            state["issues"].append(_format_issue(error, "READ_ERROR", str(directory)))
+
+    for key in ("active_recovery_files", "orphaned_staging_files", "temp_files", "unregistered_staging_dirs"):
+        state[key].sort(key=lambda item: item["path"])
+    state["empty_staging_dirs"].sort()
+    active_bytes = sum(item["size"] for item in state["active_recovery_files"])
+    orphaned_bytes = sum(item["size"] for item in state["orphaned_staging_files"])
+    temp_bytes = sum(item["size"] for item in state["temp_files"])
+    unregistered_bytes = sum(item["bytes"] for item in state["unregistered_staging_dirs"])
+    return {
+        "schema_version": 1,
+        "root": str(root),
+        "ok": not state["issues"],
+        "scope": "staging_and_temp_residue_only",
+        "protected_state_dirs": [".musagetes", *(state_dirs or [])],
+        **{k: state[k] for k in ("active_recovery_files", "orphaned_staging_files", "temp_files",
+                                 "empty_staging_dirs", "unregistered_staging_dirs")},
+        "summary": {
+            "active_recovery_count": len(state["active_recovery_files"]),
+            "active_recovery_bytes": active_bytes,
+            "orphaned_staging_count": len(state["orphaned_staging_files"]),
+            "orphaned_staging_bytes": orphaned_bytes,
+            "temp_file_count": len(state["temp_files"]),
+            "temp_file_bytes": temp_bytes,
+            "empty_staging_dir_count": len(state["empty_staging_dirs"]),
+            "unregistered_staging_dir_count": len(state["unregistered_staging_dirs"]),
+            "unregistered_staging_bytes": unregistered_bytes,
+            "total_residual_bytes": orphaned_bytes + temp_bytes + unregistered_bytes,
+        },
+        "issues": state["issues"],
+    }
+
+
 def render_paths(root: Path, request: dict, state_dirs: list[str] | None = None) -> dict:
     if not isinstance(request, dict) or set(request) != {"tracks"} or not isinstance(request["tracks"], list) or not request["tracks"]:
         raise GuardError("INVALID_RENDER_INPUT", "", "Expected a nonempty tracks list.")
@@ -565,6 +794,8 @@ def _build_parser() -> argparse.ArgumentParser:
     check.add_argument("--plan", required=True, type=Path, help="UTF-8 JSON plan path (read only).")
     resume = commands.add_parser("history", help="Enumerate prior runs and verify latest album snapshots against current files.")
     resume.add_argument("--root", required=True)
+    staging = commands.add_parser("staging-audit", help="Audit orphaned staging/quarantine files, temp/PCM residue, empty staging dirs, and bypass .staging dirs.")
+    staging.add_argument("--root", required=True)
     render = commands.add_parser("render-paths", help="Render canonical final tags into a JSON plan; follow with check-paths.")
     render.add_argument("--root", required=True)
     render.add_argument("--input", required=True, type=Path)
@@ -576,7 +807,7 @@ def _build_parser() -> argparse.ArgumentParser:
     audio = commands.add_parser("audio-info", help="Inspect audio container, codec, native tags, embedded CUE, and embedded pictures.")
     audio.add_argument("--root", required=True)
     audio.add_argument("--audio", required=True, help="Root-relative audio file; state candidates may be inspected.")
-    for command in (scan, check, resume, render):
+    for command in (scan, check, resume, staging, render):
         command.add_argument("--state-dir", action="append", default=[], help="Additional protected root-relative state directory; repeat for previous locations.")
     return parser
 
@@ -598,6 +829,7 @@ def _dispatch_command(args: argparse.Namespace) -> dict:
         "inventory": lambda: inventory(root, args.hash, args.state_dir, args.include_state),
         "check-paths": lambda: check_paths(root, _read_json_file(args.plan), args.state_dir),
         "history": lambda: history(root, args.state_dir),
+        "staging-audit": lambda: staging_audit(root, args.state_dir),
         "render-paths": lambda: render_paths(root, _read_json_file(args.input), args.state_dir),
         "cover-info": lambda: inspect_cover(source_path(root, args.image)),
         "audio-info": lambda: inspect_audio(source_path(root, args.audio)),

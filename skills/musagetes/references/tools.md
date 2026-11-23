@@ -111,8 +111,24 @@ python3 -B "$skill_dir/scripts/library_guard.py" history --root "$music_root"
 | `removed_paths` | 该事务截至当时已移除且应保持不存在的相对路径数组，含已删空目录 |
 | `details` | 可选，记录计划摘要、证据、日志引用、清理原因等；工具把它当数据 |
 
-role 为 `source`、`output`、`preserved` 或 `staging`，表示原源、成品、保留资料或中间副本。source/output 位于受保护状态树之外；仍需恢复的状态副本也列入快照。删除某文件后从 expected_files 移出并加入 removed_paths。若原路径被已验证成品再次使用，则列该成品指纹，不列为已移除路径。终结的完成记录须有 FINALIZED 阶段和至少一个 output，所有适用领域证据在 details 或其引用内可追溯。
+role 为 `source`、`output`、`preserved` 或 `staging`，表示原源、成品、保留资料或中间副本。source/output 位于受保护状态树之外；仍需恢复的状态副本也列入快照。删除某文件后从 expected_files 移出并加入 removed_paths。若原路径被已验证成品再次使用，则列该成品指纹，不列为已移除路径。终结的完成记录须有 FINALIZED 阶段、至少一个 output，且不得再保留 `role: "staging"` 项；所有适用领域证据在 details 或其引用内可追溯。
 
 工具验证目录归属、最新序号、当前已记录文件的 SHA-256 及移除路径是否重现；最新快照版本不同则要求重审。坏记录或重复序号阻断对应专辑复用，无法归属的历史异常阻断本根目录自动复用。输出 `reuse_candidate` 只表示进入领域复核的候选，`scope: recorded_files_only` 不覆盖遗漏或新增文件；与当前 inventory 对账后才可跳过执行。
 
 最新快照的每个 expected_files 都会检查，包含路径未变的已发布成品；文件异常给出 `expected_sha256`、`actual_sha256`（缺失或不可安全读取为 null）、`role`，并附对应的 `record_path`、`sequence`、`run_id`。按[历史修订流程](execution.md#成品改写与历史修订)核验操作并追加记录；helper 不替调用者解释哈希变化，也不校验 details 中领域证据的真实性。
+
+## 暂存与残留审计
+
+```sh
+python3 -B "$skill_dir/scripts/library_guard.py" staging-audit --root "$music_root"
+python3 -B "$skill_dir/scripts/library_guard.py" staging-audit --root "$music_root" --state-dir .staging
+```
+
+`staging-audit` 只读扫描根目录和受保护状态树（不跟随符号链接），直接读取 [execution.md](execution.md#staging-生命周期与退场) 的残留规则表并结合各专辑最新快照对账：
+
+- 仅允许非 `COMPLETED` 专辑最新快照中登记的 `role: "staging"` 文件作为 `active_recovery_files` 留存，不计为残留错误。
+- 受保护状态树内 `staging` / `quarantine` 子树（以及无 `runs/` 账本的自定义 `--state-dir`）中未被活跃恢复快照引用的文件，记为 `orphaned_staging_files`（`ORPHANED_STAGING_FILE`）；其下空目录记为 `empty_staging_dirs`（`EMPTY_STAGING_DIR`）。
+- 根目录顶层未登记在 `--state-dir` 中的旁路暂存目录（如 `.staging`）记为 `unregistered_staging_dirs`（`UNREGISTERED_STAGING_DIR`），并汇总文件数与字节数。
+- 匹配规则表内 `root` 范围的临时文件（`.part`、`.part.`、`.tmp`、`.restore`、`.metadata.flac`）以及 `staging` 范围内的解码残留（`.pcm`）记为 `temp_files`（`TEMP_FILE_RESIDUE`），不重复计入孤立 staging 文件。
+
+输出 `scope: staging_and_temp_residue_only`、分类明细、`summary`（含 `total_residual_bytes` 等字节与计数汇总）及 `issues`。退出码 `0` 表示无未退场 staging/临时残留，`1` 表示发现堵塞或残留，`2` 表示输入或规则错误。helper 不删除任何文件，也不代替外部原始源盘完整性检查或音频解码校验。

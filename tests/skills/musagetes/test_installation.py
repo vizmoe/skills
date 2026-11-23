@@ -64,6 +64,13 @@ class MusagetesInstallationTests(SkillInstallationTestCase):
             )
             self.assertEqual(recorded.returncode, 0, recorded.stderr)
             self.assertEqual(json.loads(recorded.stdout)["scope"], "recorded_files_only")
+            staging = subprocess.run(
+                [sys.executable, "-B", str(installed / "scripts/library_guard.py"),
+                 "staging-audit", "--root", str(library)],
+                cwd=library, text=True, capture_output=True, timeout=30,
+            )
+            self.assertEqual(staging.returncode, 0, staging.stderr)
+            self.assertEqual(json.loads(staging.stdout)["scope"], "staging_and_temp_residue_only")
             self.assertEqual(sorted(library.iterdir()), [cover, track])
             # Installed scheduling reads its own policy reference, without HTTP or writes.
             throttle = [sys.executable, "-B", str(installed / "scripts/source-throttle.py"), "--input", "-"]

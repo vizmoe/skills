@@ -4,7 +4,7 @@ description: 整理本地音乐库；organize music folders, fix music tags, spl
 license: MIT
 compatibility: 辅助脚本需要 Python 3.10+ 及 Pillow、mutagen、PyYAML（见 requirements.txt）；音频工具按具体步骤选用，见 references/audio.md；在线发行检索需要网络访问。
 metadata:
-  version: "0.5.0"
+  version: "0.6.0"
 ---
 
 # Musagetes
@@ -41,14 +41,14 @@ metadata:
 | 范围、扫描、恢复队列 | 每次开始读[执行协议](references/execution.md)；扫描、压缩包或介质问题读[音频](references/audio.md) | 授权根目录、模式、工具、全部音频及侧车/内嵌 CUE 分组和历史对账完成；批量队列已记录 |
 | 标签与署名快照 | 读取或计划标签前读[元数据](references/metadata.md)、[白名单](references/metadata-whitelist.md)、[艺人](references/artists.md) | 原生字段、多值、顺序及封面已保存，可信值和缺失项可区分 |
 | 分轨、格式与介质 | 音频准备前读[音频](references/audio.md)适用章节 | DVD / BD 已排除登记；适用输出可完整解码，源可恢复 |
-| 发行与补缺 | 外部检索或匹配前读[来源](references/sources.md)和[请求调度](references/requests.md)；选封面时读[封面](references/cover.md) | 双源查询与限流状态有记录，HIGH 证据与逐轨映射明确，拟采用元数据及封面可追溯 |
+| 发行与补缺 | 外部检索或匹配前读[来源](references/sources.md)和[请求调度](references/requests.md)；选封面或无网络封面时读[封面](references/cover.md) | 双源查询与限流状态有记录，HIGH 证据与逐轨映射明确，拟采用元数据及封面（含必要时的本地扫图裁切提取）可追溯 |
 | 写入副本、路径、发布 | 写入沿用已读标签规则；生成路径读[路径](references/paths.md)，发布前读[阻断检查](references/delivery.md#发布前阻断检查) | 读回与计划一致，整张路径预检通过，逐项发布有记录 |
-| 完整复核、清理、报告 | 发布后读[清理前完整复核](references/delivery.md#清理前完整复核)及后续清理章节 | 所有适用校验通过，专辑 staging 退场与逐项处置对账，最终快照可恢复 |
+| 完整复核、清理、报告 | 发布后读[清理前完整复核](references/delivery.md#清理前完整复核)及后续清理章节 | 所有适用校验通过，专辑 staging 退场、按网络封面元数据结果处置非音乐 sidecar 并对账，最终快照可恢复 |
 
 录音无发行关联、特典变体未识别或封面缺失时，先按[分维度规则](references/sources.md#分维度采用与安全部分整理)保留证据并完成安全字段，再按[部分匹配](references/sources.md#完整匹配与部分匹配)继续可靠部分。字段缺失按[必填要求与缺失例外](references/metadata-whitelist.md#可靠信息缺失例外)判定。特殊姓名、固定组合、连接符、角色/CV、客席、声库和合辑署名按艺人对应分支核验。
 
 ## 确定性辅助工具
 
-需要扫描、历史核对、暂存与残留审计、字段校验、音频头与内嵌元数据预检、封面解码与尺寸校验或路径生成时，读取[工具输入与局限](references/tools.md)，使用 [library_guard.py](scripts/library_guard.py)（Python 依赖见 [requirements.txt](requirements.txt)）。资源从本 SKILL.md 的实际目录解析，与音乐根目录分开；这些 helper 只读，不执行媒体整理或清理。
+需要扫描、历史核对、暂存与残留审计、非音乐 sidecar 清理预检、字段校验、音频头与内嵌元数据预检、封面解码与裁切尺寸校验或路径生成时，读取[工具输入与局限](references/tools.md)，使用 [library_guard.py](scripts/library_guard.py)（Python 依赖见 [requirements.txt](requirements.txt)）。资源从本 SKILL.md 的实际目录解析，与音乐根目录分开；这些 helper 只读，不执行媒体整理或清理。
 
 上游请求使用[请求调度 helper](references/requests.md#helper-调用与记录)计算发送前门槛和响应后的来源冷却；实际发送、等待及状态串行保存由调用代理负责。

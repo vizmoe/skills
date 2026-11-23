@@ -44,11 +44,13 @@ class MusagetesInstallationTests(SkillInstallationTestCase):
             self.assertFalse(list(installed.rglob("__pycache__")))
             cover_res = subprocess.run(
                 [sys.executable, "-B", str(installed / "scripts/library_guard.py"),
-                 "cover-info", "--root", str(library), "--image", "cover.webp"],
+                 "cover-info", "--root", str(library), "--image", "cover.webp", "--crop", "0,0,100,100"],
                 cwd=library, text=True, capture_output=True, timeout=30,
             )
             self.assertEqual(cover_res.returncode, 0, cover_res.stderr)
-            self.assertTrue(json.loads(cover_res.stdout)["full_decode_verified"])
+            cover_payload = json.loads(cover_res.stdout)
+            self.assertTrue(cover_payload["full_decode_verified"])
+            self.assertEqual(cover_payload["crop_box"], [0, 0, 100, 100])
             audio_res = subprocess.run(
                 [sys.executable, "-B", str(installed / "scripts/library_guard.py"),
                  "audio-info", "--root", str(library), "--audio", "track.wav"],
@@ -94,6 +96,19 @@ class MusagetesInstallationTests(SkillInstallationTestCase):
             self.assertEqual(coverage.returncode, 1, coverage.stderr)
             self.assertEqual(json.loads(coverage.stdout)["pending"], ["variant"])
             files_by_path = {f["path"]: f for f in json.loads(result.stdout)["files"]}
+            sidecar_check = subprocess.run(
+                [sys.executable, "-B", str(installed / "scripts/library_guard.py"),
+                 "check-sidecars", "--root", str(library), "--input", "-"],
+                input=json.dumps({
+                    "schema_version": 1, "album_id": "alb-1",
+                    "online_metadata_verified": True, "online_cover_verified": False,
+                    "cover_source": "local_scan_crop",
+                    "entries": [{"path": "cover.webp", "sha256": files_by_path["cover.webp"]["sha256"], "action": "clean"}],
+                }),
+                cwd=library, text=True, capture_output=True, timeout=30,
+            )
+            self.assertEqual(sidecar_check.returncode, 1, sidecar_check.stderr)
+            self.assertIn("SIDECAR_CLEANUP_BLOCKED", [i["code"] for i in json.loads(sidecar_check.stdout)["issues"]])
             original = {"path": "track.wav", "sha256": files_by_path["track.wav"]["sha256"]}
             cleanup = subprocess.run([sys.executable, "-B", str(installed / "scripts/cleanup-audit.py"),
                 "--root", str(library), "--input", "-"], input=json.dumps({"schema_version": 1,

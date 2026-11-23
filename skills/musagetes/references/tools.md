@@ -92,7 +92,7 @@ python3 -B "$skill_dir/scripts/library_guard.py" check-sidecars --root "$music_r
 `check-sidecars` 只读读取 [delivery.md](delivery.md#非音乐-sidecar-条件清理规则) 的 sidecar 策略表，校验计划清理或保留的非音乐 sidecar 清单，不执行移动或删除。支持 `--input -` 从 stdin 读取与可重复 `--state-dir`。输入 JSON 仅含 `schema_version: 1`、`album_id`、`online_metadata_verified`（布尔）、`online_cover_verified`（布尔）、`cover_source`（`online`、`embedded`、`local_scan_front`、`local_scan_crop` 或 `missing`）及非空 `entries`（每项含 `path`、64 位小写 `sha256`、`action` 为 `clean` 或 `preserve`）。
 
 - 若声称 `online_cover_verified: true` 但 `cover_source` 非 `online`，直接以 `INCONSISTENT_COVER_SOURCE` 阻断。
-- 逐项核对源路径位于受保护状态目录外、非符号链接/硬链接且当前 SHA-256 未变，并查表确认扩展名属于已声明的非音乐 sidecar；音频、压缩包与 DVD/BD/视频容器一律以 `UNSUPPORTED_SIDECAR_EXTENSION` 拒绝。
+- 逐项核对源路径位于受保护状态目录外、非符号链接/硬链接且当前 SHA-256 未变，并查表确认扩展名属于已声明的非音乐 sidecar 或已排除 DVD / BD / 视频容器（`video_disc_media`）；音频与未检成员压缩包一律以 `UNSUPPORTED_SIDECAR_EXTENSION` 拒绝。
 - 仅当 `online_metadata_verified` 与 `online_cover_verified` 均为 `true` 时允许 `action: "clean"`；任一为 `false`（含本地扫图兜底提取封面）时对 `clean` 报 `SIDECAR_CLEANUP_BLOCKED`，要求改为 `preserve`。显式 `preserve` 始终放行。
 
 输出 `scope: sidecar_cleanup_policy_only`、逐项分类与策略默认值及 `issues`。退出码 `0` 表示通过、`1` 表示策略或文件校验阻断、`2` 表示输入或策略表错误；通过不代替音频替代证明或清理授权。

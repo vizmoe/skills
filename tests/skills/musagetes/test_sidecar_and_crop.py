@@ -41,16 +41,18 @@ class SidecarPolicyTableTests(unittest.TestCase):
 
     def test_documented_sidecar_policy_parses_cleanly(self):
         policy = rules.read_sidecar_policy()
-        self.assertEqual(set(policy.rules), {"cue", "playlist", "scan_image", "companion_text"})
+        self.assertEqual(set(policy.rules), {"cue", "playlist", "scan_image", "companion_text", "video_disc_media"})
         for ext in (".cue", ".m3u", ".m3u8", ".jpg", ".jpeg", ".png", ".tif", ".tiff", ".webp", ".bmp", ".gif",
-                    ".log", ".txt", ".nfo", ".md5", ".sfv", ".accurip"):
+                    ".log", ".txt", ".nfo", ".md5", ".sfv", ".accurip",
+                    ".iso", ".mds", ".mdf", ".vob", ".ifo", ".bup", ".bdmv", ".clpi", ".mpls", ".m2ts",
+                    ".mp4", ".mkv", ".avi", ".mov", ".m4v", ".ts", ".wmv"):
             rule = policy.lookup(ext)
             self.assertIsNotNone(rule, ext)
             assert rule is not None
             self.assertEqual(rule.when_online_verified, "clean")
             self.assertEqual(rule.when_online_incomplete, "preserve")
         self.assertIsNone(policy.lookup(".flac"))
-        self.assertIsNone(policy.lookup(".iso"))
+        self.assertIsNone(policy.lookup(".rar"))
 
     def test_sidecar_extension_added_to_table_is_executed_immediately(self):
         path = self.rewritten_delivery("| `playlist` | `.m3u, .m3u8` |", "| `playlist` | `.m3u, .m3u8, .pls` |")
@@ -167,6 +169,8 @@ class CheckSidecarsTests(unittest.TestCase):
             ("Album/Scans/02.webp", encode_image(40, 40, "WEBP")),
             ("Album/track.flac", b"synthetic audio"),
             ("Album/bonus.iso", b"synthetic dvd"),
+            ("Album/bonus.mp4", b"synthetic video"),
+            ("Album/uninspected.rar", b"synthetic archive"),
         ]:
             path = self.root / rel
             path.write_bytes(content)
@@ -182,15 +186,18 @@ class CheckSidecarsTests(unittest.TestCase):
             "entries": [{"path": p, "sha256": self.files[p], "action": action} for p in paths],
         }
 
-    def test_online_verified_allows_cleaning_cue_m3u8_scans_and_text(self):
+    def test_online_verified_allows_cleaning_cue_m3u8_scans_text_and_video_disc_media(self):
         sidecars = ["Album/disc.cue", "Album/playlist.m3u8", "Album/rip.log", "Album/notes.txt",
-                    "Album/Scans/01.jpg", "Album/Scans/02.webp"]
+                    "Album/Scans/01.jpg", "Album/Scans/02.webp", "Album/bonus.iso", "Album/bonus.mp4"]
         plan = self.make_plan(sidecars, "clean")
         res = guard.check_sidecars(self.root, plan)
         self.assertTrue(res["ok"], res)
         self.assertEqual(res["scope"], "sidecar_cleanup_policy_only")
         self.assertTrue(res["online_cover_and_metadata_verified"])
         self.assertEqual(len(res["entries"]), len(sidecars))
+        by_path = {e["path"]: e for e in res["entries"]}
+        self.assertEqual(by_path["Album/bonus.iso"]["category"], "video_disc_media")
+        self.assertEqual(by_path["Album/bonus.mp4"]["category"], "video_disc_media")
         # Explicit preserve remains allowed even when online cover & metadata are verified.
         pres = guard.check_sidecars(self.root, self.make_plan(sidecars, "preserve"))
         self.assertTrue(pres["ok"], pres)
@@ -225,8 +232,8 @@ class CheckSidecarsTests(unittest.TestCase):
         self.assertFalse(res["ok"])
         self.assertIn("INCONSISTENT_COVER_SOURCE", [i["code"] for i in res["issues"]])
 
-    def test_audio_dvd_symlinks_state_and_changed_files_are_rejected(self):
-        for non_sidecar in ["Album/track.flac", "Album/bonus.iso"]:
+    def test_audio_archive_symlinks_state_and_changed_files_are_rejected(self):
+        for non_sidecar in ["Album/track.flac", "Album/uninspected.rar"]:
             with self.subTest(path=non_sidecar):
                 res = guard.check_sidecars(self.root, self.make_plan([non_sidecar], "clean"))
                 self.assertFalse(res["ok"])

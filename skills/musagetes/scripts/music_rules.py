@@ -67,7 +67,7 @@ class SidecarPolicy:
 
 
 SIDECAR_SECTION = "非音乐 sidecar 条件清理规则"
-REQUIRED_SIDECAR_CATEGORIES = frozenset({"cue", "playlist", "scan_image", "companion_text"})
+REQUIRED_SIDECAR_CATEGORIES = frozenset({"cue", "playlist", "scan_image", "companion_text", "video_disc_media"})
 SIDECAR_ACTIONS = frozenset({"clean", "preserve"})
 EXTENSION_PATTERN = re.compile(r"\.[a-z0-9]+", re.ASCII)
 

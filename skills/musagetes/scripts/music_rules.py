@@ -40,6 +40,65 @@ class Vocabulary:
     disposition: frozenset[str]
 
 
+@dataclass(frozen=True)
+class StagingPolicy:
+    root_temp_suffixes: frozenset[str]
+    root_temp_infixes: frozenset[str]
+    staging_temp_suffixes: frozenset[str]
+    state_staging_dirs: frozenset[str]
+    bypass_dirs: frozenset[str]
+
+
+STAGING_SECTION = "Staging 生命周期与退场"
+STAGING_BUCKETS = {
+    ("suffix", "root"): "root_temp_suffixes",
+    ("infix", "root"): "root_temp_infixes",
+    ("suffix", "staging"): "staging_temp_suffixes",
+    ("staging_dir", "state"): "state_staging_dirs",
+    ("bypass_dir", "root_top"): "bypass_dirs",
+}
+
+
+def _parse_backtick_cell(cell: str, label: str) -> str:
+    match = re.fullmatch(r"`([^`]+)`", cell)
+    if not match or not match[1].strip():
+        raise RuleError("INVALID_STAGING_POLICY", f"Expected one backtick-delimited {label}: {cell}")
+    return match[1].strip()
+
+
+def _parse_staging_policy_row(line: str, buckets: dict[str, set[str]]) -> None:
+    cells = [c.strip() for c in line.strip("|").split("|")]
+    if len(cells) < 3:
+        raise RuleError("INVALID_STAGING_POLICY", "Malformed staging policy table row.")
+    if cells[0] == "残留规则类型" or re.fullmatch(r":?-+:?", cells[0]):
+        return
+    rule_type = _parse_backtick_cell(cells[0], "rule type")
+    pattern = _parse_backtick_cell(cells[1], "pattern")
+    scope = _parse_backtick_cell(cells[2], "scope")
+    bucket_name = STAGING_BUCKETS.get((rule_type, scope))
+    if not bucket_name:
+        raise RuleError("INVALID_STAGING_POLICY", f"Unsupported staging rule ({rule_type}, {scope}).")
+    normalized = unicodedata.normalize("NFC", pattern).casefold()
+    if normalized in buckets[bucket_name]:
+        raise RuleError("INVALID_STAGING_POLICY", f"Duplicate staging policy entry: {pattern}")
+    buckets[bucket_name].add(normalized)
+
+
+def read_staging_policy(execution: Path | None = None) -> StagingPolicy:
+    """Parse staging and temporary-residue rules from execution.md, never a second copy."""
+    path = execution or Path(__file__).resolve().parent.parent / "references/execution.md"
+    buckets: dict[str, set[str]] = {name: set() for name in STAGING_BUCKETS.values()}
+    section = None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("## ") or line.startswith("### "):
+            section = line.lstrip("#").strip()
+        if section == STAGING_SECTION and line.startswith("|"):
+            _parse_staging_policy_row(line, buckets)
+    if not all(buckets.values()):
+        raise RuleError("INVALID_STAGING_POLICY", "Staging policy table is missing required rule categories.")
+    return StagingPolicy(**{name: frozenset(values) for name, values in buckets.items()})
+
+
 DIMENSIONS = {"执行": "execution", "匹配": "match", "处置": "disposition"}
 # Values the helpers branch on. A reference rename must fail loudly, not silently disable a check.
 BRANCHED_ON = {"phases": ("PLANNED", "FINALIZED"),

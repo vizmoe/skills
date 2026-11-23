@@ -213,6 +213,23 @@ class HistoryTests(unittest.TestCase):
         self.assertTrue(result['albums'][0]['reuse_candidate'])
         self.assertFalse(result['albums'][1]['reuse_candidate'])
 
+    def test_completed_event_rejects_remaining_staging_files(self):
+        staged = self.root / '.musagetes/runs/r1/albums/a1/staging/track.flac'
+        staged.parent.mkdir(parents=True)
+        staged.write_bytes(b'staged intermediate')
+        expected = [
+            {'path': 'album/01.flac', 'sha256': guard.fingerprint(self.output), 'role': 'output'},
+            {'path': '.musagetes/runs/r1/albums/a1/staging/track.flac', 'sha256': guard.fingerprint(staged), 'role': 'staging'},
+        ]
+        self.event(expected_files=expected)
+        completed = guard.history(self.root)
+        self.assertFalse(completed['ok'])
+        self.assertIn('INVALID_HISTORY', [issue['code'] for issue in completed['albums'][0]['issues']])
+        self.event(phase='FINALIZED', status='REVIEW_REQUIRED', expected_files=expected)
+        review = guard.history(self.root)
+        self.assertTrue(review['ok'], review)
+        self.assertFalse(review['albums'][0]['reuse_candidate'])
+
 
 if __name__ == '__main__':
     unittest.main()

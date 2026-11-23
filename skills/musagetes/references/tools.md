@@ -76,9 +76,26 @@ python3 -B "$skill_dir/scripts/library_guard.py" render-paths --root "$music_roo
 
 ```sh
 python3 -B "$skill_dir/scripts/library_guard.py" cover-info --root "$music_root" --image "$relative_cover"
+python3 -B "$skill_dir/scripts/library_guard.py" cover-info --root "$music_root" --image "$relative_scan" --crop "LEFT,TOP,RIGHT,BOTTOM"
 ```
 
-通过 `Pillow` 完整解码栅格图片（支持 PNG、JPEG、WebP、TIFF、BMP、GIF 等常见格式，并应用 EXIF 方向矫正），用整数比例检查 `max(W, H) * 5 <= min(W, H) * 7` 边界，返回格式、色彩模式、宽高、像素数和比例。截断或损坏的像素负载会报错拒绝；输出 `scope: decoded_image` 和 `full_decode_verified: true`。完整解码只证明图像本身可读且几何合规，正式选择与嵌入仍按 [cover.md](cover.md) 核验发行身份及写入后读回。
+通过 `Pillow` 完整解码栅格图片（支持 PNG、JPEG、WebP、TIFF、BMP、GIF 等常见格式，并应用 EXIF 方向矫正），用整数比例检查 `max(W, H) * 5 <= min(W, H) * 7` 边界，返回格式、色彩模式、宽高、像素数和比例。截断或损坏的像素负载会报错拒绝；输出 `scope: decoded_image` 和 `full_decode_verified: true`。
+
+传入可选 `--crop LEFT,TOP,RIGHT,BOTTOM`（四个非负整数像素坐标，作用于 EXIF 方向矫正后的画幅）时，脚本保持严格只读，不修改原图，而是按该矩形预检裁切后的实际宽高、像素数与比例并返回 `source_width`、`source_height` 与 `crop_box`；坐标越界、倒置、面积为零或格式非法返回 `INVALID_CROP_BOX`（退出码 `2`），裁切后超比例返回 `COVER_RATIO_EXCEEDED`（退出码 `1`）。完整解码与裁切预检只证明图像本身可读且几何合规，正式选择、实体正面识别与嵌入读回仍按 [cover.md](cover.md) 执行。
+
+## 非音乐 Sidecar 清理预检
+
+```sh
+python3 -B "$skill_dir/scripts/library_guard.py" check-sidecars --root "$music_root" --input "$sidecar_plan"
+```
+
+`check-sidecars` 只读读取 [delivery.md](delivery.md#非音乐-sidecar-条件清理规则) 的 sidecar 策略表，校验计划清理或保留的非音乐 sidecar 清单，不执行移动或删除。支持 `--input -` 从 stdin 读取与可重复 `--state-dir`。输入 JSON 仅含 `schema_version: 1`、`album_id`、`online_metadata_verified`（布尔）、`online_cover_verified`（布尔）、`cover_source`（`online`、`embedded`、`local_scan_front`、`local_scan_crop` 或 `missing`）及非空 `entries`（每项含 `path`、64 位小写 `sha256`、`action` 为 `clean` 或 `preserve`）。
+
+- 若声称 `online_cover_verified: true` 但 `cover_source` 非 `online`，直接以 `INCONSISTENT_COVER_SOURCE` 阻断。
+- 逐项核对源路径位于受保护状态目录外、非符号链接/硬链接且当前 SHA-256 未变，并查表确认扩展名属于已声明的非音乐 sidecar；音频、压缩包与 DVD/BD/视频容器一律以 `UNSUPPORTED_SIDECAR_EXTENSION` 拒绝。
+- 仅当 `online_metadata_verified` 与 `online_cover_verified` 均为 `true` 时允许 `action: "clean"`；任一为 `false`（含本地扫图兜底提取封面）时对 `clean` 报 `SIDECAR_CLEANUP_BLOCKED`，要求改为 `preserve`。显式 `preserve` 始终放行。
+
+输出 `scope: sidecar_cleanup_policy_only`、逐项分类与策略默认值及 `issues`。退出码 `0` 表示通过、`1` 表示策略或文件校验阻断、`2` 表示输入或策略表错误；通过不代替音频替代证明或清理授权。
 
 ## 音频头与内嵌元数据预检
 

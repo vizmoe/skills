@@ -34,7 +34,7 @@ $musagetes Fix music tags in /absolute/path/to/music; preview the changes first.
 
 只读辅助脚本需要 Python 3.10+ 及 `Pillow`、`mutagen`、`PyYAML`（见 [requirements.txt](../../../skills/musagetes/requirements.txt)），调用时加 `-B`。音频、标签和解压工具按[当前操作所需能力](../../../skills/musagetes/references/audio.md#工具)选用；不会自动安装。发行检索需要网络，外部服务不可用会在记录中说明。
 
-[工具说明](../../../skills/musagetes/references/tools.md)覆盖扫描、音频头与原生标签/内嵌 CUE 预检、标签字段检查、封面完整解码与尺寸校验、路径生成、历史检查与暂存残留审计；[检索与匹配](../../../skills/musagetes/references/sources.md#名称与艺人检索及置信度门槛)在站内检索前支持先用通用搜索引擎定位候选并做简繁及中日汉字字形转换；[上游请求调度](../../../skills/musagetes/references/requests.md)根据响应码共享来源冷却，处理服务端等待和有限重试。脚本只做预检或计算调度；网络请求、发行判断、完整音频校验和事务执行仍由调用代理按 skill 完成。
+[工具说明](../../../skills/musagetes/references/tools.md)覆盖扫描、音频头与原生标签/内嵌 CUE 预检、标签字段检查、封面完整解码与裁切尺寸预检、非音乐 sidecar 清理预检、路径生成、历史检查与暂存残留审计；[封面规则](../../../skills/musagetes/references/cover.md#本地扫图兜底裁切提取封面)支持在无高质量网络封面时从本地实体扫图非破坏性裁切提取正面封面；[交付与清理](../../../skills/musagetes/references/delivery.md#非音乐-sidecar-条件清理规则)规定已核验高质量网络封面与元数据时在授权清理范围内清理相关 CUE、`.m3u`/`.m3u8`、扫图与文本，否则保留本地原始资料；[检索与匹配](../../../skills/musagetes/references/sources.md#名称与艺人检索及置信度门槛)在站内检索前支持先用通用搜索引擎定位候选并做简繁及中日汉字字形转换；[上游请求调度](../../../skills/musagetes/references/requests.md)根据响应码共享来源冷却，处理服务端等待和有限重试。脚本只做预检或计算调度；网络请求、发行判断、完整音频校验和事务执行仍由调用代理按 skill 完成。
 
 默认批大小、进度节奏、失败暂停及跨运行对账见[执行协议](../../../skills/musagetes/references/execution.md)。同一目录再次调用会核对历史快照与当前文件，而不是仅按目录名跳过。源文件、sidecar 和空目录的去向见[交付与清理](../../../skills/musagetes/references/delivery.md)。
 

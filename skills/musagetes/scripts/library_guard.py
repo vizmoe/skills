@@ -23,8 +23,8 @@ import unicodedata
 
 import yaml
 
-from music_rules import (RuleError, check_tags, inspect_audio, inspect_cover, read_staging_policy,
-                         read_vocabulary, read_whitelist, render_path, sanitize_component)
+from music_rules import (RuleError, check_tags, inspect_audio, inspect_cover, read_sidecar_policy,
+                         read_staging_policy, read_vocabulary, read_whitelist, render_path, sanitize_component)
 
 
 class GuardError(ValueError):
@@ -782,6 +782,104 @@ def render_paths(root: Path, request: dict, state_dirs: list[str] | None = None)
     return result
 
 
+COVER_SOURCES = frozenset({"online", "embedded", "local_scan_front", "local_scan_crop", "missing"})
+
+
+def _parse_crop_arg(raw: str | None) -> tuple[int, int, int, int] | None:
+    if raw is None:
+        return None
+    fields = [part.strip() for part in raw.split(",")]
+    if len(fields) != 4 or any(not re.fullmatch(r"-?\d+", field) for field in fields):
+        raise RuleError("INVALID_CROP_BOX", f"Expected --crop LEFT,TOP,RIGHT,BOTTOM as four integers: {raw}")
+    return (int(fields[0]), int(fields[1]), int(fields[2]), int(fields[3]))
+
+
+def _validate_sidecar_plan_shape(plan: dict) -> None:
+    required = {"schema_version", "album_id", "online_metadata_verified", "online_cover_verified", "cover_source", "entries"}
+    if not isinstance(plan, dict) or set(plan) != required:
+        raise GuardError("INVALID_SIDECAR_PLAN", "", "Sidecar plan keys do not match schema_version 1.")
+    if (type(plan["schema_version"]) is not int or plan["schema_version"] != 1
+            or not isinstance(plan["album_id"], str) or not plan["album_id"].strip()
+            or type(plan["online_metadata_verified"]) is not bool
+            or type(plan["online_cover_verified"]) is not bool
+            or plan["cover_source"] not in COVER_SOURCES
+            or not isinstance(plan["entries"], list) or not plan["entries"]):
+        raise GuardError("INVALID_SIDECAR_PLAN", "", "Invalid sidecar plan header or empty entries.")
+    for idx, entry in enumerate(plan["entries"]):
+        if (not isinstance(entry, dict) or set(entry) != {"path", "sha256", "action"}
+                or not isinstance(entry["path"], str)
+                or not isinstance(entry["sha256"], str) or not re.fullmatch(r"[0-9a-fA-F]{64}", entry["sha256"])
+                or entry["action"] not in ("clean", "preserve")):
+            raise GuardError("INVALID_SIDECAR_PLAN", str(idx), "Entry must contain path, sha256, and action (clean/preserve).")
+
+
+def _evaluate_sidecar_entry(root: Path, entry: dict, state_dirs: list[str] | None, policy, online_both_verified: bool,
+                            seen: set) -> tuple[dict, list[dict]]:
+    rel = entry["path"]
+    issues: list[dict] = []
+    try:
+        key = tuple(collision_key(p) for p in parts(rel))
+        if key in seen:
+            issues.append({"code": "DUPLICATE_SIDECAR_ENTRY", "path": rel, "detail": "Duplicate or aliased sidecar path."})
+        seen.add(key)
+        reject_state_path(rel, state_dirs)
+        resolved = source_path(root, rel)
+        actual_sha = fingerprint(resolved)
+        if actual_sha != entry["sha256"].lower():
+            raise GuardError("SOURCE_CHANGED", rel, "Sidecar SHA-256 differs from the reviewed snapshot.")
+    except (OSError, GuardError) as error:
+        issues.append(_format_issue(error, "FILESYSTEM_ERROR", rel))
+        return {"path": rel, "planned_action": entry["action"], "category": None, "policy_default": None}, issues
+
+    rule = policy.lookup(resolved.suffix.lower())
+    if rule is None:
+        issues.append({"code": "UNSUPPORTED_SIDECAR_EXTENSION", "path": rel,
+                       "detail": f"Extension '{resolved.suffix.lower()}' is not an eligible non-music sidecar."})
+        return {"path": rel, "planned_action": entry["action"], "category": None, "policy_default": None}, issues
+
+    policy_default = rule.when_online_verified if online_both_verified else rule.when_online_incomplete
+    if entry["action"] == "clean" and policy_default != "clean":
+        issues.append({"code": "SIDECAR_CLEANUP_BLOCKED", "path": rel,
+                       "detail": "High-quality online cover and metadata are not both verified; preserve this sidecar."})
+    return {
+        "path": rel,
+        "planned_action": entry["action"],
+        "category": rule.category,
+        "policy_default": policy_default,
+    }, issues
+
+
+def check_sidecars(root: Path, plan: dict, state_dirs: list[str] | None = None,
+                   delivery_path: Path | None = None) -> dict:
+    """Validate conditional non-music sidecar cleanup/preservation plans against delivery.md policy."""
+    protected_roots(state_dirs)
+    _validate_sidecar_plan_shape(plan)
+    policy = read_sidecar_policy(delivery_path)
+    issues: list[dict] = []
+    if plan["online_cover_verified"] and plan["cover_source"] != "online":
+        issues.append({
+            "code": "INCONSISTENT_COVER_SOURCE",
+            "path": "",
+            "detail": f"online_cover_verified is true but cover_source is '{plan['cover_source']}' (expected 'online').",
+        })
+    online_both = plan["online_metadata_verified"] and plan["online_cover_verified"] and plan["cover_source"] == "online"
+    evaluated, seen = [], set()
+    for entry in plan["entries"]:
+        record, entry_issues = _evaluate_sidecar_entry(root, entry, state_dirs, policy, online_both, seen)
+        evaluated.append(record)
+        issues.extend(entry_issues)
+    return {
+        "schema_version": 1,
+        "root": str(root),
+        "album_id": plan["album_id"],
+        "ok": not issues,
+        "scope": "sidecar_cleanup_policy_only",
+        "online_cover_and_metadata_verified": online_both,
+        "entries": evaluated,
+        "issues": issues,
+    }
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -796,24 +894,33 @@ def _build_parser() -> argparse.ArgumentParser:
     resume.add_argument("--root", required=True)
     staging = commands.add_parser("staging-audit", help="Audit orphaned staging/quarantine files, temp/PCM residue, empty staging dirs, and bypass .staging dirs.")
     staging.add_argument("--root", required=True)
+    sidecars = commands.add_parser("check-sidecars", help="Check a non-music sidecar cleanup/preservation plan against delivery.md policy.")
+    sidecars.add_argument("--root", required=True)
+    sidecars.add_argument("--input", required=True, help="UTF-8 JSON sidecar plan path, or - for stdin.")
     render = commands.add_parser("render-paths", help="Render canonical final tags into a JSON plan; follow with check-paths.")
     render.add_argument("--root", required=True)
     render.add_argument("--input", required=True, type=Path)
     tags = commands.add_parser("check-tags", help="Check canonical field names, required fields and nonempty ordered values.")
     tags.add_argument("--input", required=True, type=Path)
-    cover = commands.add_parser("cover-info", help="Decode an image via Pillow and check cover dimensions and ratio.")
+    cover = commands.add_parser("cover-info", help="Decode an image via Pillow and check cover dimensions, optional crop box, and ratio.")
     cover.add_argument("--root", required=True)
     cover.add_argument("--image", required=True, help="Root-relative image file; state candidates may be inspected.")
+    cover.add_argument("--crop", default=None, help="Optional EXIF-oriented crop box LEFT,TOP,RIGHT,BOTTOM (read-only preflight).")
     audio = commands.add_parser("audio-info", help="Inspect audio container, codec, native tags, embedded CUE, and embedded pictures.")
     audio.add_argument("--root", required=True)
     audio.add_argument("--audio", required=True, help="Root-relative audio file; state candidates may be inspected.")
-    for command in (scan, check, resume, staging, render):
+    for command in (scan, check, resume, staging, sidecars, render):
         command.add_argument("--state-dir", action="append", default=[], help="Additional protected root-relative state directory; repeat for previous locations.")
     return parser
 
 
 def _read_json_file(path: Path):
     return json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
+
+
+def _read_json_source(target: str):
+    raw = sys.stdin.read() if target == "-" else Path(target).read_text(encoding="utf-8")
+    return json.loads(raw, object_pairs_hook=unique_object)
 
 
 def _check_tags_request(path: Path) -> dict:
@@ -830,8 +937,9 @@ def _dispatch_command(args: argparse.Namespace) -> dict:
         "check-paths": lambda: check_paths(root, _read_json_file(args.plan), args.state_dir),
         "history": lambda: history(root, args.state_dir),
         "staging-audit": lambda: staging_audit(root, args.state_dir),
+        "check-sidecars": lambda: check_sidecars(root, _read_json_source(args.input), args.state_dir),
         "render-paths": lambda: render_paths(root, _read_json_file(args.input), args.state_dir),
-        "cover-info": lambda: inspect_cover(source_path(root, args.image)),
+        "cover-info": lambda: inspect_cover(source_path(root, args.image), crop=_parse_crop_arg(args.crop)),
         "audio-info": lambda: inspect_audio(source_path(root, args.audio)),
         "check-tags": lambda: _check_tags_request(args.input),
     }

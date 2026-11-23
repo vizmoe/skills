@@ -49,6 +49,83 @@ class StagingPolicy:
     bypass_dirs: frozenset[str]
 
 
+@dataclass(frozen=True)
+class SidecarRule:
+    category: str
+    extensions: frozenset[str]
+    when_online_verified: str
+    when_online_incomplete: str
+
+
+@dataclass(frozen=True)
+class SidecarPolicy:
+    rules: dict[str, SidecarRule]
+    extension_index: dict[str, SidecarRule]
+
+    def lookup(self, extension: str) -> SidecarRule | None:
+        return self.extension_index.get(extension.lower())
+
+
+SIDECAR_SECTION = "非音乐 sidecar 条件清理规则"
+REQUIRED_SIDECAR_CATEGORIES = frozenset({"cue", "playlist", "scan_image", "companion_text"})
+SIDECAR_ACTIONS = frozenset({"clean", "preserve"})
+EXTENSION_PATTERN = re.compile(r"\.[a-z0-9]+", re.ASCII)
+
+
+def _parse_sidecar_extensions(cell: str) -> frozenset[str]:
+    raw = _parse_backtick_cell(cell, "sidecar extensions")
+    parts = [item.strip().lower() for item in raw.split(",")]
+    if not parts or any(not EXTENSION_PATTERN.fullmatch(item) for item in parts):
+        raise RuleError("INVALID_SIDECAR_POLICY", f"Invalid sidecar extension list: {cell}")
+    if len(parts) != len(set(parts)):
+        raise RuleError("INVALID_SIDECAR_POLICY", f"Duplicate extension in sidecar row: {cell}")
+    return frozenset(parts)
+
+
+def _parse_sidecar_action(cell: str) -> str:
+    action = _parse_backtick_cell(cell, "sidecar action")
+    if action not in SIDECAR_ACTIONS:
+        raise RuleError("INVALID_SIDECAR_POLICY", f"Unsupported sidecar action: {action}")
+    return action
+
+
+def _parse_sidecar_row(line: str, rules_map: dict[str, SidecarRule], ext_index: dict[str, SidecarRule]) -> None:
+    cells = [c.strip() for c in line.strip("|").split("|")]
+    if len(cells) < 4:
+        raise RuleError("INVALID_SIDECAR_POLICY", "Malformed sidecar policy table row.")
+    if cells[0] == "Sidecar 类别" or re.fullmatch(r":?-+:?", cells[0]):
+        return
+    category = _parse_backtick_cell(cells[0], "sidecar category")
+    if category in rules_map:
+        raise RuleError("INVALID_SIDECAR_POLICY", f"Duplicate sidecar category: {category}")
+    extensions = _parse_sidecar_extensions(cells[1])
+    when_verified = _parse_sidecar_action(cells[2])
+    when_incomplete = _parse_sidecar_action(cells[3])
+    rule = SidecarRule(category, extensions, when_verified, when_incomplete)
+    for ext in extensions:
+        if ext in ext_index:
+            raise RuleError("INVALID_SIDECAR_POLICY", f"Overlapping sidecar extension: {ext}")
+        ext_index[ext] = rule
+    rules_map[category] = rule
+
+
+def read_sidecar_policy(delivery: Path | None = None) -> SidecarPolicy:
+    """Parse conditional sidecar cleanup rules from delivery.md, never a second copy."""
+    path = delivery or Path(__file__).resolve().parent.parent / "references/delivery.md"
+    rules_map: dict[str, SidecarRule] = {}
+    ext_index: dict[str, SidecarRule] = {}
+    section = None
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("## ") or line.startswith("### "):
+            section = line.lstrip("#").strip()
+        if section == SIDECAR_SECTION and line.startswith("|"):
+            _parse_sidecar_row(line, rules_map, ext_index)
+    missing = REQUIRED_SIDECAR_CATEGORIES - set(rules_map)
+    if missing:
+        raise RuleError("INVALID_SIDECAR_POLICY", f"Sidecar policy table is missing categories: {', '.join(sorted(missing))}")
+    return SidecarPolicy(rules_map, ext_index)
+
+
 STAGING_SECTION = "Staging 生命周期与退场"
 STAGING_BUCKETS = {
     ("suffix", "root"): "root_temp_suffixes",
@@ -361,8 +438,20 @@ def render_path(tags: dict, extension: str, kind: str = "album", whitelist: Whit
     return f"{directory}/{filename}"
 
 
-def decode_image(source: Path | bytes) -> dict:
-    """Decode raster pixels via Pillow and verify dimensions and cover aspect ratio."""
+def _validate_crop_box(crop: tuple[int, int, int, int], width: int, height: int) -> tuple[int, int, int, int]:
+    if not isinstance(crop, (tuple, list)) or len(crop) != 4 or any(type(v) is not int for v in crop):
+        raise RuleError("INVALID_CROP_BOX", "Crop box must contain four integers: (left, top, right, bottom).")
+    left, top, right, bottom = crop
+    if left < 0 or top < 0 or right > width or bottom > height or left >= right or top >= bottom:
+        raise RuleError(
+            "INVALID_CROP_BOX",
+            f"Crop box {(left, top, right, bottom)} is outside EXIF-oriented dimensions {width}x{height} or empty.",
+        )
+    return left, top, right, bottom
+
+
+def decode_image(source: Path | bytes, crop: tuple[int, int, int, int] | None = None) -> dict:
+    """Decode raster pixels via Pillow and verify dimensions, optional crop box, and cover aspect ratio."""
     try:
         stream = BytesIO(source) if isinstance(source, bytes) else source.open("rb")
         with stream, Image.open(stream) as raw:
@@ -370,7 +459,7 @@ def decode_image(source: Path | bytes) -> dict:
             transposed = ImageOps.exif_transpose(raw)
             try:
                 transposed.load()
-                width, height = transposed.size
+                src_width, src_height = transposed.size
                 mode = transposed.mode
             finally:
                 if transposed is not raw:
@@ -378,13 +467,20 @@ def decode_image(source: Path | bytes) -> dict:
     except (Image.DecompressionBombError, OSError, SyntaxError,
             ValueError, EOFError, struct.error, zlib.error) as error:
         raise RuleError("INVALID_IMAGE", f"Cannot decode image: {error}") from error
-    if min(width, height) <= 0:
+    if min(src_width, src_height) <= 0:
         raise RuleError("INVALID_IMAGE_DIMENSIONS", "Image dimensions must be positive.")
+    width, height = src_width, src_height
+    crop_meta: dict = {}
+    if crop is not None:
+        left, top, right, bottom = _validate_crop_box(crop, src_width, src_height)
+        width, height = right - left, bottom - top
+        crop_meta = {"source_width": src_width, "source_height": src_height, "crop_box": [left, top, right, bottom]}
     ok = max(width, height) * 5 <= min(width, height) * 7
     return {
         "ok": ok,
         "format": image_format,
         "mode": mode,
+        **crop_meta,
         "width": width,
         "height": height,
         "ratio": max(width, height) / min(width, height),
@@ -395,9 +491,9 @@ def decode_image(source: Path | bytes) -> dict:
     }
 
 
-def inspect_cover(path: Path) -> dict:
-    """Full image decode and cover geometry check; does not prove release identity."""
-    return decode_image(path)
+def inspect_cover(path: Path, crop: tuple[int, int, int, int] | None = None) -> dict:
+    """Full image decode and cover geometry (or crop rectangle) check; does not prove release identity."""
+    return decode_image(path, crop=crop)
 
 
 CONTAINER_EXTENSIONS: dict[str, frozenset[str]] = {

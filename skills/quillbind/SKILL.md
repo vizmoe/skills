@@ -4,7 +4,7 @@ description: Maintain metadata directly in EPUB files and CBZ ComicInfo.xml, usi
 license: MIT
 compatibility: Standalone TypeScript helpers need Node.js; file writers and publishing/PDF tools use tools/quillbind from vizmoe/skills via QUILLBIND_ROOT or quillbind on PATH. EPUB checks need Java, EPUBCheck and Chromium; PDF extraction/rendering uses Poppler pdftotext and pdftoppm; CBZ checks need xmllint; manga needs libjxl cjxl/djxl. Online lookup needs network; locks replay offline. Calibre databases are never accessed.
 metadata:
-  version: "0.3.0"
+  version: "0.3.1"
 ---
 
 # Quillbind

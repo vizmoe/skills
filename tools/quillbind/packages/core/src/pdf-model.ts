@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BOOK_THEMES } from "./styles.js";
 
 export const PDF_SPEC_SCHEMA_VERSION = 1 as const;
 
@@ -418,6 +419,7 @@ export type PdfSpecMetadata = z.infer<typeof pdfSpecMetadataSchema>;
 export const pdfSpecSchema = z.strictObject({
   schemaVersion: z.literal(PDF_SPEC_SCHEMA_VERSION),
   kind: z.literal("quillbind-pdf-spec"),
+  theme: z.enum(BOOK_THEMES).optional(),
   source: pdfSpecSourceSchema,
   metadata: pdfSpecMetadataSchema,
   frontmatter: pdfFrontmatterSpecSchema,

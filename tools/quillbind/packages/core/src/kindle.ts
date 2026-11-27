@@ -8,6 +8,11 @@ import { escapeXml, NS } from "./xml.js";
 import { validIsbn, validLanguage } from "./config.js";
 import { lintCss } from "./css.js";
 import { readingCss } from "./repair-reflow.js";
+import {
+  isOpeningParagraphAfter,
+  loadPresetStylesSync,
+  type BookTheme,
+} from "./styles.js";
 import { inspectBytes } from "./epub.js";
 import { checkEpubConformance, validateInternal } from "./validate.js";
 import { readingQa } from "./reading-qa.js";
@@ -547,6 +552,7 @@ interface KindleRenderOptions {
   stylesheets: string[];
   images: Map<number, { file: string }>;
   resolveHref: (href: string, filepos?: string) => string | undefined;
+  markOpeningParagraphs?: boolean;
 }
 
 interface KindleRenderState {
@@ -685,20 +691,29 @@ function renderKindleElement(
   el: ReturnType<ReturnType<typeof load>>,
   options: KindleRenderOptions,
   state: KindleRenderState,
-): string | undefined {
+  openingParagraph = false,
+): { html: string; tag: string } | undefined {
   let tag = rawTag.toLowerCase();
   if (tag.includes(":") || tag === "mbp:pagebreak") return undefined;
   if (!allowedKindleTags.has(tag)) tag = "span";
   if (/^h[1-6]$/.test(tag))
     tag = normalizeKindleHeadingTag(tag, el.text().trim(), state);
   const attrs = collectElementIdAttr(el, state);
-  if (tag === "img") return renderKindleImageTag(el, attrs, options.images);
+  if (tag === "p" && openingParagraph) attrs.push('class="opening"');
+  if (tag === "img") {
+    const html = renderKindleImageTag(el, attrs, options.images);
+    return html ? { html, tag } : undefined;
+  }
   const attrSuffix = attrs.length ? " " + attrs.join(" ") : "";
-  if (tag === "br" || tag === "hr") return `<${tag}${attrSuffix}/>`;
-  const inner = renderKindleChildren($, el, options, state);
+  if (tag === "br" || tag === "hr")
+    return { html: `<${tag}${attrSuffix}/>`, tag };
+  const inner = renderKindleChildren($, el, options, state, false);
   if (tag === "a")
-    return renderKindleAnchorTag(el, attrs, inner, options, state);
-  return `<${tag}${attrSuffix}>${inner}</${tag}>`;
+    return {
+      html: renderKindleAnchorTag(el, attrs, inner, options, state),
+      tag,
+    };
+  return { html: `<${tag}${attrSuffix}>${inner}</${tag}>`, tag };
 }
 
 function renderKindleChildren(
@@ -706,22 +721,42 @@ function renderKindleChildren(
   nodes: { contents: () => ReturnType<ReturnType<typeof load>> },
   options: KindleRenderOptions,
   state: KindleRenderState,
+  topLevel = false,
 ): string {
   const parts: string[] = [];
+  let prevBlockKind: string | undefined;
   nodes.contents().each((_, child) => {
     if (child.type === "text") {
       parts.push(escapeXml(child.data ?? ""));
       return;
     }
     if (child.type !== "tag") return;
+    const opening =
+      topLevel &&
+      Boolean(options.markOpeningParagraphs) &&
+      isOpeningParagraphAfter(prevBlockKind);
     const rendered = renderKindleElement(
       $,
       child.tagName ?? "",
       $(child),
       options,
       state,
+      opening,
     );
-    if (rendered) parts.push(rendered);
+    if (rendered) {
+      parts.push(rendered.html);
+      if (topLevel) {
+        const isEmptyAnchor =
+          rendered.tag === "span" &&
+          !$(child).text().trim() &&
+          $(child).children().length === 0;
+        if (!isEmptyAnchor) {
+          prevBlockKind = /^h[1-6]$/.test(rendered.tag)
+            ? "heading"
+            : rendered.tag;
+        }
+      }
+    }
   });
   return parts.join("");
 }
@@ -752,7 +787,13 @@ function serializeCleanXhtml(
     detectedTitle: "",
   };
   const bodyRoot = $("body").length ? $("body") : $.root();
-  let bodyContent = renderKindleChildren($, bodyRoot, options, state).trim();
+  let bodyContent = renderKindleChildren(
+    $,
+    bodyRoot,
+    options,
+    state,
+    true,
+  ).trim();
   if (!bodyContent) return null;
   const title =
     state.detectedTitle ||
@@ -764,7 +805,9 @@ function serializeCleanXhtml(
       bodyContent,
     )
   ) {
-    bodyContent = `<p>${bodyContent}</p>`;
+    bodyContent = options.markOpeningParagraphs
+      ? `<p class="opening">${bodyContent}</p>`
+      : `<p>${bodyContent}</p>`;
   }
   const styleLinks = options.stylesheets
     .map(
@@ -1197,12 +1240,21 @@ function buildKindleOpf(options: {
   ];
   const manifestParts: string[] = [
     `<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>`,
-    `<item id="reading-css" href="styles/reading.css" media-type="text/css"/>`,
     ...[...entries.keys()]
-      .filter((k) => k.startsWith("OEBPS/styles/flow-"))
+      .filter((k) => k.startsWith("OEBPS/styles/") && k.endsWith(".css"))
       .map((k, i) => {
         const rel = k.slice("OEBPS/".length);
-        return `<item id="css-${i + 1}" href="${escapeXml(rel)}" media-type="text/css"/>`;
+        const id =
+          rel === "styles/reading.css"
+            ? "reading-css"
+            : rel === "styles/base.css"
+              ? "base-css"
+              : rel === "styles/theme.css"
+                ? "theme-css"
+                : rel === "styles/frontmatter.css"
+                  ? "frontmatter-css"
+                  : `css-${i + 1}`;
+        return `<item id="${id}" href="${escapeXml(rel)}" media-type="text/css"/>`;
       }),
     ...chapterFiles.map(
       (ch) =>
@@ -1217,9 +1269,13 @@ function buildKindleOpf(options: {
   return `<?xml version="1.0" encoding="utf-8"?><package xmlns="${NS.opf}" xmlns:dc="${NS.dc}" version="3.0" unique-identifier="uid" xml:lang="${escapeXml(metadata.lang)}"><metadata>${metaParts.join("")}</metadata><manifest>${manifestParts.join("")}</manifest><spine>${spineParts.join("")}</spine></package>`;
 }
 
-export function unpackKindle(bytes: Uint8Array): {
+export function unpackKindle(
+  bytes: Uint8Array,
+  options: { theme?: BookTheme } = {},
+): {
   bytes: Buffer;
   format: KindleFormat;
+  presetTheme?: BookTheme;
   metadata: {
     title: string;
     language: string;
@@ -1268,8 +1324,7 @@ export function unpackKindle(bytes: Uint8Array): {
       `<container xmlns="${NS.container}" version="1.0"><rootfiles><rootfile full-path="OEBPS/package.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`,
     ),
   );
-  entries.set("OEBPS/styles/reading.css", Buffer.from(readingCss));
-  const stylesheets = ["../styles/reading.css"];
+  const stylesheets: string[] = [];
   const fidTargets = new Map<string, { chapterIdx: number; id?: string }>();
   const fileposTargets = new Map<number, { chapterIdx: number; id: string }>();
   const rawChapters =
@@ -1281,6 +1336,31 @@ export function unpackKindle(bytes: Uint8Array): {
           fidTargets,
         })
       : extractMobi6Chapters(rawText, encoding, fileposTargets);
+
+  const hasSourceStyles = stylesheets.length > 0;
+  let presetTheme: BookTheme | undefined;
+  const navStyles: string[] = [];
+  if (hasSourceStyles) {
+    entries.set("OEBPS/styles/reading.css", Buffer.from(readingCss));
+    stylesheets.unshift("../styles/reading.css");
+    navStyles.push("styles/reading.css");
+  } else {
+    presetTheme = options.theme ?? "literature";
+    for (const style of loadPresetStylesSync(presetTheme, "OEBPS")) {
+      entries.set(style.href, style.bytes);
+    }
+    entries.set("OEBPS/styles/reading.css", Buffer.from(readingCss));
+    stylesheets.push(
+      "../styles/base.css",
+      "../styles/theme.css",
+      "../styles/reading.css",
+    );
+    navStyles.push(
+      "styles/base.css",
+      "styles/frontmatter.css",
+      "styles/reading.css",
+    );
+  }
 
   const activeIndices = selectActiveChapterIndices(rawChapters);
   const rawToFinalIdx = new Map<number, number>(
@@ -1294,6 +1374,7 @@ export function unpackKindle(bytes: Uint8Array): {
       defaultTitle: `${title} - ${finalIdx + 1}`,
       stylesheets,
       images,
+      markOpeningParagraphs: !hasSourceStyles,
       resolveHref: createChapterHrefResolver(
         finalIdx,
         rawToFinalIdx,
@@ -1317,7 +1398,13 @@ export function unpackKindle(bytes: Uint8Array): {
         `<li><a href="text/${escapeXml(ch.file)}">${escapeXml(ch.title)}</a></li>`,
     )
     .join("");
-  const navXhtml = `<?xml version="1.0" encoding="utf-8"?><html xmlns="${NS.xhtml}" xmlns:epub="${NS.epub}" lang="${escapeXml(lang)}" xml:lang="${escapeXml(lang)}"><head><title>${escapeXml(title)}</title><link rel="stylesheet" type="text/css" href="styles/reading.css"/></head><body><nav epub:type="toc" role="doc-toc" aria-label="Contents"><h1>Contents</h1><ol>${navItems}</ol></nav><nav epub:type="landmarks" aria-label="Landmarks"><h2>Landmarks</h2><ol><li><a epub:type="bodymatter" href="text/${escapeXml(chapterFiles[0].file)}">Start of text</a></li></ol></nav></body></html>`;
+  const navStyleLinks = navStyles
+    .map(
+      (href) =>
+        `<link rel="stylesheet" type="text/css" href="${escapeXml(href)}"/>`,
+    )
+    .join("");
+  const navXhtml = `<?xml version="1.0" encoding="utf-8"?><html xmlns="${NS.xhtml}" xmlns:epub="${NS.epub}" lang="${escapeXml(lang)}" xml:lang="${escapeXml(lang)}"><head><title>${escapeXml(title)}</title>${navStyleLinks}</head><body><nav epub:type="toc" role="doc-toc" aria-label="Contents"><h1>Contents</h1><ol>${navItems}</ol></nav><nav epub:type="landmarks" aria-label="Landmarks"><h2>Landmarks</h2><ol><li><a epub:type="bodymatter" href="text/${escapeXml(chapterFiles[0].file)}">Start of text</a></li></ol></nav></body></html>`;
   entries.set("OEBPS/nav.xhtml", Buffer.from(navXhtml));
   const opf = buildKindleOpf({
     bytes,
@@ -1344,6 +1431,7 @@ export function unpackKindle(bytes: Uint8Array): {
   return {
     bytes: pack(entries, 946684800),
     format,
+    ...(presetTheme ? { presetTheme } : {}),
     metadata: {
       title,
       language: lang,
@@ -1360,7 +1448,12 @@ export function unpackKindle(bytes: Uint8Array): {
 
 export async function convertKindleToEpub(
   file: string,
-  options: { output: string; reports?: string; signal?: AbortSignal },
+  options: {
+    output: string;
+    theme?: BookTheme;
+    reports?: string;
+    signal?: AbortSignal;
+  },
 ) {
   checkAbort(options.signal);
   if (!isKindlePath(file))
@@ -1375,8 +1468,8 @@ export async function convertKindleToEpub(
     );
   const sourceBytes = await readSourceFile(file);
   const sourceSha256 = sha256(sourceBytes);
-  const unpacked = unpackKindle(sourceBytes);
-  const repeated = unpackKindle(sourceBytes);
+  const unpacked = unpackKindle(sourceBytes, { theme: options.theme });
+  const repeated = unpackKindle(sourceBytes, { theme: options.theme });
   if (!unpacked.bytes.equals(repeated.bytes))
     fail(
       "NONDETERMINISTIC_BUILD",
@@ -1429,6 +1522,7 @@ export async function convertKindleToEpub(
       operation: "kindle-to-epub",
       purpose: "format-conversion",
       format: unpacked.format,
+      ...(unpacked.presetTheme ? { theme: unpacked.presetTheme } : {}),
       source: path.resolve(file),
       sourceSha256,
       output,

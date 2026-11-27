@@ -8,6 +8,7 @@ import remarkDirective from "remark-directive";
 import remarkCjkFriendly from "remark-cjk-friendly/parseOnly";
 import remarkCjkStrikethrough from "remark-cjk-friendly-gfm-strikethrough/parseOnly";
 import { parseYaml } from "./config.js";
+import type { BookTheme } from "./styles.js";
 import { fail } from "./errors.js";
 import { exists } from "./files.js";
 import { sha256 } from "./hash.js";
@@ -639,6 +640,7 @@ export async function initPdfSpec(
   pdfFile: string,
   outputSpecFile: string,
   options: {
+    theme?: BookTheme;
     pages?: string;
     shardSize?: number;
     tokenBudget?: number;
@@ -652,6 +654,7 @@ export async function initPdfSpec(
   status: "pass";
   operation: "pdf-init-spec";
   specPath: string;
+  theme: BookTheme;
   classification: PdfSpec["source"]["classification"];
   pageCount: number;
   shards: PdfSpec["shards"];
@@ -682,6 +685,7 @@ export async function initPdfSpec(
   const spec: PdfSpec = {
     schemaVersion: PDF_SPEC_SCHEMA_VERSION,
     kind: "quillbind-pdf-spec",
+    ...(options.theme ? { theme: options.theme } : {}),
     source: {
       path: inspection.path,
       sha256: inspection.sha256,
@@ -724,6 +728,7 @@ export async function initPdfSpec(
     status: "pass",
     operation: "pdf-init-spec",
     specPath: outPath,
+    theme: validated.theme ?? "literature",
     classification: validated.source.classification,
     pageCount: validated.pages.length,
     shards: validated.shards,
@@ -803,9 +808,27 @@ function renderPageDraftToMarkdown(
         bodyLines.push("::continue-prev", "");
       if (b.continueFromPrevPage === false)
         bodyLines.push("::no-continue-prev", "");
+      if (b.gapBefore) {
+        bodyLines.push(
+          typeof b.gapBefore === "number"
+            ? `::gap{lines="${b.gapBefore}"}`
+            : "::gap",
+          "",
+        );
+      }
       const text = renderInlinesToMarkdown(b.inlines, b.text);
+      const explicitAlign =
+        b.align && b.align !== "justify" ? b.align : undefined;
       if (b.voice && b.voice !== "body") {
-        bodyLines.push(`:::voice{kind="${b.voice}"}`, text, ":::", "");
+        const alignAttr = explicitAlign ? ` align="${explicitAlign}"` : "";
+        bodyLines.push(
+          `:::voice{kind="${b.voice}"${alignAttr}}`,
+          text,
+          ":::",
+          "",
+        );
+      } else if (explicitAlign) {
+        bodyLines.push(`:::align{to="${explicitAlign}"}`, text, ":::", "");
       } else {
         bodyLines.push(text, "");
       }
@@ -1220,7 +1243,23 @@ export function compilePdfPageMarkdown(
   const blocks: PdfBlock[] = [];
   const footnotes: PdfFootnoteItem[] = [];
   let pendingContinue: boolean | undefined;
+  let pendingGapBefore: boolean | number | undefined;
+  let pendingGapLine: number | undefined;
   let pendingCaption: string | undefined;
+
+  const rejectPendingGap = () => {
+    if (pendingGapBefore === undefined) return;
+    diagnostics.push({
+      code: "PDF_MD_DIRECTIVE",
+      severity: "error",
+      file: fileLabel,
+      page: pageNumber,
+      line: pendingGapLine,
+      message: "::gap must directly precede a paragraph",
+    });
+    pendingGapBefore = undefined;
+    pendingGapLine = undefined;
+  };
 
   const applyPendingContinue = (
     block:
@@ -1231,6 +1270,13 @@ export function compilePdfPageMarkdown(
       block.continueFromPrevPage = pendingContinue;
       pendingContinue = undefined;
     }
+    if (block.kind === "paragraph" && pendingGapBefore !== undefined) {
+      block.gapBefore = pendingGapBefore;
+      pendingGapBefore = undefined;
+      pendingGapLine = undefined;
+    } else if (block.kind !== "paragraph") {
+      rejectPendingGap();
+    }
   };
 
   for (const node of tree.children ?? []) {
@@ -1238,6 +1284,7 @@ export function compilePdfPageMarkdown(
       continue;
     }
     if (node.type === "heading") {
+      rejectPendingGap();
       const level = Math.min(6, Math.max(1, node.depth ?? 1)) as
         1 | 2 | 3 | 4 | 5 | 6;
       const runs = compileInlines(node.children);
@@ -1278,6 +1325,7 @@ export function compilePdfPageMarkdown(
       continue;
     }
     if (node.type === "math") {
+      rejectPendingGap();
       blocks.push({
         kind: "math-block",
         tex: node.value ?? "",
@@ -1286,10 +1334,12 @@ export function compilePdfPageMarkdown(
       continue;
     }
     if (node.type === "thematicBreak") {
+      rejectPendingGap();
       blocks.push({ kind: "hr" });
       continue;
     }
     if (node.type === "list") {
+      rejectPendingGap();
       const items = (node.children ?? []).map((li) => {
         const firstPara = li.children?.find((c) => c.type === "paragraph");
         const runs = compileInlines(firstPara?.children ?? li.children);
@@ -1391,6 +1441,55 @@ export function compilePdfPageMarkdown(
         }
       } else if (name === "caption") {
         pendingCaption = mdPlain(node).trim();
+      } else if (name === "gap") {
+        if (attrs.lines !== undefined) {
+          const parsedLines = Number(attrs.lines);
+          if (!Number.isFinite(parsedLines) || parsedLines <= 0) {
+            diagnostics.push({
+              code: "PDF_MD_DIRECTIVE",
+              severity: "error",
+              file: fileLabel,
+              page: pageNumber,
+              line: lineOf(node),
+              message:
+                '::gap requires a positive numeric lines="..." attribute',
+            });
+          } else {
+            pendingGapBefore = parsedLines;
+            pendingGapLine = lineOf(node);
+          }
+        } else {
+          pendingGapBefore = true;
+          pendingGapLine = lineOf(node);
+        }
+      } else if (name === "align") {
+        const to = attrs.to;
+        const validAligns = ["left", "center", "right"];
+        if (!to || !validAligns.includes(to)) {
+          diagnostics.push({
+            code: "PDF_MD_DIRECTIVE",
+            severity: "error",
+            file: fileLabel,
+            page: pageNumber,
+            line: lineOf(node),
+            message: `:::align requires to in ${validAligns.join("|")}`,
+          });
+        } else {
+          const innerParas = (node.children ?? []).filter(
+            (c) => c.type === "paragraph",
+          );
+          for (const pNode of innerParas) {
+            const runs = compileInlines(pNode.children);
+            const para: Extract<PdfBlock, { kind: "paragraph" }> = {
+              kind: "paragraph",
+              align: to as Extract<PdfBlock, { kind: "paragraph" }>["align"],
+              text: runsToText(runs),
+              ...(hasRichRuns(runs) ? { inlines: runs } : {}),
+            };
+            applyPendingContinue(para);
+            blocks.push(para);
+          }
+        }
       } else if (name === "subtitle" || name === "byline") {
         const prev = blocks[blocks.length - 1];
         if (prev?.kind === "heading") {
@@ -1416,6 +1515,7 @@ export function compilePdfPageMarkdown(
           "dialogue",
           "signature",
         ];
+        const validAligns = ["left", "center", "right"];
         if (!kind || !validVoices.includes(kind)) {
           diagnostics.push({
             code: "PDF_MD_DIRECTIVE",
@@ -1424,6 +1524,15 @@ export function compilePdfPageMarkdown(
             page: pageNumber,
             line: lineOf(node),
             message: `:::voice requires kind in ${validVoices.join("|")}`,
+          });
+        } else if (attrs.align && !validAligns.includes(attrs.align)) {
+          diagnostics.push({
+            code: "PDF_MD_DIRECTIVE",
+            severity: "error",
+            file: fileLabel,
+            page: pageNumber,
+            line: lineOf(node),
+            message: `:::voice align must be in ${validAligns.join("|")}`,
           });
         } else {
           const innerParas = (node.children ?? []).filter(
@@ -1434,6 +1543,14 @@ export function compilePdfPageMarkdown(
             const para: Extract<PdfBlock, { kind: "paragraph" }> = {
               kind: "paragraph",
               voice: kind as Extract<PdfBlock, { kind: "paragraph" }>["voice"],
+              ...(attrs.align
+                ? {
+                    align: attrs.align as Extract<
+                      PdfBlock,
+                      { kind: "paragraph" }
+                    >["align"],
+                  }
+                : {}),
               text: runsToText(runs),
               ...(hasRichRuns(runs) ? { inlines: runs } : {}),
             };
@@ -1442,6 +1559,7 @@ export function compilePdfPageMarkdown(
           }
         }
       } else if (name === "figure") {
+        rejectPendingGap();
         if (!attrs.src || attrs.alt === undefined) {
           diagnostics.push({
             code: "PDF_MD_DIRECTIVE",
@@ -1513,6 +1631,7 @@ export function compilePdfPageMarkdown(
       message: `Unsupported block Markdown node "${node.type}"`,
     });
   }
+  rejectPendingGap();
 
   for (const [fnId, def] of footnoteDefs.entries()) {
     const firstPara = def.node.children?.find((c) => c.type === "paragraph");

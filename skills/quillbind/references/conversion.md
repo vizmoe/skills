@@ -7,7 +7,7 @@ For digital, scanned or hybrid `.pdf` sources — including visual tiling, per-p
 Digital or hybrid PDFs whose pages all have `ocrTrust: "digital-native"` can run through `epub convert` directly (while pages with `ocrTrust: "unverified-embedded"` or `"none"` require `--spec` and an independent `--verification` file and fail with `PDF_OCR_VERIFICATION_REQUIRED` without them):
 
 ```sh
-node <skill-directory>/scripts/quillbind.ts epub convert <source.pdf> [--spec <spec.json>] [--verification <verification.json>] --output <new.epub> --json
+node <skill-directory>/scripts/quillbind.ts epub convert <source.pdf> [--theme literature|technical] [--spec <spec.json>] [--verification <verification.json>] --output <new.epub> --json
 ```
 
 ## MOBI and AZW3 to EPUB
@@ -15,10 +15,10 @@ node <skill-directory>/scripts/quillbind.ts epub convert <source.pdf> [--spec <s
 Convert an existing `.mobi` or `.azw3` file to EPUB 3.3 through the skill helper:
 
 ```sh
-node <skill-directory>/scripts/quillbind.ts epub convert <source.mobi|source.azw3> --output <new.epub> --json
+node <skill-directory>/scripts/quillbind.ts epub convert <source.mobi|source.azw3> [--theme literature|technical] --output <new.epub> --json
 ```
 
-The converter unpacks unencrypted PalmDB `BOOKMOBI` containers natively — MOBI 6, KF8 (`.azw3`), and combo MOBI+KF8 files using uncompressed, PalmDOC LZ77 or Huff/CDIC records — and reconstructs EPUB 3.3 chapters, stylesheets, images, cover metadata, navigation and internal links (`filepos` and `kindle:pos:fid`). For an anthology that also needs volume splitting, either convert it to EPUB first or pass the `.mobi`/`.azw3` directly to [local splitting](local-splitting.md).
+The converter unpacks unencrypted PalmDB `BOOKMOBI` containers natively — MOBI 6, KF8 (`.azw3`), and combo MOBI+KF8 files using uncompressed, PalmDOC LZ77 or Huff/CDIC records — and reconstructs EPUB 3.3 chapters, stylesheets, images, cover metadata, navigation and internal links (`filepos` and `kindle:pos:fid`). CSS-less Kindle sources (such as MOBI 6) automatically adopt Quillbind's shared preset theme stylesheets (`base.css`, `theme.css`, `frontmatter.css`, defaulting to `literature` or selectable via `--theme`) alongside `reading.css` and language-aware `.opening` paragraph classes, whereas KF8/AZW3 books with surviving source stylesheets preserve their sanitized flow CSS plus `reading.css`. For an anthology that also needs volume splitting, either convert it to EPUB first or pass the `.mobi`/`.azw3` directly to [local splitting](local-splitting.md).
 
 DRM-protected or encrypted Kindle files fail with `MOBI_ENCRYPTED`; never strip DRM. Output paths must be new `.epub` files, and the original `.mobi` or `.azw3` remains untouched. Without `--to`, the command validates the converted EPUB through internal EPUB 3.3 checks, actual EPUBCheck (`epubcheck.json`), sampled Chromium reading checks (`reading/`) and repeated-unpack byte equality, writing `<output>.reports/import.json` with `publicationReady: false` and `releaseGates: not-run`. Adding `--to <target>` runs the Chinese conversion and full publication release gates below.
 

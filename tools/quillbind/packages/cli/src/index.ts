@@ -35,6 +35,7 @@ import {
   convertKindleToEpub,
   isKindlePath,
   isPdfPath,
+  isBookTheme,
   inspectPdf,
   initPdfSpec,
   initPdfShards,
@@ -102,15 +103,15 @@ const HELP = [
   "quillbind epub repair <file.epub> --plan plan.json --output repaired.epub",
   "quillbind manga package <scan-directory|file.zip|file.cbz> --bookwalker LOCK.json --output volume.cbz [--page-order ORDER.json] [--reading-direction rtl|ltr]",
   "quillbind epub enrich <file.epub> --bookwalker LOCK.json --output enriched.epub",
-  "quillbind epub convert <file.epub|file.mobi|file.azw3|file.pdf> [--spec SPEC.json] [--verification VER.json] [--render-manifest MANIFEST.json] [--to simplified|traditional|china|taiwan|hongkong] --output converted.epub [--online]",
+  "quillbind epub convert <file.epub|file.mobi|file.azw3|file.pdf> [--theme literature|technical] [--spec SPEC.json] [--verification VER.json] [--render-manifest MANIFEST.json] [--to simplified|traditional|china|taiwan|hongkong] --output converted.epub [--online]",
   "quillbind pdf inspect <file.pdf> [--pages RANGE] [--shard-size N | --token-budget N] [--render-dir DIR] [--dpi N] [--tiles]",
-  "quillbind pdf init-spec <file.pdf> --output SPEC.json [--pages RANGE] [--shard-size N | --token-budget N] [--render-dir DIR] [--dpi N] [--tiles] [--assets-dir DIR]",
+  "quillbind pdf init-spec <file.pdf> --output SPEC.json [--theme literature|technical] [--pages RANGE] [--shard-size N | --token-budget N] [--render-dir DIR] [--dpi N] [--tiles] [--assets-dir DIR]",
   "quillbind pdf shard-init <base-spec.json> --output SHARDS_DIR [--format md|json] [--render-manifest MANIFEST.json]",
   "quillbind pdf validate-shard <shard-or-page-file-or-dir>",
   "quillbind pdf check-spec <spec.json> [--render-manifest MANIFEST.json] [--verification VERIFICATION.json]",
   "quillbind pdf merge-shards <base-spec.json> --shards PATHS --output MERGED.json",
   "quillbind pdf enhance-image <input> --output <enhanced> [--deskew DEG] [--denoise] [--sharpen] [--normalize] [--upscale 1|2] [--verify-against SOURCE] [--reports DIR]",
-  "quillbind pdf build-epub <spec.json> --output <book.epub> [--verification VER.json] [--render-manifest MANIFEST.json] [--release] [--to TARGET] [--online] [--reports DIR]",
+  "quillbind pdf build-epub <spec.json> --output <book.epub> [--theme literature|technical] [--verification VER.json] [--render-manifest MANIFEST.json] [--release] [--to TARGET] [--online] [--reports DIR]",
   "quillbind pdf repair-ocr <file.pdf> --spec <spec.json> --output <repaired.pdf> [--verification VER.json] [--render-manifest MANIFEST.json] [--backup BAK.pdf] [--reports DIR]",
   "quillbind epub repair-plan <file.epub> --purpose reading --output plan.json",
   "quillbind epub repair-copy <file.epub> --plan plan.json --output copy.epub [--reports directory]",
@@ -316,6 +317,25 @@ try {
       "ARGUMENT_CONFLICT",
       "Manga page options are supported by manga package only",
     );
+  if (
+    values.theme !== undefined &&
+    command !== "init" &&
+    !(command === "epub" && subcommand === "convert") &&
+    !(
+      command === "pdf" &&
+      ["init-spec", "build-epub"].includes(subcommand ?? "")
+    )
+  )
+    fail(
+      "ARGUMENT_CONFLICT",
+      "--theme is supported by init, epub convert (PDF/Kindle), pdf init-spec and pdf build-epub",
+    );
+  const parsedTheme =
+    values.theme === undefined
+      ? undefined
+      : isBookTheme(values.theme)
+        ? values.theme
+        : fail("THEME_INVALID", "Choose literature or technical");
   const required = (value: string | undefined, label: string) =>
     value ?? fail("ARGUMENT_REQUIRED", `Missing ${label}`);
   if (
@@ -748,12 +768,18 @@ try {
             reports: values.reports,
             signal: abort.signal,
           });
-        else if (subcommand === "convert")
+        else if (subcommand === "convert") {
+          if (parsedTheme && !isPdfPath(file) && !isKindlePath(file))
+            fail(
+              "ARGUMENT_CONFLICT",
+              "--theme applies only to PDF or CSS-less Kindle conversions; existing EPUBs preserve their stylesheets",
+            );
           output = isPdfPath(file)
             ? await convertPdfToEpub(
                 file,
                 required(values.output, "--output"),
                 {
+                  theme: parsedTheme,
                   spec: values.spec,
                   verification: values.verification,
                   renderManifest: values["render-manifest"],
@@ -766,16 +792,18 @@ try {
             : isKindlePath(file) && !values.to
               ? await convertKindleToEpub(file, {
                   output: required(values.output, "--output"),
+                  theme: parsedTheme,
                   reports: values.reports,
                   signal: abort.signal,
                 })
               : await convertEpub(file, {
                   target: conversionTarget(required(values.to, "--to")),
                   output: required(values.output, "--output"),
+                  theme: parsedTheme,
                   signal: abort.signal,
                   online: values.online,
                 });
-        else if (subcommand === "enrich")
+        } else if (subcommand === "enrich")
           output = await enrichEpub(file, {
             output: required(values.output, "--output"),
             bookwalker: required(values.bookwalker, "--bookwalker"),
@@ -835,6 +863,7 @@ try {
             target,
             required(values.output, "--output"),
             {
+              theme: parsedTheme,
               pages: values.pages,
               shardSize: parsePositiveInt(values["shard-size"], "--shard-size"),
               tokenBudget: parsePositiveInt(
@@ -907,6 +936,7 @@ try {
             target,
             required(values.output, "--output"),
             {
+              theme: parsedTheme,
               verification: values.verification,
               renderManifest: values["render-manifest"],
               release: values.release,

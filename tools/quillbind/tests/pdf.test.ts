@@ -2069,6 +2069,306 @@ describe("PDF-to-EPUB 3.3 builder, non-destructive image restoration and P0-3/P0
     expect(chromeBody).toContain("中文康熙部首正文");
     expect(chromeBody).not.toContain("⽂");
   }, 120_000);
+
+  it("unifies PDF EPUB output onto shared preset themes, opening paragraphs, graduated gaps, explicit alignment, and Markdown round-trip", async () => {
+    const root = await makeTempDir();
+    const coverImg = path.join(root, "cover.png");
+    await makeStructuredFigurePng(coverImg);
+    const [baseCss, litCss, techCss, frontCss] = await Promise.all([
+      fs.readFile(path.join(repoRoot, "styles/base/epub.css")),
+      fs.readFile(path.join(repoRoot, "styles/themes/literature.css")),
+      fs.readFile(path.join(repoRoot, "styles/themes/technical.css")),
+      fs.readFile(path.join(repoRoot, "styles/base/frontmatter.css")),
+    ]);
+
+    const spec: PdfSpec = {
+      schemaVersion: PDF_SPEC_SCHEMA_VERSION,
+      kind: "quillbind-pdf-spec",
+      source: {
+        path: path.join(root, "themed.pdf"),
+        sha256: "b".repeat(64),
+        pdfVersion: "1.6",
+        pageCount: 1,
+        classification: "digital",
+      },
+      metadata: {
+        title: "Typography Fidelity Study",
+        authors: ["Ada Author"],
+        language: "en",
+        description: "Shared theme presets and semantic PDF fidelity.",
+        tags: [],
+        modified: "2026-11-27T00:00:00Z",
+      },
+      frontmatter: {
+        coverImage: coverImg,
+        coverAlt: "Cover illustration",
+        titlepage: {
+          title: "Typography Fidelity Study",
+          authors: ["Ada Author"],
+        },
+        colophon: { copyright: "© 2026 Press", lines: [] },
+        includeTitlepage: true,
+        includeColophon: true,
+      },
+      outline: [],
+      shards: [{ id: "shard-01", pageStart: 1, pageEnd: 1 }],
+      pages: [
+        {
+          page: 1,
+          widthPt: 595,
+          heightPt: 842,
+          rotate: 0,
+          classification: "digital",
+          ocrTrust: "digital-native",
+          blocks: [
+            { kind: "heading", level: 1, text: "Chapter One" },
+            { kind: "paragraph", text: "Opening paragraph after heading." },
+            { kind: "paragraph", text: "Second narrative paragraph." },
+            {
+              kind: "paragraph",
+              text: "Standard vertical gap paragraph.",
+              gapBefore: true,
+            },
+            {
+              kind: "paragraph",
+              text: "Larger vertical gap paragraph.",
+              gapBefore: 2,
+            },
+            {
+              kind: "paragraph",
+              text: "Centered dedication.",
+              align: "center",
+            },
+            {
+              kind: "paragraph",
+              text: "Right-aligned date.",
+              align: "right",
+            },
+            {
+              kind: "paragraph",
+              text: "Left-aligned colophon line.",
+              align: "left",
+            },
+            {
+              kind: "paragraph",
+              text: "Justified body defers to reading system.",
+              align: "justify",
+            },
+            { kind: "hr" },
+            { kind: "paragraph", text: "Opening paragraph after scene break." },
+            { kind: "heading", level: 2, text: "Section Two" },
+            {
+              kind: "paragraph",
+              text: "Epigraph stays a voice, not opening prose.",
+              voice: "epigraph",
+              align: "right",
+            },
+          ],
+          footnotes: [],
+        },
+      ],
+    };
+
+    const litOut = await renderPdfSpecToEpub(spec, root);
+    expect(litOut.theme).toBe("literature");
+    expect(validateInternal(litOut.bytes).status).toBe("pass");
+    const litInfo = inspectBytes(litOut.bytes, true);
+    expect(litInfo.entries.get("EPUB/styles/pdf.css")).toBeUndefined();
+    expect(litInfo.entries.get("EPUB/styles/base.css")!.bytes).toEqual(baseCss);
+    expect(litInfo.entries.get("EPUB/styles/theme.css")!.bytes).toEqual(litCss);
+    expect(litInfo.entries.get("EPUB/styles/frontmatter.css")!.bytes).toEqual(
+      frontCss,
+    );
+    expect(litInfo.entries.get("EPUB/cover.xhtml")!.bytes.toString()).toContain(
+      'class="cover-document single-column"',
+    );
+    for (const docPath of [
+      "EPUB/titlepage.xhtml",
+      "EPUB/colophon.xhtml",
+      "EPUB/toc.xhtml",
+      "EPUB/nav.xhtml",
+      "EPUB/text/ch-001.xhtml",
+    ]) {
+      expect(litInfo.entries.get(docPath)!.bytes.toString()).toContain(
+        'class="single-column"',
+      );
+    }
+    const ch1 = litInfo.entries.get("EPUB/text/ch-001.xhtml")!.bytes.toString();
+    expect(ch1).toContain(
+      '<p class="opening">Opening paragraph after heading.</p>',
+    );
+    expect(ch1).toContain("<p>Second narrative paragraph.</p>");
+    expect(ch1).toContain(
+      '<p class="gap-before">Standard vertical gap paragraph.</p>',
+    );
+    expect(ch1).toContain(
+      '<p class="gap-before-lg">Larger vertical gap paragraph.</p>',
+    );
+    expect(ch1).toContain('<p class="align-center">Centered dedication.</p>');
+    expect(ch1).toContain('<p class="align-right">Right-aligned date.</p>');
+    expect(ch1).toContain(
+      '<p class="align-left">Left-aligned colophon line.</p>',
+    );
+    expect(ch1).toContain("<p>Justified body defers to reading system.</p>");
+    expect(ch1).not.toContain("align-justify");
+    expect(ch1).toContain(
+      '<p class="opening">Opening paragraph after scene break.</p>',
+    );
+    expect(ch1).toContain(
+      '<p class="voice-epigraph align-right">Epigraph stays a voice, not opening prose.</p>',
+    );
+
+    const techOut = await renderPdfSpecToEpub(spec, root, {
+      theme: "technical",
+    });
+    expect(techOut.theme).toBe("technical");
+    expect(validateInternal(techOut.bytes).status).toBe("pass");
+    const techInfo = inspectBytes(techOut.bytes, true);
+    expect(techInfo.entries.get("EPUB/styles/theme.css")!.bytes).toEqual(
+      techCss,
+    );
+
+    // Per-page Markdown round-trip for ::gap, :::align, and :::voice{align}
+    const specFile = path.join(root, "themed.spec.json");
+    await json(specFile, spec);
+    const mdShards = path.join(root, "themed-md");
+    const shardRes = await initPdfShards(specFile, mdShards, { format: "md" });
+    const p1Md = await fs.readFile(shardRes.shards[0].files[0], "utf8");
+    expect(p1Md).toContain("::gap\n");
+    expect(p1Md).toContain('::gap{lines="2"}');
+    expect(p1Md).toContain(':::align{to="center"}');
+    expect(p1Md).toContain(':::voice{kind="epigraph" align="right"}');
+    expect(p1Md).not.toContain('to="justify"');
+
+    const valShard = await validatePdfShard(mdShards);
+    expect(valShard.status).toBe("pass");
+    const mergedPath = path.join(root, "themed-merged.spec.json");
+    await mergePdfShards(specFile, mdShards, mergedPath);
+    const mergedSpec = await readJson<PdfSpec>(mergedPath);
+    const mergedBlocks = mergedSpec.pages[0].blocks;
+    expect(mergedBlocks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "paragraph",
+          text: "Standard vertical gap paragraph.",
+          gapBefore: true,
+        }),
+        expect.objectContaining({
+          kind: "paragraph",
+          text: "Larger vertical gap paragraph.",
+          gapBefore: 2,
+        }),
+        expect.objectContaining({
+          kind: "paragraph",
+          text: "Centered dedication.",
+          align: "center",
+        }),
+        expect.objectContaining({
+          kind: "paragraph",
+          text: "Epigraph stays a voice, not opening prose.",
+          voice: "epigraph",
+          align: "right",
+        }),
+      ]),
+    );
+
+    // Invalid ::gap, :::align, and :::voice{align} diagnostics
+    const badDirectives = compilePdfPageMarkdown(
+      `---\npage: 1\n---\n\n::gap{lines="0"}\n\nParagraph.\n\n::gap\n\n# Heading\n\n:::align{to="justify"}\nText.\n:::\n\n:::voice{kind="quote" align="justify"}\nQuote.\n:::\n\n::gap\n`,
+      "bad-typo.md",
+    );
+    const directiveErrs = badDirectives.diagnostics.filter(
+      (d) => d.code === "PDF_MD_DIRECTIVE",
+    );
+    expect(directiveErrs.length).toBeGreaterThanOrEqual(5);
+
+    // CLI --theme wiring on pdf init-spec, pdf build-epub, epub convert, and conflict guards
+    const cli = path.join(repoRoot, "packages/cli/src/index.ts");
+    const invoke = (args: string[]) =>
+      run(process.execPath, ["--import", "tsx", cli, ...args], {
+        cwd: repoRoot,
+      });
+    const hybridPdf = path.join(root, "hybrid-themed.pdf");
+    await fs.writeFile(hybridPdf, buildDigitalHybridPdf());
+    const initSpecPath = path.join(root, "cli-tech.spec.json");
+    const initCli = await invoke([
+      "pdf",
+      "init-spec",
+      hybridPdf,
+      "--theme",
+      "technical",
+      "--output",
+      initSpecPath,
+      "--json",
+    ]);
+    expect(initCli.exitCode, initCli.stderr).toBe(0);
+    expect(JSON.parse(initCli.stdout).theme).toBe("technical");
+    expect((await readJson<PdfSpec>(initSpecPath)).theme).toBe("technical");
+
+    const fromSpecEpub = path.join(root, "cli-spec-tech.epub");
+    const buildCli = await invoke([
+      "pdf",
+      "build-epub",
+      initSpecPath,
+      "--output",
+      fromSpecEpub,
+      "--json",
+    ]);
+    expect(buildCli.exitCode, buildCli.stderr).toBe(0);
+    expect(JSON.parse(buildCli.stdout).theme).toBe("technical");
+    expect(
+      inspectBytes(await fs.readFile(fromSpecEpub), true).entries.get(
+        "EPUB/styles/theme.css",
+      )!.bytes,
+    ).toEqual(techCss);
+
+    const directPdfEpub = path.join(root, "cli-direct-tech.epub");
+    const convertCli = await invoke([
+      "epub",
+      "convert",
+      hybridPdf,
+      "--theme",
+      "technical",
+      "--output",
+      directPdfEpub,
+      "--json",
+    ]);
+    expect(convertCli.exitCode, convertCli.stderr).toBe(0);
+    expect(JSON.parse(convertCli.stdout).theme).toBe("technical");
+    expect(
+      inspectBytes(await fs.readFile(directPdfEpub), true).entries.get(
+        "EPUB/styles/theme.css",
+      )!.bytes,
+    ).toEqual(techCss);
+
+    const badThemeCli = await invoke([
+      "pdf",
+      "init-spec",
+      hybridPdf,
+      "--theme",
+      "unknown",
+      "--output",
+      path.join(root, "bad-theme.spec.json"),
+      "--json",
+    ]);
+    expect(badThemeCli.exitCode).toBe(1);
+    expect(JSON.parse(badThemeCli.stdout).code).toBe("THEME_INVALID");
+
+    const epubThemeConflict = await invoke([
+      "epub",
+      "convert",
+      directPdfEpub,
+      "--to",
+      "simplified",
+      "--theme",
+      "technical",
+      "--output",
+      path.join(root, "conflict.epub"),
+      "--json",
+    ]);
+    expect(epubThemeConflict.exitCode).toBe(1);
+    expect(JSON.parse(epubThemeConflict.stdout).code).toBe("ARGUMENT_CONFLICT");
+  }, 120_000);
 });
 
 function buildScannedPdfWithIdAndGen(): Buffer {

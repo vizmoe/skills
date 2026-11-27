@@ -332,6 +332,22 @@
       "status": "Platform guidance",
       "publishedAt": null,
       "checkedAt": "2026-09-06"
+    },
+    {
+      "id": "w3c-clreq",
+      "title": "Requirements for Chinese Text Layout (CLREQ)",
+      "url": "https://www.w3.org/TR/clreq/",
+      "status": "Group Note",
+      "publishedAt": null,
+      "checkedAt": "2026-11-27"
+    },
+    {
+      "id": "w3c-jlreq",
+      "title": "Requirements for Japanese Text Layout (JLREQ)",
+      "url": "https://www.w3.org/TR/jlreq/",
+      "status": "Group Note",
+      "publishedAt": null,
+      "checkedAt": "2026-11-27"
     }
   ]
 }

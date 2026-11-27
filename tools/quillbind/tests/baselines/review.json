@@ -3,24 +3,24 @@
   "environment": "linux-arm64-noble-v2",
   "qaFontHash": "f3c0940b3d21af800756777bced045986cbf5bf81f280b421e6e41b3b18186b0",
   "reviewCriteria": [
-    "literature chapter opening has no indentation",
+    "Chinese literature chapter opening uses 2em CLREQ indentation and zero inter-paragraph margin",
     "CJK glyphs and punctuation render",
-    "quotation has a visible border and no body first-line indent",
-    "technical listing retains indentation",
+    "quotation has a visible border, percentage horizontal margins, and no body first-line indent",
+    "technical listing retains indentation and readable monospace line-height",
     "table is legible and semantically captioned",
     "inline and display math render",
-    "notes retain visible backlinks"
+    "notes retain visible backlinks without distorting superscript line rhythm"
   ],
   "status": "approved-reference",
   "themeHashes": {
-    "literature": "007b38fb7e0328f5cb6be06684255ecc49b61b6e7681fb58b44b0d83bb1714d3",
-    "technical": "70fded61500cb1609f679feadedf5af2f3a582d31032e783581becbe906deeb5"
+    "literature": "1b553f76f08688696c650f3f75f4106ca229585cca508c24da44c3ecec811e28",
+    "technical": "e71fe51371aba3eca2d8aa900573554b1bf4ff28d30f969aac263f4ab7579678"
   },
-  "reviewedAt": "2026-09-05",
-  "reviewedBy": "Codex visual inspection",
-  "reviewNote": "Inspected pinned-container candidates and the expected/actual/diff images. Only the literature paragraph immediately after the quotation moves from zero to two-em first-line indentation; its text, quote border and padding, chapter opening and thematic-break opening remain intact. The technical reference is byte-identical. Inspected the dark enlarged multi-paragraph quote fixture: soft/hard line breaks and nested quote paragraphs retain zero first-line indentation, while both following body paragraphs use the normal theme indent. Browser regressions cover both themes, blog import, LTR/RTL/vertical writing and reader font/color changes. QA fonts remain container-only.",
+  "reviewedAt": "2026-11-27",
+  "reviewedBy": "Antigravity visual inspection",
+  "reviewNote": "Inspected pinned linux-arm64-noble-v2 candidates against W3C CLREQ, JLREQ, Amazon Kindle Reflowable Text, and Apple Books Asset Guide 5.3.1. Chinese literature chapter and section openings now retain 2em first-line indentation with zero inter-paragraph margin between consecutive narrative paragraphs, percentage horizontal quote margins, and a centered subtle horizontal rule. Technical reference retains unindented 0.65em block spacing, balanced callout/note padding, non-distorting superscript line rhythm, legible 0.9em monospace listings with 1.45 line-height, and clean left-bordered footnote entries. Browser regressions also verify Japanese 1em and English flush-left opening vs 1.5em body indentation.",
   "imageSha256": {
-    "literature": "3fbcd8cd6dfd342737a4408084cc0c24127110aedb2c953e49b87efd91edc52b",
-    "technical": "08d225a8d57a92c130c2c6ab8def55534bc909c8284c081cae4e923c17c8e7d8"
+    "literature": "7ab0afb537db60bacac55902bf8bd4716a3b8c406b104ba2f269080b25073cb2",
+    "technical": "140969e2a5de6ae2ca35e31ff0223f178e72f84680c29817d58c8d83b958e721"
   }
 }

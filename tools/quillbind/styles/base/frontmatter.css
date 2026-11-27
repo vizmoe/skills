@@ -1,4 +1,4 @@
-/* Book navigation and the in-book cover; body chapter typography is separate. */
+/* Book navigation, in-book cover, titlepage and colophon; body chapter typography is separate. */
 nav[role="doc-toc"] > h1 {
   text-align: center;
 }
@@ -20,4 +20,30 @@ nav[role="doc-toc"] > ol {
   max-width: 100%;
   max-height: 100vh;
   margin: 0 auto;
+}
+.titlepage-box {
+  margin: 2.5em 6%;
+  padding: 1.5em 5%;
+  border-top: 0.08em solid;
+  border-bottom: 0.08em solid;
+}
+.titlepage-box h1,
+.titlepage-box p {
+  text-align: center;
+  text-indent: 0;
+}
+.titlepage-box p,
+.colophon-box p {
+  text-indent: 0;
+  margin: 0.45em 0;
+}
+.colophon-box {
+  margin: 1.5em 4%;
+  padding: 1em 5%;
+  border: 0.06em solid;
+}
+.colophon-box h1 {
+  font-size: 1.25em;
+  margin-top: 0;
+  margin-bottom: 0.75em;
 }

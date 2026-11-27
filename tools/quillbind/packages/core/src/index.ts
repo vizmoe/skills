@@ -8,6 +8,16 @@ export {
   validLanguage,
 } from "./config.js";
 export type { BookProject, BookConfig } from "./config.js";
+export {
+  BOOK_THEMES,
+  isBookTheme,
+  loadPresetStyles,
+  loadPresetStylesSync,
+  isOpeningParagraphAfter,
+  paragraphGapClass,
+  paragraphAlignClass,
+} from "./styles.js";
+export type { BookTheme, PresetStylesheet } from "./styles.js";
 export { resolveMetadata, lockedMetadata } from "./metadata.js";
 export { preflightBook } from "./preflight.js";
 export { buildBook, doctor } from "./pipeline.js";

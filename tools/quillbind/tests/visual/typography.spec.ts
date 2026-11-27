@@ -218,3 +218,74 @@ for (const theme of ["literature", "technical"])
         await fs.rm(root, { recursive: true, force: true });
       }
     });
+
+for (const [language, openingFactor, bodyFactor, strictBreak] of [
+  ["zh-Hans", 2, 2, true],
+  ["ja", 1, 1, true],
+  ["en", 0, 1.5, false],
+] as const)
+  test(`literature ${language} indentation and line-break rules follow CLREQ/JLREQ/Western conventions`, async () => {
+    const root = await copyBook("literature");
+    const browser = await chromium.launch({
+      executablePath: await browserPath(),
+    });
+    let server: Awaited<ReturnType<typeof serveEpub>> | undefined;
+    try {
+      const { config } = await openBook(root);
+      await json(path.join(root, "book.yaml"), {
+        ...config,
+        book: { ...config.book, language },
+        chapters: [config.chapters[0]],
+      });
+      await fs.writeFile(
+        path.join(root, config.chapters[0]),
+        [
+          "---",
+          "id: lang-indent",
+          "title: Chapter One",
+          `lang: ${language}`,
+          "---",
+          "",
+          "# Chapter One",
+          "",
+          "Opening paragraph immediately after heading.",
+          "",
+          "Second narrative paragraph in the same section.",
+          "",
+        ].join("\n"),
+      );
+      const info = inspectBytes(await candidate(root), true);
+      server = await serveEpub(info);
+      const context = await browser.newContext({
+        viewport: { width: 390, height: 844 },
+      });
+      await context.route("**/*", (route) =>
+        new URL(route.request().url()).origin === server!.origin
+          ? route.continue()
+          : route.abort(),
+      );
+      const page = await context.newPage();
+      await page.goto(`${server.origin}/${bodymatterItems(info)[0].path}`);
+      await page.addStyleTag({ content: "body { font-size: 16px; }" });
+      await page.evaluate(() => document.fonts.ready);
+      const measured = await page.evaluate(() => {
+        const paragraphs = Array.from(document.querySelectorAll("main > p"));
+        return {
+          lineBreak: getComputedStyle(document.documentElement).lineBreak,
+          indents: paragraphs.map((p) =>
+            Number.parseFloat(getComputedStyle(p).textIndent),
+          ),
+          margins: paragraphs.map((p) =>
+            Number.parseFloat(getComputedStyle(p).marginBottom),
+          ),
+        };
+      });
+      expect(measured.indents).toEqual([openingFactor * 16, bodyFactor * 16]);
+      expect(measured.margins).toEqual([0, 0]);
+      if (strictBreak) expect(measured.lineBreak).toBe("strict");
+    } finally {
+      await browser.close();
+      await server?.close();
+      await fs.rm(root, { recursive: true, force: true });
+    }
+  });

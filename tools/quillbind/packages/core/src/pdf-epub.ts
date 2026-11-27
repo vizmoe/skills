@@ -5,7 +5,6 @@ import path from "node:path";
 import sharp from "sharp";
 import { validIsbn, validLanguage } from "./config.js";
 import { convertEpub } from "./convert-epub.js";
-import { lintCss } from "./css.js";
 import { inspectBytes } from "./epub.js";
 import { checkAbort, fail } from "./errors.js";
 import { exists, readSourceFile } from "./files.js";
@@ -41,7 +40,13 @@ import {
 } from "./pdf-shard.js";
 import { runQa } from "./qa.js";
 import { readingQa } from "./reading-qa.js";
-import { repoRoot } from "./runtime.js";
+import {
+  isOpeningParagraphAfter,
+  loadPresetStyles,
+  paragraphAlignClass,
+  paragraphGapClass,
+  type BookTheme,
+} from "./styles.js";
 import {
   checkEpubConformance,
   compatibilityLint,
@@ -51,77 +56,6 @@ import { relative, shell } from "./xhtml.js";
 import { escapeXml as e, NS, xml } from "./xml.js";
 import type { ConversionTarget } from "./zhconvert.js";
 import { pack } from "./zip.js";
-
-const PDF_REFLOW_CSS = `/* Quillbind PDF reflowable single-column horizontal stylesheet. */
-html,
-body {
-  writing-mode: horizontal-tb;
-  column-count: 1;
-}
-main {
-  max-width: 100%;
-  box-sizing: border-box;
-}
-.chapter-subtitle {
-  font-style: italic;
-  margin-top: -0.5em;
-  margin-bottom: 1em;
-  text-indent: 0;
-}
-.chapter-byline {
-  font-weight: 600;
-  margin-bottom: 1.25em;
-  text-indent: 0;
-}
-.voice-epigraph {
-  font-style: italic;
-  margin: 1.25em 1.5em;
-  text-indent: 0;
-}
-.voice-quote {
-  font-style: italic;
-  margin: 1em 1.25em;
-  padding: 0.25em 0.75em;
-  border-inline-start: 0.15em solid;
-  text-indent: 0;
-}
-.voice-verse {
-  font-style: italic;
-  white-space: pre-wrap;
-  margin: 1em 1.25em;
-  text-indent: 0;
-}
-.voice-dialogue {
-  text-indent: 0;
-  margin: 0.5em 0;
-}
-.voice-signature {
-  font-style: italic;
-  text-indent: 0;
-  margin-top: 1em;
-  margin-inline-start: auto;
-  max-width: fit-content;
-}
-.gap-before {
-  margin-top: 1.75em;
-}
-.titlepage-box {
-  margin: 2.5em 1em;
-  padding: 1.5em 1em;
-  border-top: 0.08em solid;
-  border-bottom: 0.08em solid;
-}
-.titlepage-box p,
-.colophon-box p {
-  text-indent: 0;
-  margin: 0.45em 0;
-}
-.colophon-box {
-  margin: 1.5em 0.5em;
-  padding: 1em;
-  border: 0.06em solid;
-}
-`;
 
 async function assertNewOutput(outputPath: string): Promise<string> {
   const resolved = path.resolve(outputPath);
@@ -793,11 +727,13 @@ export async function renderPdfSpecToEpub(
   specInput: PdfSpec,
   specBaseDir: string,
   options: {
+    theme?: BookTheme;
     verification?: PdfVerificationFile;
     renderManifest?: PdfRenderManifest;
   } = {},
 ): Promise<{
   bytes: Buffer;
+  theme: BookTheme;
   spinePaths: string[];
   tocHrefs: string[];
   figureProvenance: NonNullable<
@@ -808,6 +744,7 @@ export async function renderPdfSpecToEpub(
   const parsed = pdfSpecSchema.safeParse(specInput);
   if (!parsed.success) fail("PDF_SPEC_INVALID", parsed.error.message);
   const spec = parsed.data;
+  const theme: BookTheme = options.theme ?? spec.theme ?? "literature";
 
   // Enforce independent verification contract strictly for pages whose ocrTrust requires it.
   assertPdfSpecVerified(spec, options);
@@ -850,26 +787,12 @@ export async function renderPdfSpecToEpub(
     startOfText: isZh ? "正文" : "Start of text",
   };
 
-  for (const platform of ["internal", "apple-books", "kindle"] as const) {
-    const lint = lintCss(PDF_REFLOW_CSS, "EPUB/styles/pdf.css", platform);
-    if (lint.status === "fail") {
-      fail("CSS_LINT", "PDF stylesheet failed lint check", lint.diagnostics);
-    }
-  }
-
   const entries = new Map<string, Uint8Array>();
   const set = (p: string, v: string | Uint8Array) =>
     entries.set(p, typeof v === "string" ? Buffer.from(v) : v);
 
-  const [baseCss, litCss, frontCss] = await Promise.all([
-    fs.readFile(path.join(repoRoot, "styles/base/epub.css")),
-    fs.readFile(path.join(repoRoot, "styles/themes/literature.css")),
-    fs.readFile(path.join(repoRoot, "styles/base/frontmatter.css")),
-  ]);
-  set("EPUB/styles/base.css", baseCss);
-  set("EPUB/styles/literature.css", litCss);
-  set("EPUB/styles/frontmatter.css", frontCss);
-  set("EPUB/styles/pdf.css", PDF_REFLOW_CSS);
+  const presetStyles = await loadPresetStyles(theme);
+  for (const style of presetStyles) set(style.href, style.bytes);
 
   const manifestItems: {
     id: string;
@@ -883,18 +806,11 @@ export async function renderPdfSpecToEpub(
       mediaType: "application/xhtml+xml",
       properties: ["nav"],
     },
-    { id: "style-base", href: "styles/base.css", mediaType: "text/css" },
-    {
-      id: "style-literature",
-      href: "styles/literature.css",
-      mediaType: "text/css",
-    },
-    {
-      id: "style-frontmatter",
-      href: "styles/frontmatter.css",
-      mediaType: "text/css",
-    },
-    { id: "style-pdf", href: "styles/pdf.css", mediaType: "text/css" },
+    ...presetStyles.map((style) => ({
+      id: style.id,
+      href: `styles/${style.file}`,
+      mediaType: style.mediaType,
+    })),
   ];
 
   const imageMap = new Map<
@@ -951,16 +867,8 @@ export async function renderPdfSpecToEpub(
 
   const spineIds: string[] = [];
   const spinePaths: string[] = [];
-  const frontStyles = [
-    "styles/base.css",
-    "styles/frontmatter.css",
-    "styles/pdf.css",
-  ];
-  const chapterStyles = [
-    "../styles/base.css",
-    "../styles/literature.css",
-    "../styles/pdf.css",
-  ];
+  const frontStyles = ["styles/base.css", "styles/frontmatter.css"];
+  const chapterStyles = ["../styles/base.css", "../styles/theme.css"];
 
   // ① Cover (EPUB/cover.xhtml)
   let hasCover = false;
@@ -974,7 +882,7 @@ export async function renderPdfSpecToEpub(
       lang,
       `<main epub:type="cover"><figure><img src="${e(relative("EPUB/cover.xhtml", coverImg.href))}" alt="${e(coverAlt)}"/></figure></main>`,
       frontStyles,
-      ' class="cover-document" dir="ltr"',
+      ' class="cover-document single-column" dir="ltr"',
     );
     xml(coverXhtml, "EPUB/cover.xhtml");
     set("EPUB/cover.xhtml", coverXhtml);
@@ -1023,7 +931,7 @@ export async function renderPdfSpecToEpub(
       lang,
       `<main epub:type="frontmatter"><section epub:type="titlepage" class="titlepage-box">${tpLines.join("")}</section></main>`,
       frontStyles,
-      ' dir="ltr"',
+      ' class="single-column" dir="ltr"',
     );
     xml(titlepageXhtml, "EPUB/titlepage.xhtml");
     set("EPUB/titlepage.xhtml", titlepageXhtml);
@@ -1065,7 +973,7 @@ export async function renderPdfSpecToEpub(
       lang,
       `<main epub:type="frontmatter"><section epub:type="colophon" class="colophon-box">${colLines.join("")}</section></main>`,
       frontStyles,
-      ' dir="ltr"',
+      ' class="single-column" dir="ltr"',
     );
     xml(colophonXhtml, "EPUB/colophon.xhtml");
     set("EPUB/colophon.xhtml", colophonXhtml);
@@ -1167,6 +1075,7 @@ export async function renderPdfSpecToEpub(
     }
 
     let subHeadingIndex = 0;
+    let prevBlockKind: string | undefined = "heading";
     for (const entry of bucket.items) {
       if (entry.kind === "pagebreak") {
         const pid = `page-${entry.page}`;
@@ -1217,8 +1126,14 @@ export async function renderPdfSpecToEpub(
         }
         case "paragraph": {
           const classes: string[] = [];
-          if (b.voice && b.voice !== "body") classes.push(`voice-${b.voice}`);
-          if (b.gapBefore) classes.push("gap-before");
+          const isBodyVoice = !b.voice || b.voice === "body";
+          if (!isBodyVoice) classes.push(`voice-${b.voice}`);
+          else if (isOpeningParagraphAfter(prevBlockKind))
+            classes.push("opening");
+          const gapClass = paragraphGapClass(b.gapBefore);
+          if (gapClass) classes.push(gapClass);
+          const alignClass = paragraphAlignClass(b.align);
+          if (alignClass) classes.push(alignClass);
           const clsAttr = classes.length ? ` class="${classes.join(" ")}"` : "";
           if (b.voice === "quote") {
             htmlParts.push(
@@ -1297,6 +1212,7 @@ export async function renderPdfSpecToEpub(
           htmlParts.push("<hr/>");
           break;
       }
+      prevBlockKind = b.kind;
     }
 
     const definedNoteIds = new Set(bucket.footnotes.map((fn) => fn.id));
@@ -1347,7 +1263,7 @@ export async function renderPdfSpecToEpub(
       lang,
       `<main epub:type="bodymatter">${htmlParts.join("\n")}</main>`,
       chapterStyles,
-      ' dir="ltr"',
+      ' class="single-column" dir="ltr"',
     );
     xml(chapterXhtml, bucket.href);
     set(bucket.href, chapterXhtml);
@@ -1389,7 +1305,7 @@ export async function renderPdfSpecToEpub(
     lang,
     `<main epub:type="frontmatter"><nav epub:type="toc" role="doc-toc" aria-labelledby="toc-heading"><h1 id="toc-heading">${e(labels.toc)}</h1>${renderNavList(visibleTocTree, "EPUB/toc.xhtml")}</nav></main>`,
     frontStyles,
-    ' dir="ltr"',
+    ' class="single-column" dir="ltr"',
   );
   xml(tocPageXhtml, "EPUB/toc.xhtml");
   set("EPUB/toc.xhtml", tocPageXhtml);
@@ -1415,7 +1331,7 @@ export async function renderPdfSpecToEpub(
     lang,
     `<nav epub:type="toc" role="doc-toc" aria-label="${e(labels.toc)}"><h1>${e(labels.toc)}</h1>${renderNavList(navDocTree, "EPUB/nav.xhtml")}</nav><nav epub:type="landmarks" aria-label="Landmarks"><h2>Landmarks</h2><ol>${landmarks.join("")}</ol></nav>${pageListItems.length ? `<nav epub:type="page-list" role="doc-pagelist" aria-label="Pages"><h2>Pages</h2>${renderNavList(pageListItems, "EPUB/nav.xhtml")}</nav>` : ""}`,
     frontStyles,
-    ' dir="ltr"',
+    ' class="single-column" dir="ltr"',
   );
   xml(navXhtml, "EPUB/nav.xhtml");
   set("EPUB/nav.xhtml", navXhtml);
@@ -1514,6 +1430,7 @@ export async function renderPdfSpecToEpub(
 
   return {
     bytes: pack(entries, 946684800),
+    theme,
     spinePaths,
     tocHrefs,
     figureProvenance,
@@ -1566,6 +1483,7 @@ export async function buildEpubFromPdfSpec(
   specFileOrObject: string | PdfSpec,
   outputEpubFile: string,
   options: {
+    theme?: BookTheme;
     verification?: string | PdfVerificationFile;
     renderManifest?: string | PdfRenderManifest;
     release?: boolean;
@@ -1610,10 +1528,12 @@ export async function buildEpubFromPdfSpec(
     ]);
 
   const firstBuild = await renderPdfSpecToEpub(spec, specBaseDir, {
+    theme: options.theme,
     verification,
     renderManifest,
   });
   const secondBuild = await renderPdfSpecToEpub(spec, specBaseDir, {
+    theme: options.theme,
     verification,
     renderManifest,
   });
@@ -1695,6 +1615,7 @@ export async function buildEpubFromPdfSpec(
         status: "pass" as const,
         operation: "pdf-to-epub" as const,
         purpose: "publication-release" as const,
+        theme: firstBuild.theme,
         classification: spec.source.classification,
         source: spec.source.path,
         sourceSha256: spec.source.sha256,
@@ -1771,6 +1692,7 @@ export async function buildEpubFromPdfSpec(
       status: "pass" as const,
       operation: "pdf-to-epub" as const,
       purpose: options.release ? "publication-release" : "format-conversion",
+      theme: firstBuild.theme,
       classification: spec.source.classification,
       source: spec.source.path,
       sourceSha256: spec.source.sha256,
@@ -1802,6 +1724,7 @@ export async function convertPdfToEpub(
   pdfFile: string,
   outputEpubFile: string,
   options: {
+    theme?: BookTheme;
     spec?: string;
     verification?: string;
     renderManifest?: string;
@@ -1831,6 +1754,7 @@ export async function convertPdfToEpub(
       );
     }
     const built = await buildEpubFromPdfSpec(options.spec, outputEpubFile, {
+      theme: options.theme,
       verification: options.verification,
       renderManifest: options.renderManifest,
       release: options.release,
@@ -1875,6 +1799,7 @@ export async function convertPdfToEpub(
     const autoSpec: PdfSpec = {
       schemaVersion: PDF_SPEC_SCHEMA_VERSION,
       kind: "quillbind-pdf-spec",
+      ...(options.theme ? { theme: options.theme } : {}),
       source: {
         path: inspection.path,
         sha256: inspection.sha256,
@@ -1901,6 +1826,7 @@ export async function convertPdfToEpub(
     };
 
     const built = await buildEpubFromPdfSpec(autoSpec, outputEpubFile, {
+      theme: options.theme,
       verification: options.verification,
       renderManifest: options.renderManifest,
       release: options.release,

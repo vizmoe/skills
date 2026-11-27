@@ -534,3 +534,118 @@ it("refuses DRM-encrypted and malformed Kindle files and CLI collisions", async 
   expect(unpackedCombo.format).toBe("combo-kf8");
   expect(unpackedCombo.metadata.title).toBe("蒼穹物語 合訂本");
 });
+
+it("applies shared preset themes and opening-paragraph classes to CSS-less MOBI 6 while preserving KF8 flow stylesheets", async () => {
+  const dir = await tempDir();
+  const [baseCss, litCss, techCss, frontCss] = await Promise.all([
+    fs.readFile(path.join(repoRoot, "styles/base/epub.css")),
+    fs.readFile(path.join(repoRoot, "styles/themes/literature.css")),
+    fs.readFile(path.join(repoRoot, "styles/themes/technical.css")),
+    fs.readFile(path.join(repoRoot, "styles/base/frontmatter.css")),
+  ]);
+
+  const mobi = await mobiAnthologyFixture();
+  const unpackedDefault = unpackKindle(mobi.bytes);
+  expect(unpackedDefault.presetTheme).toBe("literature");
+  const litInfo = inspectBytes(unpackedDefault.bytes, true);
+  expect(litInfo.entries.get("OEBPS/styles/base.css")!.bytes).toEqual(baseCss);
+  expect(litInfo.entries.get("OEBPS/styles/theme.css")!.bytes).toEqual(litCss);
+  expect(litInfo.entries.get("OEBPS/styles/frontmatter.css")!.bytes).toEqual(
+    frontCss,
+  );
+  expect(litInfo.entries.get("OEBPS/styles/reading.css")).toBeDefined();
+  const mobiCh1 = litInfo.entries
+    .get("OEBPS/text/c0001.xhtml")!
+    .bytes.toString();
+  expect(mobiCh1).toContain('href="../styles/base.css"');
+  expect(mobiCh1).toContain('href="../styles/theme.css"');
+  expect(mobiCh1).toContain('href="../styles/reading.css"');
+  expect(mobiCh1).toContain('<p class="opening">甲卷第一段正文。');
+  expect(mobiCh1).toContain("<p>甲卷第二段，带内部跳转");
+  const mobiNav = litInfo.entries.get("OEBPS/nav.xhtml")!.bytes.toString();
+  expect(mobiNav).toContain('href="styles/base.css"');
+  expect(mobiNav).toContain('href="styles/frontmatter.css"');
+
+  // Explicit technical theme via API and CLI
+  const mobiPath = path.join(dir, "themed.mobi");
+  const techOut = path.join(dir, "tech-api.epub");
+  await fs.writeFile(mobiPath, mobi.bytes);
+  const techResult = await convertKindleToEpub(mobiPath, {
+    output: techOut,
+    theme: "technical",
+  });
+  expect(techResult.status).toBe("pass");
+  expect(techResult.theme).toBe("technical");
+  expect(techResult.validation.status).toBe("pass");
+  expect(techResult.reading.status).toBe("pass");
+  expect(
+    inspectBytes(await fs.readFile(techOut), true).entries.get(
+      "OEBPS/styles/theme.css",
+    )!.bytes,
+  ).toEqual(techCss);
+
+  const cli = path.join(repoRoot, "packages/cli/src/index.ts");
+  const cliOut = path.join(dir, "tech-cli.epub");
+  const cliRes = await run(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      cli,
+      "epub",
+      "convert",
+      mobiPath,
+      "--theme",
+      "technical",
+      "--output",
+      cliOut,
+      "--json",
+    ],
+    { cwd: repoRoot },
+  );
+  expect(cliRes.exitCode, cliRes.stdout + cliRes.stderr).toBe(0);
+  expect(JSON.parse(cliRes.stdout)).toMatchObject({
+    status: "pass",
+    format: "mobi6",
+    theme: "technical",
+  });
+  expect(
+    inspectBytes(await fs.readFile(cliOut), true).entries.get(
+      "OEBPS/styles/theme.css",
+    )!.bytes,
+  ).toEqual(techCss);
+
+  const badTheme = await run(
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      cli,
+      "epub",
+      "convert",
+      mobiPath,
+      "--theme",
+      "invalid",
+      "--output",
+      path.join(dir, "bad.epub"),
+      "--json",
+    ],
+    { cwd: repoRoot },
+  );
+  expect(badTheme.exitCode).toBe(1);
+  expect(JSON.parse(badTheme.stdout).code).toBe("THEME_INVALID");
+
+  // KF8/AZW3 with surviving flow CSS preserves its stylesheet and does not inject theme.css
+  const azw3 = await azw3AnthologyFixture();
+  const unpackedAzw3 = unpackKindle(azw3.bytes, { theme: "technical" });
+  expect(unpackedAzw3.presetTheme).toBeUndefined();
+  const azw3Info = inspectBytes(unpackedAzw3.bytes, true);
+  expect(azw3Info.entries.get("OEBPS/styles/theme.css")).toBeUndefined();
+  expect(azw3Info.entries.get("OEBPS/styles/base.css")).toBeUndefined();
+  expect(azw3Info.entries.get("OEBPS/styles/flow-0001.css")).toBeDefined();
+  expect(azw3Info.entries.get("OEBPS/styles/reading.css")).toBeDefined();
+  const azw3Ch1 = azw3Info.entries
+    .get("OEBPS/text/c0001.xhtml")!
+    .bytes.toString();
+  expect(azw3Ch1).not.toContain('class="opening"');
+}, 60_000);

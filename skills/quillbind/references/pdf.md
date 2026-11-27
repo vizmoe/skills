@@ -71,7 +71,7 @@ Supported per-page Markdown constructs:
 
 - Frontmatter: `page`, `sourceSha256`, `transcribedBy`, `renderPath`, `renderSha256`, `dpi`, `tilesReviewed[]`, optional `sectionId`, and `unresolved[]`.
 - Inline syntax: `**bold**`, `*italic*`, `` `code` ``, `:sup[text]`, `:sub[text]`, `:ruby[base]{reading="rt"}`, `$tex$`, `[^1]` (automatically page-namespaced to `p<page>-1`), and `:unresolved[reason]{location="..."}`.
-- Block directives: `::continue-prev`, `::no-continue-prev`, `::stitch-next`, `::no-stitch-next`, `::subtitle[...]`, `::byline[...]`, `:::voice{kind="epigraph|quote|verse|dialogue|signature"}`, `::caption[...]` before GFM tables (or a fenced `json table` block for `rowspan`/`colspan` tables), `::figure[caption]{src="..." alt="..."}`, `::footnote-continue[text]{id="p11-1" label="①"}`, and `::unresolved[reason]{location="..."}`.
+- Block directives: `::continue-prev`, `::no-continue-prev`, `::stitch-next`, `::no-stitch-next`, `::gap` / `::gap{lines="2"}`, `::subtitle[...]`, `::byline[...]`, `:::voice{kind="epigraph|quote|verse|dialogue|signature" align="left|center|right"}`, `:::align{to="left|center|right"}`, `::caption[...]` before GFM tables (or a fenced `json table` block for `rowspan`/`colspan` tables), `::figure[caption]{src="..." alt="..."}`, `::footnote-continue[text]{id="p11-1" label="①"}`, and `::unresolved[reason]{location="..."}`.
 - `quillbind-pdf-shard` / `quillbind-pdf-page` JSON files remain supported when structured JSON is preferred (`schemaVersion: 1`, `kind: "quillbind-pdf-shard" | "quillbind-pdf-page"`, `sourceSha256`, `pages[]` or `page`).
 
 Validate worker outputs with line-numbered diagnostics before merging:
@@ -121,11 +121,12 @@ After visually auditing the rendered pages, tiles, and flagged signals, the `ver
 
 ## Reflowable horizontal layout and typographic preservation
 
-PDF-to-EPUB output defaults to **single-column horizontal reflowable EPUB 3.3**:
+PDF-to-EPUB output uses Quillbind's shared preset theme templates (`--theme literature|technical`, default `literature`, also persisted on `PdfSpec.theme`) and defaults to **single-column horizontal reflowable EPUB 3.3**, balancing W3C CLREQ / Apple Books / Amazon Kindle reflowability against scanned-PDF paper-book fidelity:
 
 - Package metadata sets `rendition:layout` to `reflowable`, `rendition:spread` to `none`, and `rendition:orientation` to `auto`; `<spine page-progression-direction="ltr">` marks every `<itemref>` with `properties="rendition:spread-none"`.
-- Stylesheets set `writing-mode: horizontal-tb` and `column-count: 1` without `@charset`, fixed viewport heights or `body` font-size/color/line-height overrides (`BODY_OVERRIDE`). Note in handoff when relevant that wide desktop viewers such as Calibre `ebook-viewer` default to multi-column paged view above `70em` unless switched to Flow mode or 1 column per screen in viewer preferences.
-- Preserve source typographic hierarchy semantically: chapter `<h1>` headings (one top `<h1>` per spine file with monotonic `<h2>`–`<h6>` subheadings), `.chapter-subtitle`, `.chapter-byline`, `<ruby>漢字<rt>かんじ</rt></ruby>`, typographic voices (`epigraph`, `quote`, `verse`, `dialogue`, right-aligned `signature`), scene-break spacing (`gapBefore`), and bidirectional popup footnotes (`a[epub:type="noteref"][role="doc-noteref"]` paired 1-to-1 with `aside[epub:type="footnote"][role="doc-footnote"]` and `role="doc-backlink"`).
+- Documents load the shared preset stylesheets (`styles/base.css`, `styles/theme.css`, `styles/frontmatter.css`) and set `class="single-column"` on `<html>` (`writing-mode: horizontal-tb; column-count: 1`) without `@charset`, fixed viewport heights, or `body` font-size/color/line-height/alignment overrides (`BODY_OVERRIDE`). Body `line-height`, font family, font size, colors, and body justification remain controlled by the reading system (note in handoff when relevant that wide desktop viewers such as Calibre `ebook-viewer` default to multi-column paged view above `70em` unless switched to Flow mode or 1 column per screen).
+- **Theme presets & CLREQ/JLREQ/Western defaults**: `literature` uses continuous paper-book prose (`margin: 0` between consecutive indented paragraphs; `2em` for Chinese including `.opening` paragraphs per W3C CLREQ §6.2.1, `1em` for Japanese per W3C JLREQ §3.5.1, `1.5em` for Western with flush-left `.opening` paragraphs; `line-break: strict` on CJK); `technical` uses unindented block-spaced paragraphs (`0.65em` vertical spacing) suitable for STEM/textbook PDFs.
+- **Paper-book fidelity within reflowable bounds**: preserve source typographic hierarchy semantically instead of copying fixed PDF coordinates — chapter `<h1>` headings (one top `<h1>` per spine file with monotonic `<h2>`–`<h6>` subheadings), `.chapter-subtitle`, `.chapter-byline`, `<ruby>漢字<rt>かんじ</rt></ruby>`, typographic voices (`epigraph`, `quote`, `verse`, `dialogue`, right-aligned `signature`, kept upright on CJK per CLREQ and italic on Western), explicit non-body alignment (`align: "left" | "center" | "right"` → `.align-*`, while `align: "justify"` intentionally defers to the reading system), graduated vertical scene breaks (`gapBefore: true` / `< 2` → `.gap-before` `1.5em`; `>= 2` → `.gap-before-lg` `2.5em`), and bidirectional popup footnotes (`a[epub:type="noteref"][role="doc-noteref"]` paired 1-to-1 with `aside[epub:type="footnote"][role="doc-footnote"]` and `role="doc-backlink"`).
 - Orphan `continueFromPrevPage` paragraphs, tables, or footnotes that cannot merge into a preceding block are never silently dropped: they are preserved as standalone elements with an explicit `STITCH_ORPHAN_*` warning. Footnotes without a matching in-text `noteref` fail immediately with `FOOTNOTE_UNREFERENCED` rather than fabricating a chapter-top anchor.
 
 ### Canonical PDF frontmatter order
@@ -180,9 +181,9 @@ Build the EPUB from the verified spec and verifier record (or pass a digital/hyb
 
 ```sh
 node <skill-directory>/scripts/quillbind.ts doctor --json
-node <skill-directory>/scripts/quillbind.ts pdf build-epub /tmp/work/spec.merged.json --verification /tmp/work/verification.json --render-manifest /tmp/work/pages-view/render-manifest.json --output /tmp/work/staged.epub --json
-# Digital/native-text PDF direct shortcut (also accepts --spec and --verification):
-node <skill-directory>/scripts/quillbind.ts epub convert /absolute/books/digital.pdf --output /tmp/work/staged.epub --json
+node <skill-directory>/scripts/quillbind.ts pdf build-epub /tmp/work/spec.merged.json [--theme literature|technical] --verification /tmp/work/verification.json --render-manifest /tmp/work/pages-view/render-manifest.json --output /tmp/work/staged.epub --json
+# Digital/native-text PDF direct shortcut (also accepts --theme, --spec and --verification):
+node <skill-directory>/scripts/quillbind.ts epub convert /absolute/books/digital.pdf [--theme literature|technical] --output /tmp/work/staged.epub --json
 ```
 
 **Never hand off a generated EPUB immediately after packaging.** Complete metadata supplementation and run the full post-generation standard verification gates (ideally delegated to a read-only `verifier` subagent per [parallel workflow](parallel-workflow.md)):

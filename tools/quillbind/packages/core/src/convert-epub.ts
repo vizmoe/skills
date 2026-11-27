@@ -10,10 +10,11 @@ import { json } from "./json.js";
 import { readSourceFile } from "./files.js";
 import { sha256 } from "./hash.js";
 import { isKindleBytes, unpackKindle } from "./kindle.js";
+import type { BookTheme } from "./styles.js";
 
 export async function convertEpub(
   file: string,
-  options: ConversionOptions & { output: string },
+  options: ConversionOptions & { output: string; theme?: BookTheme },
 ) {
   conversionTarget(options.target);
   checkAbort(options.signal);
@@ -34,7 +35,7 @@ export async function convertEpub(
     );
   const rawBytes = await readSourceFile(file);
   const bytes = isKindleBytes(rawBytes)
-    ? unpackKindle(rawBytes).bytes
+    ? unpackKindle(rawBytes, { theme: options.theme }).bytes
     : rawBytes;
   await fs.mkdir(path.dirname(output), { recursive: true });
   const lockfile = output + ".conversion.lock";

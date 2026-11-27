@@ -1,17 +1,27 @@
+/* Block-spaced technical and non-fiction prose per Kindle/Apple reflowable guidelines. */
 p {
-  margin-top: 0.6em;
-  margin-bottom: 0.6em;
+  margin-top: 0.65em;
+  margin-bottom: 0.65em;
   text-indent: 0;
 }
+blockquote p,
+aside p,
+li p,
+dd p {
+  margin-top: 0.45em;
+  margin-bottom: 0.45em;
+}
 pre {
-  padding: 0.6em;
+  padding: 0.65em 0.85em;
   border: 0.06em solid;
 }
 dt {
   font-weight: bold;
+  margin-top: 0.75em;
 }
 dd {
   margin-inline-start: 1.5em;
+  margin-bottom: 0.5em;
 }
 code .token-emphasis {
   font-weight: bold;

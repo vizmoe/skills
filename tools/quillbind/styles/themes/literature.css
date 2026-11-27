@@ -1,17 +1,38 @@
-/* Theme classes reflect paragraph semantics assigned by the transform. */
+/* Indented book prose per W3C CLREQ (zh 2em), JLREQ (ja 1em), and Apple/Kindle reflowable defaults (1.5em). */
 p {
   margin-top: 0;
-  margin-bottom: 0.5em;
+  margin-bottom: 0;
   text-indent: 1.5em;
 }
+p.opening {
+  text-indent: 0;
+}
 p:lang(zh),
-p:lang(ja) {
+p.opening:lang(zh) {
   text-indent: 2em;
 }
-p.no-indent,
-p.poem,
+p:lang(ja),
+p.opening:lang(ja) {
+  text-indent: 1em;
+}
+html[lang] p.no-indent,
+html[lang] p.poem,
+html[lang] p.chapter-subtitle,
+html[lang] p.chapter-byline,
+html[lang] p.voice-epigraph,
+html[lang] p.voice-verse,
+html[lang] p.voice-dialogue,
+html[lang] p.voice-signature,
+html[lang] p.align-left,
+html[lang] p.align-center,
+html[lang] p.align-right,
 html[lang] blockquote p,
 html[lang] li p,
 html[lang] aside p {
   text-indent: 0;
+}
+blockquote p + p,
+aside p + p,
+li p + p {
+  margin-top: 0.5em;
 }

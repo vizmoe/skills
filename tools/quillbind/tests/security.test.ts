@@ -87,13 +87,19 @@ describe("untrusted content boundaries", () => {
     "p {height: 20px; overflow: hidden}",
     "p {font-size: 1em !important}",
     "p {background:u\\72l(https://evil.example/a)}",
+    "p {text-align: justify}",
+    "body {text-align: center}",
+    ".prose {text-align: center}",
+    ".align-center {text-align: justify}",
+    ".align-center, p {text-align: center}",
+    ".align-center {font-size: 14px}",
   ])("rejects unsafe or locked CSS %s", (css) =>
     expect(lintCss(css, "style.css").status).toBe("fail"),
   );
-  it("allows reader-friendly code styles", () =>
+  it("allows reader-friendly code and explicit semantic alignment styles", () =>
     expect(
       lintCss(
-        "pre {white-space: pre-wrap; font-family: monospace} h1 {font-size: 2em}",
+        "pre {white-space: pre-wrap; font-family: monospace; line-height: 1.45} h1 {font-size: 1.65em; line-height: 1.3} .align-center {text-align: center} .voice-signature {text-align: end} .titlepage-box p {text-align: center}",
         "style.css",
       ).status,
     ).toBe("pass"));

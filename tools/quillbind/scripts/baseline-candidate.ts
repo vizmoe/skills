@@ -81,13 +81,13 @@ await json(path.join(directory, "candidate.json"), {
   browser: technical.browserVersion,
   themeHashes,
   reviewCriteria: [
-    "literature chapter opening has no indentation",
+    "Chinese literature chapter opening uses 2em CLREQ indentation and zero inter-paragraph margin",
     "CJK glyphs and punctuation render",
-    "quotation has a visible border and no body first-line indent",
-    "technical listing retains indentation",
+    "quotation has a visible border, percentage horizontal margins, and no body first-line indent",
+    "technical listing retains indentation and readable monospace line-height",
     "table is legible and semantically captioned",
     "inline and display math render",
-    "notes retain visible backlinks",
+    "notes retain visible backlinks without distorting superscript line rhythm",
   ],
 });
 console.log(

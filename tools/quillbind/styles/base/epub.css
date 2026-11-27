@@ -1,7 +1,22 @@
 /* EPUB 3.3: https://www.w3.org/TR/epub-33/#sec-css */
-/* Body metrics and colors are controlled by the reading system. */
+/* CLREQ: https://www.w3.org/TR/clreq/ | JLREQ: https://www.w3.org/TR/jlreq/ */
+/* Body metrics, line-height and colors are controlled by the reading system. */
 body {
   overflow-wrap: break-word;
+}
+html:lang(zh),
+html:lang(ja) {
+  line-break: strict;
+  word-break: normal;
+}
+html.single-column,
+html.single-column body {
+  writing-mode: horizontal-tb;
+  column-count: 1;
+}
+html.single-column main {
+  max-width: 100%;
+  box-sizing: border-box;
 }
 h1,
 h2,
@@ -10,20 +25,33 @@ h4,
 h5,
 h6 {
   text-align: start;
+  line-height: 1.3;
   break-after: avoid;
   page-break-after: avoid;
+  break-inside: avoid;
+  page-break-inside: avoid;
 }
 h1 {
-  font-size: 1.8em;
-  margin-top: 1em;
-  margin-bottom: 1em;
+  font-size: 1.65em;
+  margin-top: 1.25em;
+  margin-bottom: 0.85em;
 }
 h2 {
-  font-size: 1.4em;
+  font-size: 1.35em;
   margin-top: 1.5em;
+  margin-bottom: 0.6em;
 }
 h3 {
-  font-size: 1.2em;
+  font-size: 1.15em;
+  margin-top: 1.25em;
+  margin-bottom: 0.45em;
+}
+h4,
+h5,
+h6 {
+  font-size: 1.05em;
+  margin-top: 1em;
+  margin-bottom: 0.4em;
 }
 p {
   orphans: 2;
@@ -31,7 +59,19 @@ p {
 }
 html[lang] p.chapter-meta {
   text-indent: 0;
-  margin: 0 0 1.5em;
+  margin: 0 0 1.25em;
+}
+.chapter-subtitle {
+  font-style: italic;
+  margin-top: -0.45em;
+  margin-bottom: 1em;
+  text-indent: 0;
+}
+.chapter-byline {
+  font-weight: 600;
+  margin-top: 0;
+  margin-bottom: 1.25em;
+  text-indent: 0;
 }
 strong,
 b {
@@ -44,6 +84,26 @@ i {
 del,
 s {
   text-decoration: line-through;
+}
+sup,
+sub {
+  font-size: 0.72em;
+  line-height: 0;
+  position: relative;
+  vertical-align: baseline;
+}
+sup {
+  top: -0.42em;
+}
+sub {
+  bottom: -0.2em;
+}
+ruby {
+  ruby-align: center;
+}
+rt {
+  font-size: 0.55em;
+  line-height: 1.1;
 }
 img,
 svg {
@@ -62,17 +122,21 @@ img.inline-image {
   vertical-align: middle;
 }
 figure {
-  margin: 1em 0;
+  margin: 1.25em 0;
+  break-inside: avoid;
+  page-break-inside: avoid;
 }
 figcaption,
 caption {
   font-size: 0.9em;
+  line-height: 1.4;
   text-align: start;
+  margin-top: 0.45em;
   margin-bottom: 0.5em;
 }
 blockquote {
-  margin: 1em 1em;
-  padding: 0.25em 0.75em;
+  margin: 1em 5%;
+  padding: 0.25em 0.85em;
   border-left: 0.15em solid;
   text-indent: 0;
 }
@@ -80,27 +144,58 @@ blockquote {
   border-left: 0;
   border-right: 0.15em solid;
 }
+blockquote > :first-child,
+aside > :first-child,
+dd > :first-child {
+  margin-top: 0;
+}
+blockquote > :last-child,
+aside > :last-child,
+dd > :last-child {
+  margin-bottom: 0;
+}
+ul,
+ol {
+  margin: 0.75em 0;
+  padding-inline-start: 1.75em;
+}
+li {
+  margin: 0.25em 0;
+}
 pre {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-family: monospace;
+  font-size: 0.9em;
+  line-height: 1.45;
   margin: 1em 0;
 }
 code {
   font-family: monospace;
+  font-size: 0.92em;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+pre code {
+  font-size: 1em;
 }
 table {
   border-collapse: collapse;
   max-width: 100%;
 }
+tr {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
 th,
 td {
   border: 0.06em solid;
-  padding: 0.35em;
+  padding: 0.35em 0.5em;
   text-align: start;
   vertical-align: top;
+}
+th {
+  font-weight: bold;
 }
 th.align-left,
 td.align-left {
@@ -123,13 +218,28 @@ a {
   text-decoration: underline;
   overflow-wrap: anywhere;
 }
+a[role="doc-noteref"] {
+  padding-inline: 0.08em;
+}
 aside {
   margin: 1em 0;
-  padding: 0.5em;
+  padding: 0.65em 0.85em;
   border: 0.06em solid;
 }
 .footnotes {
   margin-top: 2em;
+  padding-top: 0.75em;
+  border-top: 0.06em solid;
+}
+.footnotes aside {
+  border: 0;
+  border-left: 0.12em solid;
+  padding: 0.25em 0.75em;
+  margin: 0.65em 0;
+}
+[dir="rtl"] .footnotes aside {
+  border-left: 0;
+  border-right: 0.12em solid;
 }
 .pagebreak {
   break-before: page;
@@ -137,6 +247,61 @@ aside {
 }
 .poem {
   white-space: pre-wrap;
+  text-indent: 0;
+}
+.voice-epigraph {
+  font-style: italic;
+  margin: 1.25em 8%;
+  text-indent: 0;
+}
+.voice-quote {
+  font-style: italic;
+}
+.voice-verse {
+  font-style: italic;
+  white-space: pre-wrap;
+  margin: 1em 6%;
+  text-indent: 0;
+}
+.voice-dialogue {
+  margin: 0.4em 0;
+  text-indent: 0;
+}
+.voice-signature {
+  font-style: italic;
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+  text-indent: 0;
+  text-align: end;
+}
+:lang(zh) .chapter-subtitle,
+:lang(ja) .chapter-subtitle,
+:lang(zh) .voice-epigraph,
+:lang(ja) .voice-epigraph,
+:lang(zh) .voice-quote,
+:lang(ja) .voice-quote,
+:lang(zh) .voice-verse,
+:lang(ja) .voice-verse,
+:lang(zh) .voice-signature,
+:lang(ja) .voice-signature {
+  font-style: normal;
+}
+.gap-before {
+  margin-top: 1.5em;
+}
+.gap-before-lg {
+  margin-top: 2.5em;
+}
+.align-left {
+  text-align: left;
+  text-indent: 0;
+}
+.align-center {
+  text-align: center;
+  text-indent: 0;
+}
+.align-right {
+  text-align: right;
   text-indent: 0;
 }
 math {
@@ -153,14 +318,26 @@ math {
   margin: auto 0;
 }
 .vertical blockquote {
+  margin: 5% 1em;
+  padding: 0.85em 0.25em;
   border-left: 0;
   border-right: 0;
   border-top: 0.15em solid;
 }
+.vertical .footnotes aside {
+  border-left: 0;
+  border-top: 0.12em solid;
+  padding: 0.75em 0.25em;
+}
+.vertical hr {
+  border-top: 0;
+  border-right: 0.06em solid;
+  margin: 20% 1.5em;
+}
 hr {
   border: 0;
   border-top: 0.06em solid;
-  margin: 1.5em 0;
+  margin: 1.5em 20%;
 }
 nav ol {
   padding-inline-start: 1.5em;

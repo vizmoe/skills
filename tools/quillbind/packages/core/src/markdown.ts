@@ -13,6 +13,7 @@ import { sha256 } from "./hash.js";
 import { localTarget } from "./paths.js";
 import { chapterMetadata } from "./chapter-metadata.js";
 import { createMathCompiler } from "./math.js";
+import { isOpeningParagraphAfter } from "./styles.js";
 import type {
   Document,
   Block,
@@ -766,9 +767,9 @@ export async function parseChapter(
   for (let i = 0; i < bodyBlocks.length; i++) {
     if (
       bodyBlocks[i].kind === "paragraph" &&
-      (i === 0 || ["heading", "thematicBreak"].includes(bodyBlocks[i - 1].kind))
+      isOpeningParagraphAfter(i === 0 ? undefined : bodyBlocks[i - 1].kind)
     )
-      bodyBlocks[i].classes = [...(bodyBlocks[i].classes ?? []), "no-indent"];
+      bodyBlocks[i].classes = [...(bodyBlocks[i].classes ?? []), "opening"];
   }
   return {
     id: chapterId,

@@ -45,10 +45,10 @@ it("keeps ordinary paragraphs after blockquotes in the normal indentation flow",
     "标题后首段。\n\n> 引用第一行。\n> 引用第二行。\n>\n> 引用第二段。\n>\n> > 嵌套引用。\n\n引用后第一段。\n\n引用后第二段。\n\n---\n\n分隔线后首段。",
     "zh-Hans",
   );
-  expect(html).toContain('<p class="no-indent">标题后首段。</p>');
+  expect(html).toContain('<p class="opening">标题后首段。</p>');
   expect(html).toContain("<p>引用后第一段。</p>");
   expect(html).toContain("<p>引用后第二段。</p>");
-  expect(html).toContain('<p class="no-indent">分隔线后首段。</p>');
+  expect(html).toContain('<p class="opening">分隔线后首段。</p>');
 });
 
 it.each([

@@ -1,13 +1,11 @@
-import fs from "node:fs/promises";
-import path from "node:path";
 import { prepareImage } from "./images.js";
 import { safeRead } from "./files.js";
 import { fail } from "./errors.js";
-import { repoRoot } from "./runtime.js";
 import { lockedMetadata, type MetadataLock } from "./metadata.js";
 import { preflightBook } from "./preflight.js";
 import { imageSources } from "./source-files.js";
 import { lintCss } from "./css.js";
+import { loadPresetStyles } from "./styles.js";
 import type { BookProject, NavigationEntry } from "./config.js";
 import type {
   Publication,
@@ -20,18 +18,13 @@ import type {
 async function loadBuiltInStyles(
   theme: BookProject["config"]["theme"],
 ): Promise<Resource[]> {
-  const entries = [
-    ["base.css", "base/epub.css"],
-    ["theme.css", `themes/${theme}.css`],
-    ["frontmatter.css", "base/frontmatter.css"],
-  ] as const;
-  return Promise.all(
-    entries.map(async ([name, relative]) => ({
-      id: name.replace(".", "-"),
-      href: `EPUB/styles/${name}`,
-      mediaType: "text/css",
-      bytes: await fs.readFile(path.join(repoRoot, "styles", relative)),
-    })),
+  return (await loadPresetStyles(theme)).map(
+    ({ id, href, mediaType, bytes }) => ({
+      id,
+      href,
+      mediaType,
+      bytes,
+    }),
   );
 }
 

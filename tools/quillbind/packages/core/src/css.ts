@@ -33,6 +33,16 @@ const bodyOverrideProps = new Set([
   "text-align",
 ]);
 const resetKeywords = new Set(["inherit", "initial", "unset", "auto"]);
+const semanticAlignClasses = new Set([
+  "align-left",
+  "align-center",
+  "align-right",
+  "align-start",
+  "align-end",
+  "voice-signature",
+  "titlepage-box",
+  "colophon-box",
+]);
 
 type AddDiagnostic = (code: string, message: string, line?: number) => void;
 
@@ -45,25 +55,38 @@ function platformUrl(platform: "internal" | "apple-books" | "kindle"): string {
 function classifyRuleSelector(selector: string): {
   bodyLike: boolean;
   mediaOnly: boolean;
+  semanticAlignOnly: boolean;
 } {
   let bodyLike = false;
   let mediaOnly = false;
+  let semanticAlignOnly = false;
   selectorParser((selectors) => {
     mediaOnly = selectors.nodes.length > 0;
+    semanticAlignOnly = selectors.nodes.length > 0;
     selectors.each((item) => {
       const lastCombinator = item.nodes.findLastIndex(
         (node) => node.type === "combinator",
       );
-      const tags = item.nodes
-        .slice(lastCombinator + 1)
+      const terminalNodes = item.nodes.slice(lastCombinator + 1);
+      const tags = terminalNodes
         .filter((node) => node.type === "tag")
         .map((node) => node.value.toLowerCase());
+      const allClasses = item.nodes
+        .filter((node) => node.type === "class")
+        .map((node) => node.value.toLowerCase());
       const media = tags.some((tag) => ["img", "svg"].includes(tag));
+      const isSpecialTag = tags.some((tag) => special.has(tag));
+      const targetsRoot = tags.some((tag) => tag === "html" || tag === "body");
+      const hasSemanticAlignClass = allClasses.some((cls) =>
+        semanticAlignClasses.has(cls),
+      );
       mediaOnly &&= media;
-      if (!media && !tags.some((tag) => special.has(tag))) bodyLike = true;
+      semanticAlignOnly &&=
+        isSpecialTag || (!targetsRoot && hasSemanticAlignClass);
+      if (!media && !isSpecialTag) bodyLike = true;
     });
   }).processSync(selector);
-  return { bodyLike, mediaOnly };
+  return { bodyLike, mediaOnly, semanticAlignOnly };
 }
 
 function lintDeclValueFunctions(
@@ -102,10 +125,14 @@ function lintDimensionAndBodyRules(
   prop: string,
   value: string,
   line: number | undefined,
-  selectorInfo: { bodyLike: boolean; mediaOnly: boolean },
+  selectorInfo: {
+    bodyLike: boolean;
+    mediaOnly: boolean;
+    semanticAlignOnly: boolean;
+  },
   add: AddDiagnostic,
 ) {
-  const { bodyLike, mediaOnly } = selectorInfo;
+  const { bodyLike, mediaOnly, semanticAlignOnly } = selectorInfo;
   const mediaDimension =
     mediaOnly && /^(?:(?:min|max)-)?(?:width|height)$/.test(prop);
   if (
@@ -129,11 +156,16 @@ function lintDimensionAndBodyRules(
       "Fixed content height can clip reader-scaled text",
       line,
     );
+  const allowedSemanticAlign =
+    prop === "text-align" &&
+    semanticAlignOnly &&
+    ["left", "right", "center", "start", "end"].includes(value.trim());
   if (
     decl.parent?.type === "rule" &&
     bodyLike &&
     bodyOverrideProps.has(prop) &&
-    !resetKeywords.has(value)
+    !resetKeywords.has(value) &&
+    !allowedSemanticAlign
   )
     add("BODY_OVERRIDE", `Body-like selector locks ${prop}`, line);
 }
@@ -145,7 +177,7 @@ function lintDeclaration(decl: Declaration, add: AddDiagnostic) {
   const selectorInfo =
     decl.parent?.type === "rule"
       ? classifyRuleSelector(decl.parent.selector)
-      : { bodyLike: false, mediaOnly: false };
+      : { bodyLike: false, mediaOnly: false, semanticAlignOnly: false };
   // eslint-disable-next-line no-control-regex -- Reject literal control characters in untrusted CSS.
   if (/\\|[\u0000-\u001f]/.test(decl.value + decl.prop))
     add(

@@ -7,11 +7,15 @@ import {
   MarkerOrdinalSupply,
   activePlanUnits,
   assertTranslationVerified,
+  bilingualStylesheetCss,
+  buildBilingualEpub,
   canBeInlineMarker,
+  checkNotes,
   checkTranslationMerged,
   compileTranslationShardMarkdown,
   computeShardContentSha256,
   createTranslationPlan,
+  deriveBilingualUuid,
   findMarkers,
   initTranslationShards,
   isTranslationMode,
@@ -20,9 +24,11 @@ import {
   mergeTranslationShards,
   partitionEpubForTranslation,
   reconcileMarkers,
+  renderBilingualEpub,
   resolveBodyElementPath,
   resolveRelativeElementPath,
   splitOnMarkers,
+  validateInternal,
   validateLedgerRowState,
   validateTranslationShard,
   verifyTranslationRecords,
@@ -32,6 +38,7 @@ import {
   type TranslationShardFile,
   type TranslationVerificationFile,
 } from "../packages/core/src/index.js";
+import { lintCss } from "../packages/core/src/css.js";
 import { inspectBytes } from "../packages/core/src/epub.js";
 import { sha256 } from "../packages/core/src/hash.js";
 import { json, readJson } from "../packages/core/src/json.js";
@@ -776,5 +783,407 @@ describe("Translation sharding, Markdown/JSON round-trip, QA signals, verifier s
     ]);
     expect(strayFlag.exitCode).toBe(1);
     expect(JSON.parse(strayFlag.stdout).code).toBe("ARGUMENT_CONFLICT");
+  }, 60_000);
+});
+
+describe("Bilingual EPUB write-back builder, lintCss styling, and CLI translate-build", () => {
+  it("produces lintCss-compliant bilingual stylesheets and deterministic distinct UUIDv5 identities", () => {
+    expect(
+      lintCss(bilingualStylesheetCss("paired"), "bilingual.css").status,
+    ).toBe("pass");
+    expect(
+      lintCss(bilingualStylesheetCss("plain"), "bilingual.css").status,
+    ).toBe("pass");
+    const id1 = deriveBilingualUuid("urn:uuid:abc", "zh-Hans", "bilingual");
+    const id2 = deriveBilingualUuid("urn:uuid:abc", "zh-Hans", "bilingual");
+    const idTargetOnly = deriveBilingualUuid(
+      "urn:uuid:abc",
+      "zh-Hans",
+      "target-only",
+    );
+    const idJa = deriveBilingualUuid("urn:uuid:abc", "ja", "bilingual");
+    expect(id1).toBe(id2);
+    expect(id1).toMatch(/^urn:uuid:[0-9a-f-]{36}$/);
+    expect(id1).not.toBe("urn:uuid:abc");
+    expect(id1).not.toBe(idTargetOnly);
+    expect(id1).not.toBe(idJa);
+  });
+
+  it("builds verified bilingual and target-only EPUB 3.3 books with unique IDs, restored markers, restricted models, and passes EPUBCheck + reading QA", async () => {
+    const root = await makeTempDir();
+    const epubPath = path.join(root, "source.epub");
+    const sourceBytes = buildSampleEpub();
+    await fs.writeFile(epubPath, sourceBytes);
+
+    const buildWorkflow = async (mode: "bilingual" | "target-only") => {
+      const subDir = path.join(root, mode);
+      await fs.mkdir(subDir, { recursive: true });
+      const planPath = path.join(subDir, "plan.json");
+      await createTranslationPlan(epubPath, planPath, {
+        targetLanguage: "zh-Hans",
+        mode,
+        autoClassify: true,
+        tokenBudget: 300,
+      });
+      const plan = await readJson<TranslationPlan>(planPath);
+      const shardsDir = path.join(subDir, "shards");
+      const initRes = await initTranslationShards(planPath, shardsDir, {
+        format: "md",
+      });
+      const unitById = new Map(plan.units.map((u) => [u.id, u]));
+      for (const [idx, s] of initRes.shards.entries()) {
+        let md = await fs.readFile(s.file, "utf8");
+        md = md.replace(
+          'translatedBy: ""',
+          `translatedBy: "worker-${idx + 1}"`,
+        );
+        md = md.replace(
+          /^(:{3,})target\{id="([^"]+)"\}\n\1$/gmu,
+          (_, fence: string, uid: string) => {
+            const unit = unitById.get(uid)!;
+            const markers = unit.markers.map((m) => m.token).join(" ");
+            const text = `中文译文（${uid}）${markers ? ` ${markers}` : ""}。`;
+            return `${fence}target{id="${uid}"}\n${text}\n${fence}`;
+          },
+        );
+        await fs.writeFile(s.file, md, "utf8");
+      }
+      const mergedPath = path.join(subDir, "merged.json");
+      await mergeTranslationShards(planPath, shardsDir, mergedPath);
+      const merged = await readJson<TranslationMergedFile>(mergedPath);
+      const verPath = path.join(subDir, "verification.json");
+      const ver: TranslationVerificationFile = {
+        schemaVersion: BILINGUAL_SCHEMA_VERSION,
+        kind: "quillbind-translation-verification",
+        sourceSha256: merged.sourceSha256,
+        planSha256: merged.planSha256,
+        verifierId: "verifier-qa",
+        verifiedAt: "2026-11-28T00:00:00Z",
+        shards: merged.shards.map((s) => ({
+          shardId: s.shardId,
+          translatedBy: s.translatedBy,
+          verifiedBy: "verifier-qa",
+          contentSha256: s.contentSha256,
+          status: "verified",
+          unresolved: [],
+        })),
+      };
+      await json(verPath, ver);
+      const outPath = path.join(subDir, `out-${mode}.epub`);
+      const res = await buildBilingualEpub(epubPath, outPath, {
+        plan: planPath,
+        translations: mergedPath,
+        verification: verPath,
+        style: "paired",
+      });
+      return { res, outPath, planPath, mergedPath, verPath, plan, merged, ver };
+    };
+
+    // 1. Bilingual mode
+    const bi = await buildWorkflow("bilingual");
+    expect(bi.res.status).toBe("pass");
+    expect(bi.res.reproducible).toBe(true);
+    expect(bi.res.bilingualStylesheet).toBe("EPUB/quillbind-bilingual.css");
+    expect(await fs.readFile(epubPath)).toEqual(sourceBytes);
+
+    const biBytes = await fs.readFile(bi.outPath);
+    const biInternal = validateInternal(biBytes);
+    expect(
+      biInternal.diagnostics.filter((d) =>
+        [
+          "DUPLICATE_ID",
+          "FOOTNOTE_BACKLINK",
+          "MANIFEST_MISSING",
+          "UNMANIFESTED_RESOURCE",
+          "BODY_OVERRIDE",
+        ].includes(d.code),
+      ),
+    ).toEqual([]);
+    const biInfo = inspectBytes(biBytes, true);
+    expect(
+      lintCss(
+        biInfo.entries.get("EPUB/quillbind-bilingual.css")!.bytes.toString(),
+        "EPUB/quillbind-bilingual.css",
+      ).status,
+    ).toBe("pass");
+    const biOpf = biInfo.entries.get("EPUB/package.opf")!.bytes.toString();
+    expect(biOpf).toContain(bi.res.derivedIdentifier);
+    expect(biOpf).toContain(
+      "<dc:source>urn:uuid:11111111-2222-4333-8444-555555555555</dc:source>",
+    );
+    expect(biOpf).toContain("<dc:language>en</dc:language>");
+    expect(biOpf).toContain("<dc:language>zh-Hans</dc:language>");
+    expect(biOpf).toContain("quillbind-bilingual.css");
+
+    const biCh1 = biInfo.entries
+      .get("EPUB/text/ch-001.xhtml")!
+      .bytes.toString();
+    expect(biCh1).toContain("../quillbind-bilingual.css");
+    // Original prose keeps id="p1" and gets quillbind-source; sibling translation has lang="zh-Hans" and NO duplicate id
+    expect(biCh1).toContain('id="p1" class="quillbind-source"');
+    expect(biCh1).toContain('class="quillbind-translation" lang="zh-Hans"');
+    expect(biCh1.split('id="p1"').length - 1).toBe(1);
+    expect(biCh1.split('id="ref-1"').length - 1).toBe(1);
+    // Cloned translation restores inline code, footnote link (without duplicate noteref role), and image
+    expect(biCh1.split("<code>Ctrl+C</code>").length - 1).toBe(2);
+    expect(biCh1.split('href="#fn-1"').length - 1).toBe(2);
+    // Restricted elements use inline <br/><span class="quillbind-translation">
+    expect(biCh1).toContain(
+      '<h1 id="ch1">Chapter 1: Morning in the Valley<br/><span class="quillbind-translation"',
+    );
+    expect(biCh1).toContain(
+      '<figcaption>Figure 1.1 Valley cross-section<br/><span class="quillbind-translation"',
+    );
+    expect(biCh1).toContain(
+      '<td>Elevation<br/><span class="quillbind-translation"',
+    );
+    // Skipped folio <h3>190</h3> untouched
+    expect(biCh1).toContain('<h3 class="folio">190</h3>');
+
+    const biNav = biInfo.entries.get("EPUB/nav.xhtml")!.bytes.toString();
+    expect(biNav).toContain(
+      'Chapter 1: Morning in the Valley<br/><span class="quillbind-translation"',
+    );
+
+    // Bidirectional footnote round-trip still passes checkNotes cleanly
+    const noteReport = await checkNotes(bi.outPath);
+    expect(noteReport.notes.issues).toEqual([]);
+
+    // 2. Target-only mode
+    const to = await buildWorkflow("target-only");
+    expect(to.res.status).toBe("pass");
+    expect(to.res.bilingualStylesheet).toBeUndefined();
+    const toBytes = await fs.readFile(to.outPath);
+    expect(
+      validateInternal(toBytes).diagnostics.filter((d) =>
+        [
+          "DUPLICATE_ID",
+          "FOOTNOTE_BACKLINK",
+          "MANIFEST_MISSING",
+          "UNMANIFESTED_RESOURCE",
+          "BODY_OVERRIDE",
+        ].includes(d.code),
+      ),
+    ).toEqual([]);
+    const toInfo = inspectBytes(toBytes, true);
+    const toOpf = toInfo.entries.get("EPUB/package.opf")!.bytes.toString();
+    expect(toOpf).toContain("<dc:language>zh-Hans</dc:language>");
+    const toCh1 = toInfo.entries
+      .get("EPUB/text/ch-001.xhtml")!
+      .bytes.toString();
+    expect(toCh1).not.toContain("Morning in the Valley");
+    expect(toCh1).toContain('id="p1"');
+    expect(toCh1).toContain('id="ref-1"');
+    expect(toCh1).toContain("<code>Ctrl+C</code>");
+
+    // 3. CLI `epub translate-build` with --style plain + error guards
+    const cli = path.join(repoRoot, "packages/cli/src/index.ts");
+    const invoke = (args: string[]) =>
+      run(process.execPath, ["--import", "tsx", cli, ...args], {
+        cwd: repoRoot,
+      });
+    const cliOut = path.join(root, "cli-bilingual.epub");
+    const cliBuild = await invoke([
+      "epub",
+      "translate-build",
+      epubPath,
+      "--plan",
+      bi.planPath,
+      "--translations",
+      bi.mergedPath,
+      "--verification",
+      bi.verPath,
+      "--style",
+      "plain",
+      "--output",
+      cliOut,
+      "--json",
+    ]);
+    expect(cliBuild.exitCode, cliBuild.stdout + cliBuild.stderr).toBe(0);
+    const cliPayload = JSON.parse(cliBuild.stdout) as {
+      status: string;
+      style: string;
+      outputSha256: string;
+      reports: string;
+    };
+    expect(cliPayload.status).toBe("pass");
+    expect(cliPayload.style).toBe("plain");
+    expect(sha256(await fs.readFile(cliOut))).toBe(cliPayload.outputSha256);
+    const savedRep = await readJson<typeof cliPayload>(
+      path.join(cliPayload.reports, "translation.json"),
+    );
+    expect(savedRep.outputSha256).toBe(cliPayload.outputSha256);
+
+    const badStyle = await invoke([
+      "epub",
+      "translate-build",
+      epubPath,
+      "--plan",
+      bi.planPath,
+      "--translations",
+      bi.mergedPath,
+      "--verification",
+      bi.verPath,
+      "--style",
+      "neon",
+      "--output",
+      path.join(root, "bad-style.epub"),
+      "--json",
+    ]);
+    expect(badStyle.exitCode).toBe(1);
+    expect(JSON.parse(badStyle.stdout).code).toBe("ARGUMENT_CONFLICT");
+
+    // Self-approved verification rejected by renderBilingualEpub
+    const selfVer: TranslationVerificationFile = {
+      ...bi.ver,
+      verifierId: bi.merged.shards[0].translatedBy,
+    };
+    expect(() =>
+      renderBilingualEpub(sourceBytes, bi.plan, bi.merged, {
+        planSha256: bi.merged.planSha256,
+        verification: selfVer,
+      }),
+    ).toThrow(/cannot be verified by its translator/);
+  }, 120_000);
+
+  it("synchronizes EPUB 2 NCX dtb:uid and navLabels while clearing stale opf:scheme on derived identifiers", async () => {
+    const root = await makeTempDir();
+    const epub2Path = path.join(root, "epub2-source.epub");
+    const entries = new Map<string, Uint8Array>([
+      ["mimetype", Buffer.from("application/epub+zip", "utf8")],
+      [
+        "META-INF/container.xml",
+        Buffer.from(
+          `<?xml version="1.0" encoding="UTF-8"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
+  </rootfiles>
+</container>`,
+          "utf8",
+        ),
+      ],
+      [
+        "OEBPS/content.opf",
+        Buffer.from(
+          `<?xml version="1.0" encoding="UTF-8"?>
+<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="BookId">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
+    <dc:identifier id="BookId" opf:scheme="ISBN">9780123456789</dc:identifier>
+    <dc:title>Legacy Reader</dc:title>
+    <dc:creator>Ada Lovelace</dc:creator>
+    <dc:language>en</dc:language>
+  </metadata>
+  <manifest>
+    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
+    <item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/>
+  </manifest>
+  <spine toc="ncx">
+    <itemref idref="ch1"/>
+  </spine>
+</package>`,
+          "utf8",
+        ),
+      ],
+      [
+        "OEBPS/toc.ncx",
+        Buffer.from(
+          `<?xml version="1.0" encoding="UTF-8"?>
+<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
+  <head>
+    <meta name="dtb:uid" content="9780123456789"/>
+    <meta name="dtb:depth" content="1"/>
+    <meta name="dtb:totalPageCount" content="0"/>
+    <meta name="dtb:maxPageNumber" content="0"/>
+  </head>
+  <docTitle><text>Legacy Reader</text></docTitle>
+  <navMap>
+    <navPoint id="np-1" playOrder="1">
+      <navLabel><text>Opening Chapter</text></navLabel>
+      <content src="ch1.xhtml"/>
+    </navPoint>
+  </navMap>
+</ncx>`,
+          "utf8",
+        ),
+      ],
+      [
+        "OEBPS/ch1.xhtml",
+        Buffer.from(
+          `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en">
+  <head><title>Opening Chapter</title></head>
+  <body>
+    <h1>Opening Chapter</h1>
+    <p>An analytical engine weaves algebraic patterns.</p>
+  </body>
+</html>`,
+          "utf8",
+        ),
+      ],
+    ]);
+    await fs.writeFile(epub2Path, pack(entries, 946684800));
+
+    const planPath = path.join(root, "plan.json");
+    await createTranslationPlan(epub2Path, planPath, {
+      targetLanguage: "zh-Hans",
+      mode: "bilingual",
+      autoClassify: true,
+    });
+    const shardsDir = path.join(root, "shards");
+    const initRes = await initTranslationShards(planPath, shardsDir, {
+      format: "json",
+    });
+    for (const s of initRes.shards) {
+      const data = await readJson<TranslationShardFile>(s.file);
+      data.translatedBy = "worker-epub2";
+      data.entries = data.entries.map((e) => ({
+        ...e,
+        translation:
+          e.sourceText === "Opening Chapter"
+            ? "开篇"
+            : "分析机能够编织代数图案。",
+      }));
+      await json(s.file, data);
+    }
+    const mergedPath = path.join(root, "merged.json");
+    await mergeTranslationShards(planPath, shardsDir, mergedPath);
+    const merged = await readJson<TranslationMergedFile>(mergedPath);
+    const verPath = path.join(root, "verification.json");
+    await json(verPath, {
+      schemaVersion: BILINGUAL_SCHEMA_VERSION,
+      kind: "quillbind-translation-verification",
+      sourceSha256: merged.sourceSha256,
+      planSha256: merged.planSha256,
+      verifierId: "verifier-epub2",
+      verifiedAt: "2026-11-28T00:00:00Z",
+      shards: merged.shards.map((s) => ({
+        shardId: s.shardId,
+        translatedBy: s.translatedBy,
+        verifiedBy: "verifier-epub2",
+        contentSha256: s.contentSha256,
+        status: "verified",
+        unresolved: [],
+      })),
+    } satisfies TranslationVerificationFile);
+
+    const outPath = path.join(root, "epub2-bilingual.epub");
+    const built = await buildBilingualEpub(epub2Path, outPath, {
+      plan: planPath,
+      translations: mergedPath,
+      verification: verPath,
+    });
+    expect(built.status).toBe("pass");
+    const outInfo = inspectBytes(await fs.readFile(outPath), true);
+    const opf = outInfo.entries.get("OEBPS/content.opf")!.bytes.toString();
+    expect(opf).toContain(built.derivedIdentifier);
+    expect(opf).not.toContain('opf:scheme="ISBN"');
+    expect(opf).toContain("<dc:source>9780123456789</dc:source>");
+    const ncx = outInfo.entries.get("OEBPS/toc.ncx")!.bytes.toString();
+    expect(ncx).toContain(
+      `<meta name="dtb:uid" content="${built.derivedIdentifier}"`,
+    );
+    expect(ncx).toContain("<text>Opening Chapter / 开篇</text>");
   }, 60_000);
 });

@@ -22,6 +22,10 @@ The converter unpacks unencrypted PalmDB `BOOKMOBI` containers natively — MOBI
 
 DRM-protected or encrypted Kindle files fail with `MOBI_ENCRYPTED`; never strip DRM. Output paths must be new `.epub` files, and the original `.mobi` or `.azw3` remains untouched. Without `--to`, the command validates the converted EPUB through internal EPUB 3.3 checks, actual EPUBCheck (`epubcheck.json`), sampled Chromium reading checks (`reading/`) and repeated-unpack byte equality, writing `<output>.reports/import.json` with `publicationReady: false` and `releaseGates: not-run`. Adding `--to <target>` runs the Chinese conversion and full publication release gates below.
 
+## Bilingual EPUB translation
+
+To translate an `.epub` into a bilingual (or explicitly requested target-only) edition without external API keys — using coverage-complete DOM partitioning, atomic inline markers, `coordinator`-reviewed classification ledgers, dedicated `worker` subagent shards, independent `verifier` sign-off, and `lintCss`-compliant styling — follow [bilingual EPUB translation](bilingual-translation.md) and [parallel subagent workflow](parallel-workflow.md).
+
 ## Chinese script and regional vocabulary
 
 Use `build <book-directory> --to simplified|traditional|china|taiwan|hongkong --json` for Markdown. Optional `conversion.target` in `book.yaml` persists the choice; `--to` wins. `preview` accepts the same options for a single-render author candidate. Existing EPUB 3, MOBI or AZW3 files use `epub convert <source.epub|source.mobi|source.azw3> --to <target> --output <new.epub> --json`. Run through the skill helper; check `doctor` before release work. EPUB 2 needs a publication repair upgrade first.

@@ -47,11 +47,13 @@ import {
   convertPdfToEpub,
   repairScannedPdf,
   isTranslationMode,
+  isTranslationStyle,
   createTranslationPlan,
   initTranslationShards,
   validateTranslationShard,
   mergeTranslationShards,
   checkTranslationMerged,
+  buildBilingualEpub,
   enrichEpub,
   packageManga,
   checkNotes,
@@ -115,6 +117,7 @@ const HELP = [
   "quillbind epub translate-validate-shard <shard-file-or-dir> [--plan PLAN.json]",
   "quillbind epub translate-merge <plan.json> --shards <paths> --output <merged.json>",
   "quillbind epub translate-check <merged.json> [--plan PLAN.json] [--glossary GLOSSARY.json] [--verification VERIFICATION.json]",
+  "quillbind epub translate-build <source.epub> --plan <plan.json> --translations <merged.json> --verification <verification.json> --output <bilingual.epub> [--style paired|plain] [--reports DIR] [--release]",
   "quillbind pdf inspect <file.pdf> [--pages RANGE] [--shard-size N | --token-budget N] [--render-dir DIR] [--dpi N] [--tiles]",
   "quillbind pdf init-spec <file.pdf> --output SPEC.json [--theme literature|technical] [--pages RANGE] [--shard-size N | --token-budget N] [--render-dir DIR] [--dpi N] [--tiles] [--assets-dir DIR]",
   "quillbind pdf shard-init <base-spec.json> --output SHARDS_DIR [--format md|json] [--render-manifest MANIFEST.json]",
@@ -207,6 +210,8 @@ try {
       "exclude-docs": { type: "string" },
       "auto-classify": { type: "boolean" },
       glossary: { type: "string" },
+      translations: { type: "string" },
+      style: { type: "string" },
     },
   });
   jsonMode = !!values.json;
@@ -297,6 +302,8 @@ try {
       values["exclude-docs"],
       values["auto-classify"],
       values.glossary,
+      values.translations,
+      values.style,
     ].some((value) => value !== undefined)
   )
     fail(
@@ -317,13 +324,13 @@ try {
   if (
     command !== "pdf" &&
     !isEpubTranslate &&
-    [values["token-budget"], values.format, values.shards].some(
+    [values["token-budget"], values.format, values.shards, values.release].some(
       (value) => value !== undefined,
     )
   )
     fail(
       "ARGUMENT_CONFLICT",
-      "--token-budget, --format and --shards are supported by pdf and epub translate-* commands only",
+      "--token-budget, --format, --shards and --release are supported by pdf and epub translate-* commands only",
     );
   if (
     command !== "pdf" &&
@@ -341,7 +348,6 @@ try {
       values.upscale,
       values["verify-against"],
       values.backup,
-      values.release,
     ].some((value) => value !== undefined)
   )
     fail("ARGUMENT_CONFLICT", "PDF options are supported by pdf commands only");
@@ -957,6 +963,26 @@ try {
             glossary: values.glossary,
             verification: values.verification,
           });
+        } else if (subcommand === "translate-build") {
+          const parsedStyle =
+            values.style === undefined
+              ? undefined
+              : isTranslationStyle(values.style)
+                ? values.style
+                : fail("ARGUMENT_CONFLICT", "--style must be paired or plain");
+          output = await buildBilingualEpub(
+            file,
+            required(values.output, "--output"),
+            {
+              plan: required(values.plan, "--plan"),
+              translations: required(values.translations, "--translations"),
+              verification: required(values.verification, "--verification"),
+              style: parsedStyle,
+              reports: values.reports,
+              release: values.release,
+              signal: abort.signal,
+            },
+          );
         } else fail("COMMAND_UNKNOWN", "Unknown EPUB operation");
         break;
       }

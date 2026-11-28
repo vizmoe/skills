@@ -11,10 +11,12 @@ import {
 } from "./tag-vocabulary.ts";
 import {
   readBibliographyRules,
+  readBilingualTranslationRules,
   readDeliveryRules,
   readNamingRules,
   readPdfRules,
   type BibliographyRules,
+  type BilingualTranslationRules,
   type DeliveryStatusRule,
   type NamingRules,
   type PdfRules,
@@ -1235,6 +1237,211 @@ async function auditItemPdfEvidence(
   return issues;
 }
 
+async function auditTranslationVerificationEvidence(
+  verPath: unknown,
+  label: string,
+  expectedSourceSha: string | undefined,
+  expectedPlanSha: string | undefined,
+  expectedVerSha: string | undefined,
+): Promise<AuditIssue[]> {
+  if (typeof verPath !== "string") {
+    return [{ code: "TRANSLATION_VERIFICATION_MISSING", item: label }];
+  }
+  const loaded = await readEvidenceJson(verPath);
+  if (!loaded.ok) {
+    return [
+      {
+        code: "TRANSLATION_VERIFICATION_INVALID",
+        item: label,
+        path: verPath,
+      },
+    ];
+  }
+  const issues: AuditIssue[] = [];
+  if (expectedVerSha && loaded.sha256 !== expectedVerSha) {
+    issues.push({
+      code: "TRANSLATION_VERIFICATION_HASH_MISMATCH",
+      item: label,
+      path: verPath,
+    });
+  }
+  const ver = loaded.value;
+  if (
+    ver.kind !== "quillbind-translation-verification" ||
+    typeof ver.verifierId !== "string" ||
+    !ver.verifierId.trim() ||
+    !Array.isArray(ver.shards) ||
+    ver.shards.length === 0
+  ) {
+    issues.push({
+      code: "TRANSLATION_VERIFICATION_INVALID",
+      item: label,
+      path: verPath,
+    });
+    return issues;
+  }
+  if (expectedSourceSha && ver.sourceSha256 !== expectedSourceSha) {
+    issues.push({
+      code: "TRANSLATION_VERIFICATION_SOURCE_MISMATCH",
+      item: label,
+      path: verPath,
+    });
+  }
+  if (expectedPlanSha && ver.planSha256 !== expectedPlanSha) {
+    issues.push({
+      code: "TRANSLATION_VERIFICATION_PLAN_MISMATCH",
+      item: label,
+      path: verPath,
+    });
+  }
+  for (const rawShard of ver.shards) {
+    if (!object(rawShard)) {
+      issues.push({
+        code: "TRANSLATION_VERIFICATION_INVALID",
+        item: label,
+        path: verPath,
+      });
+      continue;
+    }
+    const shardId =
+      typeof rawShard.shardId === "string" ? rawShard.shardId : "unknown";
+    if (
+      typeof rawShard.translatedBy === "string" &&
+      (rawShard.verifiedBy === rawShard.translatedBy ||
+        ver.verifierId === rawShard.translatedBy)
+    ) {
+      issues.push({
+        code: "TRANSLATION_SELF_APPROVAL_FORBIDDEN",
+        item: label,
+        shardId,
+      });
+    }
+    if (rawShard.status !== "verified") {
+      issues.push({
+        code: "TRANSLATION_SHARD_UNVERIFIED",
+        item: label,
+        shardId,
+      });
+    }
+    if (Array.isArray(rawShard.unresolved) && rawShard.unresolved.length > 0) {
+      issues.push({
+        code: "TRANSLATION_UNRESOLVED_ITEMS",
+        item: label,
+        shardId,
+      });
+    }
+  }
+  return issues;
+}
+
+async function auditItemTranslationEvidence(
+  item: Record<string, unknown>,
+  sourceObj: Record<string, unknown>,
+  label: string,
+  translationRules: BilingualTranslationRules,
+): Promise<AuditIssue[]> {
+  const issues: AuditIssue[] = [];
+  const expectedSourceSha =
+    typeof sourceObj.sha256 === "string" ? sourceObj.sha256 : undefined;
+  const finalObj = object(item.final) ? item.final : null;
+  const expectedFinalSha =
+    typeof finalObj?.sha256 === "string" ? finalObj.sha256 : undefined;
+
+  if (
+    item.bilingualTranslation !== undefined &&
+    typeof item.translationReport !== "string"
+  ) {
+    issues.push({
+      code: "TRANSLATION_EVIDENCE_REPORT_MISSING",
+      item: label,
+      role: "translationReport",
+    });
+  }
+  if (typeof item.translationReport !== "string") {
+    if (item.translationVerificationReport !== undefined) {
+      issues.push(
+        ...(await auditTranslationVerificationEvidence(
+          item.translationVerificationReport,
+          label,
+          expectedSourceSha,
+          undefined,
+          undefined,
+        )),
+      );
+    }
+    return issues;
+  }
+
+  const loaded = await readEvidenceJson(item.translationReport);
+  if (!loaded.ok) {
+    issues.push({
+      code: "TRANSLATION_EVIDENCE_INVALID",
+      item: label,
+      path: item.translationReport,
+    });
+    return issues;
+  }
+  const rep = loaded.value;
+  if (rep.operation !== "epub-translate-build" || rep.status !== "pass") {
+    issues.push({
+      code: "TRANSLATION_EVIDENCE_INVALID",
+      item: label,
+      path: item.translationReport,
+    });
+  }
+  if (expectedSourceSha && rep.sourceSha256 !== expectedSourceSha) {
+    issues.push({
+      code: "TRANSLATION_REPORT_SOURCE_MISMATCH",
+      item: label,
+      path: item.translationReport,
+    });
+  }
+  if (expectedFinalSha && rep.outputSha256 !== expectedFinalSha) {
+    issues.push({
+      code: "TRANSLATION_REPORT_OUTPUT_MISMATCH",
+      item: label,
+      path: item.translationReport,
+    });
+  }
+  const outDisk = await verifyDiskFileSha256(rep.output, rep.outputSha256);
+  if (outDisk !== "ok") {
+    issues.push({
+      code: "TRANSLATION_REPORT_OUTPUT_MISMATCH",
+      item: label,
+      path: item.translationReport,
+      reason: outDisk,
+    });
+  }
+  if (rep.reproducible !== true) {
+    issues.push({ code: "TRANSLATION_NOT_REPRODUCIBLE", item: label });
+  }
+  const valObj = object(rep.validation) ? rep.validation : null;
+  if (valObj?.status !== "pass") {
+    issues.push({ code: "TRANSLATION_VALIDATION_FAILED", item: label });
+  }
+  const verObj = object(rep.verification) ? rep.verification : null;
+  const expectedVerSha =
+    verObj && typeof verObj.verificationFileSha256 === "string"
+      ? verObj.verificationFileSha256
+      : undefined;
+  const expectedPlanSha =
+    typeof rep.planSha256 === "string" ? rep.planSha256 : undefined;
+  if (
+    translationRules.rules["independent-verification"] === "verifier-required"
+  ) {
+    issues.push(
+      ...(await auditTranslationVerificationEvidence(
+        item.translationVerificationReport,
+        label,
+        expectedSourceSha,
+        expectedPlanSha,
+        expectedVerSha,
+      )),
+    );
+  }
+  return issues;
+}
+
 async function auditDeliveryItem(
   rawItem: unknown,
   index: number,
@@ -1242,6 +1449,7 @@ async function auditDeliveryItem(
   statusRule: DeliveryStatusRule | undefined,
   bibRules: BibliographyRules,
   pdfRules: PdfRules,
+  translationRules: BilingualTranslationRules,
 ): Promise<AuditIssue[]> {
   const sourceObj =
     object(rawItem) && object(rawItem.source) ? rawItem.source : null;
@@ -1265,17 +1473,25 @@ async function auditDeliveryItem(
     ...auditItemEditionClass(rawItem, label, bibRules),
     ...auditItemSynopsis(rawItem, label),
     ...(await auditItemPdfEvidence(rawItem, sourceObj, label, pdfRules)),
+    ...(await auditItemTranslationEvidence(
+      rawItem,
+      sourceObj,
+      label,
+      translationRules,
+    )),
   );
   return issues;
 }
 
 async function auditDelivery(reportPath: string, beforePath?: string) {
-  const [bibRules, deliveryRules, pdfRules, reportInput] = await Promise.all([
-    readBibliographyRules(),
-    readDeliveryRules(),
-    readPdfRules(),
-    readInput(reportPath),
-  ]);
+  const [bibRules, deliveryRules, pdfRules, translationRules, reportInput] =
+    await Promise.all([
+      readBibliographyRules(),
+      readDeliveryRules(),
+      readPdfRules(),
+      readBilingualTranslationRules(),
+      readInput(reportPath),
+    ]);
   const report = reportInput.value;
   check(
     object(report) &&
@@ -1307,6 +1523,7 @@ async function auditDelivery(reportPath: string, beforePath?: string) {
         statusRule,
         bibRules,
         pdfRules,
+        translationRules,
       ),
     ),
   );

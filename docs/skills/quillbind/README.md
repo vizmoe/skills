@@ -1,6 +1,6 @@
 # Quillbind
 
-以书库受控词表管理标签，将元数据直接写入 EPUB 或 CBZ 的 `ComicInfo.xml`。轻小说和漫画使用 BookWalker 专用流程（含候选检索与版本锁），中日英普通图书采用“出版社官方版本页 + 公共书目目录 + 已核实版本级书目/书店页”三级来源体系；同时支持文字版/扫描版/混合版 PDF 转流式横排单列 EPUB 3.3（含页面切片、按页 Markdown 分片精校、独立核验记录、跨页断句缝合、原生 MathML 公式、复杂语义表格与确定性非重绘图像修复）以及扫描版 PDF 增量更新 OCR 文字层/书签修复（基于已核验校对正文与读回校验）、Markdown/网站小说构建 EPUB、已有 EPUB 检查修复、EPUB/MOBI/AZW3 合订本拆分为独立单卷、MOBI/AZW3 转 EPUB、中文繁简转换、扫图打包为无损 JXL CBZ，并支持通过与特定代理无关的 `coordinator` / `worker` / `verifier` subagent 体系并行加速具清晰隔离边界的任务（见[并行 subagent 工作流](../../../skills/quillbind/references/parallel-workflow.md)与 [PDF 转换指南](../../../skills/quillbind/references/pdf.md)）。代理执行入口是 [SKILL.md](../../../skills/quillbind/SKILL.md)。
+以书库受控词表管理标签，将元数据直接写入 EPUB 或 CBZ 的 `ComicInfo.xml`。轻小说和漫画使用 BookWalker 专用流程（含候选检索与版本锁），中日英普通图书采用“出版社官方版本页 + 公共书目目录 + 已核实版本级书目/书店页”三级来源体系；同时支持文字版/扫描版/混合版 PDF 转流式横排单列 EPUB 3.3（含页面切片、按页 Markdown 分片精校、独立核验记录、跨页断句缝合、原生 MathML 公式、复杂语义表格与确定性非重绘图像修复）以及扫描版 PDF 增量更新 OCR 文字层/书签修复（基于已核验校对正文与读回校验）、**无外部 API Key 的双语 EPUB 翻译**（覆盖完整 DOM 分区、内联原子标记、签名分类账本、`worker` subagent 分片翻译、独立 `verifier` 核验与合规双语样式，见[双语 EPUB 翻译指南](../../../skills/quillbind/references/bilingual-translation.md)）、Markdown/网站小说构建 EPUB、已有 EPUB 检查修复、EPUB/MOBI/AZW3 合订本拆分为独立单卷、MOBI/AZW3 转 EPUB、中文繁简转换、扫图打包为无损 JXL CBZ，并支持通过与特定代理无关的 `coordinator` / `worker` / `verifier` subagent 体系并行加速具清晰隔离边界的任务（见[并行 subagent 工作流](../../../skills/quillbind/references/parallel-workflow.md)与 [PDF 转换指南](../../../skills/quillbind/references/pdf.md)）。代理执行入口是 [SKILL.md](../../../skills/quillbind/SKILL.md)。
 
 ## 安装与运行条件
 
@@ -22,6 +22,7 @@ $quillbind 这本书是没有正式书号的自制录入本，按书名、作者
 $quillbind 按书库标签维护所选 CBZ 的 ComicInfo.xml 和 EPUB 内嵌元数据，保留图片、页序、正文和非目标字段，不修改 Calibre 数据库。
 $quillbind 检查 /absolute/path/to/book.epub，报告问题并保留源文件。
 $quillbind 将 /absolute/path/to/book.azw3 转换为 /absolute/path/to/book.epub，验证 EPUBCheck 与阅读检查并保留原文件。
+$quillbind 将 /absolute/path/to/english-book.epub 翻译为中英双语版 /absolute/path/to/book-bilingual.epub（不使用外部 API Key，通过 subagent 分片翻译并由独立 verifier 核验后生成校验）。
 $quillbind 将 /absolute/path/to/anthology.epub（或 .mobi/.azw3 合订本）按实际目录与正文边界拆成独立单卷 EPUB，核对单卷元数据、章节覆盖、资源和脚注，保留原套书。
 $quillbind 验证 /absolute/path/to/book.epub 的脚本弹窗注释，检查打开、关闭和返回，保留原件。
 $quillbind 将 /absolute/path/to/manuscript 中的 Markdown 制作为 EPUB。

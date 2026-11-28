@@ -134,6 +134,13 @@ export {
   checkTranslationMerged,
 } from "./bilingual-shard.js";
 export {
+  bilingualStylesheetCss,
+  deriveBilingualUuid,
+  renderBilingualEpub,
+  buildBilingualEpub,
+} from "./bilingual-build.js";
+export type { BilingualRenderResult } from "./bilingual-build.js";
+export {
   conversionTarget,
   conversionTargets,
   zhconvertNotice,
@@ -184,6 +191,7 @@ export const formats = {
     "translate-validate-shard",
     "translate-merge",
     "translate-check",
+    "translate-build",
   ],
 } as const;
 

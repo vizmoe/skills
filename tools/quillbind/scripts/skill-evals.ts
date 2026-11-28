@@ -9,10 +9,14 @@ import { promisify } from "node:util";
 import zlib from "node:zlib";
 import sharp from "sharp";
 import {
+  BILINGUAL_SCHEMA_VERSION,
   PDF_SPEC_SCHEMA_VERSION,
   computePageContentSha256,
   type PdfSpec,
   type PdfVerificationFile,
+  type TranslationMergedFile,
+  type TranslationPlan,
+  type TranslationVerificationFile,
 } from "../packages/core/src/index.js";
 import { noteFixture } from "../tests/note-fixture.js";
 
@@ -703,6 +707,195 @@ async function runReleaseHandoffScenario(
   return true;
 }
 
+async function runBilingualTranslationScenario(
+  ctx: ScenarioContext,
+): Promise<boolean> {
+  // Build a real EPUB 3.3 book via `preview`, then run the full zero-API-key bilingual workflow.
+  await ctx.prepare();
+  const prev = await ctx.invoke(["preview", ctx.output]);
+  const srcEpub = prev.candidate.path as string;
+  const srcBefore = sha256(await fs.readFile(srcEpub));
+
+  const planPath = path.join(ctx.root, "translation-plan.json");
+  const planOut = await ctx.invoke([
+    "epub",
+    "translate-plan",
+    srcEpub,
+    "--target-lang",
+    "zh-Hans",
+    "--output",
+    planPath,
+  ]);
+  assert.equal(planOut.status, "pass");
+  assert.ok(planOut.undecidedSignatures > 0);
+
+  // Undecided plan MUST be blocked from shard-init
+  const blockedShard = await ctx.invoke(
+    [
+      "epub",
+      "translate-shard-init",
+      planPath,
+      "--output",
+      path.join(ctx.root, "blocked-shards"),
+    ],
+    1,
+  );
+  assert.equal(blockedShard.code, "TRANSLATION_PLAN_UNDECIDED");
+
+  // Coordinator classifies every signature against samples
+  const plan = await readJson<TranslationPlan>(planPath);
+  for (const row of plan.ledger) {
+    row.action = row.key.endsWith(" #num") ? "skip" : "translate";
+    row.decidedBy = "agent";
+    row.contentType = row.key.endsWith(" #num")
+      ? "folio-number"
+      : "book-content";
+  }
+  await json(planPath, plan);
+
+  const shardsDir = path.join(ctx.root, "shards");
+  const shardInit = await ctx.invoke([
+    "epub",
+    "translate-shard-init",
+    planPath,
+    "--format",
+    "md",
+    "--output",
+    shardsDir,
+  ]);
+  assert.equal(shardInit.status, "pass");
+
+  // Worker subagents fill per-shard Markdown files preserving inline markers
+  const unitById = new Map(plan.units.map((u) => [u.id, u]));
+  for (const [idx, s] of (shardInit.shards as { file: string }[]).entries()) {
+    let md = await fs.readFile(s.file, "utf8");
+    md = md.replace(
+      'translatedBy: ""',
+      `translatedBy: "worker-eval-${idx + 1}"`,
+    );
+    md = md.replace(
+      /^(:{3,})target\{id="([^"]+)"\}\n\1$/gmu,
+      (_, fence: string, uid: string) => {
+        const unit = unitById.get(uid)!;
+        const markers = unit.markers.map((m) => m.token).join(" ");
+        return `${fence}target{id="${uid}"}\n中文双语译文（${uid}）${markers ? ` ${markers}` : ""}。\n${fence}`;
+      },
+    );
+    await fs.writeFile(s.file, md, "utf8");
+  }
+
+  const valOut = await ctx.invoke([
+    "epub",
+    "translate-validate-shard",
+    shardsDir,
+    "--plan",
+    planPath,
+  ]);
+  assert.equal(valOut.status, "pass");
+
+  const mergedPath = path.join(ctx.root, "translations.merged.json");
+  const mergeOut = await ctx.invoke([
+    "epub",
+    "translate-merge",
+    planPath,
+    "--shards",
+    shardsDir,
+    "--output",
+    mergedPath,
+  ]);
+  assert.equal(mergeOut.status, "pass");
+  const merged = await readJson<TranslationMergedFile>(mergedPath);
+
+  // Self-approved verification MUST fail
+  const selfVerPath = path.join(ctx.root, "self-ver.json");
+  await json(selfVerPath, {
+    schemaVersion: BILINGUAL_SCHEMA_VERSION,
+    kind: "quillbind-translation-verification",
+    sourceSha256: merged.sourceSha256,
+    planSha256: merged.planSha256,
+    verifierId: merged.shards[0].translatedBy,
+    verifiedAt: "2026-11-28T00:00:00Z",
+    shards: merged.shards.map((s) => ({
+      shardId: s.shardId,
+      translatedBy: s.translatedBy,
+      verifiedBy: s.translatedBy,
+      contentSha256: s.contentSha256,
+      status: "verified",
+      unresolved: [],
+    })),
+  } satisfies TranslationVerificationFile);
+  const selfCheck = await ctx.invoke(
+    [
+      "epub",
+      "translate-check",
+      mergedPath,
+      "--plan",
+      planPath,
+      "--verification",
+      selfVerPath,
+    ],
+    1,
+  );
+  assert.equal(selfCheck.status, "fail");
+
+  // Independent verifier signs off and build passes EPUBCheck + reading QA
+  const verPath = path.join(ctx.root, "verification.json");
+  await json(verPath, {
+    schemaVersion: BILINGUAL_SCHEMA_VERSION,
+    kind: "quillbind-translation-verification",
+    sourceSha256: merged.sourceSha256,
+    planSha256: merged.planSha256,
+    verifierId: "verifier-eval",
+    verifiedAt: "2026-11-28T00:00:00Z",
+    shards: merged.shards.map((s) => ({
+      shardId: s.shardId,
+      translatedBy: s.translatedBy,
+      verifiedBy: "verifier-eval",
+      contentSha256: s.contentSha256,
+      status: "verified",
+      unresolved: [],
+    })),
+  } satisfies TranslationVerificationFile);
+  const goodCheck = await ctx.invoke([
+    "epub",
+    "translate-check",
+    mergedPath,
+    "--plan",
+    planPath,
+    "--verification",
+    verPath,
+  ]);
+  assert.equal(goodCheck.status, "pass");
+
+  const outEpub = path.join(ctx.root, "bilingual.epub");
+  const built = await ctx.invoke([
+    "epub",
+    "translate-build",
+    srcEpub,
+    "--plan",
+    planPath,
+    "--translations",
+    mergedPath,
+    "--verification",
+    verPath,
+    "--output",
+    outEpub,
+  ]);
+  assert.equal(built.status, "pass");
+  assert.equal(built.reproducible, true);
+  assert.equal(built.validation.status, "pass");
+  assert.equal(built.reading.status, "pass");
+  assert.equal(sha256(await fs.readFile(srcEpub)), srcBefore);
+
+  ctx.evidence.push(
+    "Undecided translation plan blocked before coordinator classification",
+    "Worker Markdown shards round-tripped with atomic inline markers preserved",
+    "Self-approved verification rejected; independent verifier record enabled verified bilingual EPUB build",
+    "Bilingual EPUB passed internal validation, lintCss, EPUBCheck, and sampled reading QA with source unchanged",
+  );
+  return false;
+}
+
 const scenarioHandlers: Record<
   string,
   (ctx: ScenarioContext) => Promise<boolean>
@@ -716,6 +909,7 @@ const scenarioHandlers: Record<
   "missing-validator": runMissingValidatorScenario,
   "unsupported-input": runUnsupportedInputScenario,
   "pdf-workflow": runPdfWorkflowScenario,
+  "bilingual-translation": runBilingualTranslationScenario,
   "scripted-notes": runScriptedNotesScenario,
   "release-handoff": runReleaseHandoffScenario,
 };

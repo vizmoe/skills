@@ -1,5 +1,5 @@
 import type { Element } from "@xmldom/xmldom";
-import type { EpubInspection } from "./epub.js";
+import type { EpubInspection } from "./epub-types.js";
 import { attr, elements, NS, removeNode } from "./xml.js";
 import { localTarget } from "./paths.js";
 import { sha256 } from "./hash.js";

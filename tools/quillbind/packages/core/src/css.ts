@@ -1,9 +1,8 @@
 import postcss, { type Declaration } from "postcss";
 import valueParser from "postcss-value-parser";
 import selectorParser from "postcss-selector-parser";
-import { diagnostic, result, fail } from "./errors.js";
+import { diagnostic, result, fail, type Diagnostic } from "./errors.js";
 import { APPLE, KINDLE, EPUB } from "./standards.js";
-import type { Diagnostic } from "./model.js";
 const special = new Set([
   "h1",
   "h2",

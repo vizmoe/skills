@@ -14,7 +14,7 @@ import {
   lockedMetadata,
 } from "../packages/core/src/metadata.js";
 import { initBook } from "../packages/core/src/init.js";
-import { preflightBook } from "../packages/core/src/markdown.js";
+import { preflightBook } from "../packages/core/src/preflight.js";
 import { mathml } from "../packages/core/src/math.js";
 import { json } from "../packages/core/src/json.js";
 import { xml, elements, NS } from "../packages/core/src/xml.js";

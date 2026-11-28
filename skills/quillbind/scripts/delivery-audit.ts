@@ -335,9 +335,10 @@ async function verifyNamingPlan(planPath: string, targetDir?: string) {
   check(
     object(plan) &&
       plan.schemaVersion === 1 &&
-      plan.operation === "light-novel-naming-plan" &&
+      (plan.operation === "series-naming-plan" ||
+        plan.operation === "light-novel-naming-plan") &&
       Array.isArray(plan.books),
-    "Expected a schemaVersion 1 light-novel-naming-plan JSON file",
+    "Expected a schemaVersion 1 series-naming-plan JSON file",
   );
   const books = plan.books.map(parseNamingPlanBook);
   const diskResults = await Promise.all(

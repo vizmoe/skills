@@ -131,15 +131,17 @@ The runtime's [scenario evaluation](../../../tools/quillbind/docs/skill-evaluati
 
 ## Series naming and positions
 
-| Raw material or situation                                        | Checkable result                                                                                                                  |
-| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Selected edition numbers main volumes and extras in one sequence | Those official numbers are used directly, with no `.5` and no added work-type label                                               |
-| Publisher supplies a named, numbered subseries                   | Both the subseries name and its own `(01)`, `(02)` are retained, not converted to `.5`                                            |
-| One unnumbered extra sits after main volume 6                    | Uses `(06.5)` with recorded evidence that no official number applies                                                              |
-| Several unnumbered extras share that anchor                      | All of them use `(06.5-01)`, `(06.5-02)` in first-publication order, including reference-only records                             |
-| A local `.5` label has been assigned                             | It appears only in filenames and sorting, never in `dc:title`, `group-position`, `calibre:series_index` or ComicInfo `Number`     |
-| Original title contains Roman numerals                           | Series-position metadata uses Arabic digits while the title text is preserved unchanged                                           |
-| Dates are identical, overlapping or unavailable                  | Explicit bibliographic order evidence is required; an ambiguous case is reported as a gap rather than placed in a convenient slot |
+| Raw material or situation                                                                          | Checkable result                                                                                                                     |
+| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Ordinary fiction trilogy, manga series, or multivolume nonfiction/technical series requests naming | Applies `{main series} ({number}) {volume title, if any}` via `scripts/naming.ts` across all book types, not limited to light novels |
+| Standalone non-series book is organized                                                            | Keeps its matched edition title instead of forcing a `(01)` series label                                                             |
+| Selected edition numbers main volumes and extras in one sequence                                   | Those official numbers are used directly, with no `.5` and no added work-type label                                                  |
+| Publisher supplies a named, numbered subseries                                                     | Both the subseries name and its own `(01)`, `(02)` are retained, not converted to `.5`                                               |
+| One unnumbered extra sits after main volume 6                                                      | Uses `(06.5)` with recorded evidence that no official number applies                                                                 |
+| Several unnumbered extras share that anchor                                                        | All of them use `(06.5-01)`, `(06.5-02)` in first-publication order, including reference-only records                                |
+| A local `.5` label has been assigned                                                               | It appears only in filenames and sorting, never in `dc:title`, `group-position`, `calibre:series_index` or ComicInfo `Number`        |
+| Original title contains Roman numerals                                                             | Series-position metadata uses Arabic digits while the title text is preserved unchanged                                              |
+| Dates are identical, overlapping or unavailable                                                    | Explicit bibliographic order evidence is required; an ambiguous case is reported as a gap rather than placed in a convenient slot    |
 
 ## Evidence, safety and completion
 

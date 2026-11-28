@@ -637,7 +637,7 @@ async function run(): Promise<void> {
   });
   if (values.help) {
     console.log(
-      "naming.ts plan --input INVENTORY.json [--output NEW_PLAN.json]\nRead-only light-novel naming proposals. Declared ebook sources are not opened or modified.",
+      "naming.ts plan --input INVENTORY.json [--output NEW_PLAN.json]\nRead-only whole-series naming proposals for all book types. Declared ebook sources are not opened or modified.",
     );
     return;
   }
@@ -651,7 +651,7 @@ async function run(): Promise<void> {
   ]);
   const report = {
     schemaVersion: 1,
-    operation: "light-novel-naming-plan",
+    operation: "series-naming-plan",
     status: "reviewable",
     libraryWritten: false,
     sourceVerification: "declared-only",

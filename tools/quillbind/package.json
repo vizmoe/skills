@@ -11,7 +11,7 @@
     "quillbind": "tsx packages/cli/src/index.ts",
     "build": "tsc -p tsconfig.build.json && node scripts/link-build.ts",
     "typecheck": "tsc --noEmit",
-    "lint": "prettier --check . ../../skills/quillbind/scripts ../../tests/skills/quillbind && sh -c 'cd ../.. && tools/quillbind/node_modules/.bin/eslint --flag unstable_native_nodejs_ts_config -c tools/quillbind/eslint.config.ts tools/quillbind skills/quillbind/scripts tests/skills/quillbind' && node scripts/check-locks.ts",
+    "lint": "prettier --check . ../../skills/quillbind/scripts ../../tests/skills/quillbind && sh -c 'cd ../.. && tools/quillbind/node_modules/.bin/eslint --flag unstable_native_nodejs_ts_config -c tools/quillbind/eslint.config.ts tools/quillbind skills/quillbind/scripts tests/skills/quillbind' && node scripts/check-locks.ts && node scripts/check-architecture.ts",
     "format": "prettier --write . ../../skills/quillbind/scripts ../../tests/skills/quillbind",
     "test": "vitest run",
     "test:skill": "vitest run ../../tests/skills/quillbind",

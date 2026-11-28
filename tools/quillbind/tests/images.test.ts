@@ -11,7 +11,7 @@ import {
   compatibilityLint,
 } from "../packages/core/src/validate.js";
 import { openBook } from "../packages/core/src/config.js";
-import { preflightBook } from "../packages/core/src/markdown.js";
+import { preflightBook } from "../packages/core/src/preflight.js";
 import { json } from "../packages/core/src/json.js";
 import { sha256 } from "../packages/core/src/hash.js";
 import { bodymatterItems, candidate, copyBook } from "./helpers.js";

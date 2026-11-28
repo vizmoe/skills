@@ -1,4 +1,23 @@
-import type { Diagnostic } from "./model.js";
+export interface SourceLocation {
+  source: string;
+  line?: number;
+  column?: number;
+}
+
+export interface Diagnostic extends Partial<SourceLocation> {
+  code: string;
+  severity: "info" | "warning" | "error";
+  message: string;
+  standard?: string;
+  standardUrl?: string;
+  ruleId?: string;
+  suggestion?: string;
+}
+
+export interface ValidationResult {
+  status: "pass" | "fail";
+  diagnostics: Diagnostic[];
+}
 
 export function fail(code: string, message: string, details?: unknown): never {
   throw Object.assign(new Error(message), { code, details });

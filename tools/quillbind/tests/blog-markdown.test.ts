@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { bodymatterItems, candidate, copyBook } from "./helpers.js";
 import { openBook } from "../packages/core/src/config.js";
-import { preflightBook } from "../packages/core/src/markdown.js";
+import { preflightBook } from "../packages/core/src/preflight.js";
 import {
   inspectBytes,
   validateInternal,

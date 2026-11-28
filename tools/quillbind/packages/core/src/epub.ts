@@ -1,31 +1,13 @@
-import { unpack, type ZipEntry } from "./zip.js";
+import { unpack } from "./zip.js";
 import type { Document as XmlDocument } from "@xmldom/xmldom";
 import { xml, contentXml, elements, attr, NS } from "./xml.js";
 import { fail } from "./errors.js";
 import { localTarget } from "./paths.js";
 import { sha256 } from "./hash.js";
 import { scriptingDocuments } from "./epub-notes.js";
+import type { EpubInspection } from "./epub-types.js";
 
-export interface ManifestItem {
-  id: string;
-  href: string;
-  path: string;
-  mediaType: string;
-  properties: string[];
-}
-export interface EpubInspection {
-  sha256: string;
-  entries: Map<string, ZipEntry>;
-  packagePath: string;
-  packageDocument: XmlDocument;
-  manifest: ManifestItem[];
-  spine: string[];
-  documents: Map<string, XmlDocument>;
-  version: string;
-  language: string;
-  title: string;
-  unsupported: string[];
-}
+export type { ManifestItem, EpubInspection } from "./epub-types.js";
 export function inspectBytes(
   bytes: Uint8Array,
   strict = false,

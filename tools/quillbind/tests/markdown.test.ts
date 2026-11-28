@@ -5,7 +5,7 @@ import { bodymatterItems, candidate, copyBook } from "./helpers.js";
 import { openBook } from "../packages/core/src/config.js";
 import { inspectBytes } from "../packages/core/src/validate.js";
 import { json } from "../packages/core/src/json.js";
-import { preflightBook } from "../packages/core/src/markdown.js";
+import { preflightBook } from "../packages/core/src/preflight.js";
 
 const roots: string[] = [];
 async function fixture(body: string, language = "en", cjkEmphasis?: string) {

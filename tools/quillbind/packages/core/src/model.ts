@@ -1,23 +1,7 @@
 import type { BookWalkerMetadata } from "./bookwalker-model.js";
+import type { SourceLocation, ValidationResult } from "./errors.js";
 
-export interface SourceLocation {
-  source: string;
-  line?: number;
-  column?: number;
-}
-export interface Diagnostic extends Partial<SourceLocation> {
-  code: string;
-  severity: "info" | "warning" | "error";
-  message: string;
-  standard?: string;
-  standardUrl?: string;
-  ruleId?: string;
-  suggestion?: string;
-}
-export interface ValidationResult {
-  status: "pass" | "fail";
-  diagnostics: Diagnostic[];
-}
+export type { SourceLocation, Diagnostic, ValidationResult } from "./errors.js";
 export interface Author {
   name: string;
 }

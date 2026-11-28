@@ -63,11 +63,17 @@ it("releases to a new file only after every gate and replays the snapshot withou
   expect(await fs.readFile(file)).toEqual(bytes);
   expect(gates.releaseGates).toHaveBeenCalledTimes(1);
   expect(fetcher).toHaveBeenCalledTimes(result.conversion.requests);
-  const summary = await readJson<any>(result.reports.summaryJson);
+  interface ReleaseSummaryReport {
+    status: string;
+    operation: string;
+    artifact?: unknown;
+    checks: Record<string, { status: string }>;
+  }
+  const summary = await readJson<ReleaseSummaryReport>(
+    result.reports.summaryJson,
+  );
   expect(
-    Object.values(summary.checks).every(
-      (check: any) => check.status === "pass",
-    ),
+    Object.values(summary.checks).every((check) => check.status === "pass"),
   ).toBe(true);
   expect(summary.operation).toBe("convert");
   expect(
@@ -99,7 +105,11 @@ it("blocks release on a failed gate and records which checks were not run", asyn
   ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
   await expect(fs.lstat(output)).rejects.toMatchObject({ code: "ENOENT" });
   expect(await fs.readFile(file)).toEqual(bytes);
-  const summary = await readJson<any>(output + ".reports/summary.json");
+  const summary = await readJson<{
+    status: string;
+    artifact?: unknown;
+    checks: { conformance: { status: string }; browser: { status: string } };
+  }>(output + ".reports/summary.json");
   expect(summary.status).toBe("fail");
   expect(summary.checks.conformance.status).toBe("fail");
   expect(summary.checks.browser.status).toBe("not-run");

@@ -87,6 +87,52 @@ export {
   buildEpubFromPdfSpec,
   convertPdfToEpub,
 } from "./pdf-epub.js";
+export * from "./bilingual-model.js";
+export {
+  MARKER_OPEN,
+  MARKER_CLOSE,
+  INLINE_MARKER_MAX_CHARS,
+  INLINE_MARKER_WORDLESS_MAX_CHARS,
+  isWordlessInline,
+  canBeInlineMarker,
+  markerTagName,
+  formatMarkerToken,
+  MarkerOrdinalSupply,
+  findMarkers,
+  reconcileMarkers,
+  splitOnMarkers,
+} from "./bilingual-markers.js";
+export type {
+  MarkerReconciliation,
+  MarkerTextSegment,
+} from "./bilingual-markers.js";
+export {
+  DEFAULT_TRANSLATION_TOKEN_BUDGET,
+  extractBookDisplayProfile,
+  isBlockElement,
+  estimateTranslationTokens,
+  computeBlockSignature,
+  assertTranslatableEpub,
+  buildTranslationLedger,
+  validateLedgerRowState,
+  planTranslationShards,
+  resolveBodyElementPath,
+  resolveRelativeElementPath,
+  partitionEpubForTranslation,
+  createTranslationPlan,
+} from "./bilingual-plan.js";
+export {
+  computeShardContentSha256,
+  activePlanUnits,
+  renderTranslationShardMarkdown,
+  compileTranslationShardMarkdown,
+  initTranslationShards,
+  validateTranslationShard,
+  mergeTranslationShards,
+  verifyTranslationRecords,
+  assertTranslationVerified,
+  checkTranslationMerged,
+} from "./bilingual-shard.js";
 export {
   conversionTarget,
   conversionTargets,
@@ -133,6 +179,11 @@ export const formats = {
     "enrich",
     "split-plan",
     "split",
+    "translate-plan",
+    "translate-shard-init",
+    "translate-validate-shard",
+    "translate-merge",
+    "translate-check",
   ],
 } as const;
 

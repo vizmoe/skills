@@ -8,7 +8,7 @@ library_guard 的所有命令只读输入、向 stdout 输出 JSON，既不执�
 
 查询闭环用 [search-ledger.py](../scripts/search-ledger.py) 审计；输入、状态和退出码见[检索记录审计](search.md#只读记录审计)。缓存中的错误尝试保持在续做列表，不算有效零结果。
 
-工作/待复核重复副本的恢复检查用 [cleanup-audit.py](../scripts/cleanup-audit.py)；输入和证据局限见[清理审计](cleanup.md#只读清理审计)。它读取实际文件并给出可续做步骤，不移动或删除文件。
+已替代原始音频（`original_policy: "delete-after-verification"` 下）及工作/待复核重复副本的恢复检查用 [cleanup-audit.py](../scripts/cleanup-audit.py)；输入和证据局限见[清理审计](cleanup.md#只读清理审计)。它读取实际文件并给出可续做步骤，不移动或删除文件。
 
 最终分类用 [report-audit.py](../scripts/report-audit.py) 联结最新发布、清理和 CUE 结果；输入、计数单位及局限见[报告审计](reporting.md#只读报告审计)。它不写报告或空 review 事件，类型和领域状态仍须先核验。
 

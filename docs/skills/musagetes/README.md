@@ -26,7 +26,7 @@ $musagetes Fix music tags in /absolute/path/to/music; preview the changes first.
 
 以上是待替换的示例路径。根目录若为符号链接（例如指向外置卷的 Music），先确认其解析后的真实路径并以该路径调用。可以明确要求只预览、保留某些资料或调整处理数量；已有会话授权沿用。
 
-原始文件默认原位保留，标签和转换写入独立副本；删除或迁移原始文件需另有明确策略。LRC 生成也需单独启用，默认关闭；已有歌词不会因关闭生成而删除。文件角色与策略见[执行协议](../../../skills/musagetes/references/execution.md#文件角色与可选产物)。
+改动先写入独立副本并完成全部校验；专辑发布、标签/封面读回及字节/PCM/packet 音频等价核验全部通过进入 `COMPLETED` 后，默认按 `original_policy: delete-after-verification` 清理被完整替代的原始音频、已完全替代的音乐压缩包及变空源目录（非音乐 sidecar 仍遵守条件清理规则：仅在高质量网络封面与网络元数据均核验通过时清理，否则保留）；如用户明确要求保留原始文件（例如“保留原始文件”），或出现阻断/失败/未核验项，则原位保留原始文件。LRC 生成默认关闭，需单独启用；已有歌词不会因关闭生成而删除。文件角色与策略见[执行协议](../../../skills/musagetes/references/execution.md#文件角色与可选产物)。
 
 冷门发行查证后仍无法可靠确定 COUNTRY 或受控 GENRE 时，允许缺失并在报告中说明原因，其它条件满足后可完成整理。已有可靠值继续保留，具体条件见[可靠信息缺失例外](../../../skills/musagetes/references/metadata-whitelist.md#可靠信息缺失例外)。
 

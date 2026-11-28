@@ -1,6 +1,6 @@
-# 工作副本清理与恢复
+# 已验证原档与工作副本清理与恢复
 
-本协议落实[清理内容条件](delivery.md#清理)，不改变[原始文件策略](execution.md#文件角色与可选产物)。自动去重只处理来源链明确、已被完整替代的工作或待复核副本；唯一音频、原始资料、未知成员和未通过适用校验的成品不进入删除清单。相同标题、时长、扩展名或目录名都不证明重复。运行状态树内的专辑 staging、整盘中间转换、分轨暂存与回滚备份按[Staging 生命周期与退场](execution.md#staging-生命周期与退场)在专辑 `COMPLETED` 前清空，并由 [staging-audit](tools.md#暂存与残留审计) 独立复核；本页的 `cleanup-audit.py` 专责受保护状态树之外的 `working`/`review` 重复音频副本隔离清理。
+本协议落实[清理内容条件](delivery.md#清理)与[原始文件策略](execution.md#文件角色与可选产物)。清理仅处理来源链明确、已被成品完整替代且通过全部校验与音频等价证明的音频文件：默认在 `original_policy: "delete-after-verification"` 下允许经本协议清理已替代的 `original` 原始音频以及 `working`/`review` 重复副本；在 `original_policy: "preserve"`（或清单省略该字段时）仅处理 `working`/`review` 副本并严格保护 `originals` 列表。唯一音频、未通过适用校验的成品、缺失等价证据的文件、用户要求保留的原始资料及未知成员绝不进入删除清单。相同标题、时长、扩展名或目录名都不证明重复。运行状态树内的专辑 staging、整盘中间转换、分轨暂存与回滚备份按[Staging 生命周期与退场](execution.md#staging-生命周期与退场)在专辑 `COMPLETED` 前清空，并由 [staging-audit](tools.md#暂存与残留审计) 独立复核；本页的 `cleanup-audit.py` 专责受保护状态树之外的已替代音频隔离清理。
 
 ## 逐文件证据
 
@@ -31,12 +31,12 @@
 python3 -B "$skill_dir/scripts/cleanup-audit.py" --root "$music_root" --input "$cleanup_manifest"
 ```
 
-输入支持 `--input -` 从 stdin 读取，替代受保护状态路径使用可重复的 `--state-dir`。JSON 顶层仅含 `schema_version: 1`、非空 `originals` 和非空 `entries`。文件引用统一为 `{"path":"相对路径","sha256":"64 位小写 SHA-256"}`；originals 是本事务需保护的全部原始文件引用。entry 仅含：
+输入支持 `--input -` 从 stdin 读取，替代受保护状态路径使用可重复的 `--state-dir`。JSON 顶层含 `schema_version: 1`、`originals`、非空 `entries` 以及可选 `original_policy`（`"delete-after-verification"` 或 `"preserve"`；省略时为兼容旧清单默认按 `"preserve"` 处理）。文件引用统一为 `{"path":"相对路径","sha256":"64 位小写 SHA-256"}`；`originals` 列出本事务必须原位保护的原始文件引用（在 `"preserve"` 下非空；在 `"delete-after-verification"` 下可为空数组 `[]`，但凡列入 `originals` 的文件仍绝对禁止清理）。entry 仅含：
 
 | 字段 | 约束 |
 | --- | --- |
-| `id`、`role`、`reason` | 稳定唯一 ID、`working` 或 `review`、非空清理依据 |
-| `source`、`quarantine` | 工作副本的文件引用；受保护状态目录内的独占隔离相对路径 |
+| `id`、`role`、`reason` | 稳定唯一 ID；`original`（仅在 `original_policy: "delete-after-verification"` 下允许）、`working` 或 `review`；非空清理依据 |
+| `source`、`quarantine` | 待清理源/副本的文件引用；受保护状态目录内的独占隔离相对路径 |
 | `outputs` | 非空有序成品文件引用数组，所有文件当前存在且未变；不能同时是任何条目的清理候选 |
 | `equivalence` | 字节相同时 `{"method":"bytes"}`，仅一个输出；其它为 `{"method":"pcm或packets","evidence":文件引用}` |
 | `stage` | 当前持久化步骤：`prepared`、`quarantined`、`audited`、`remove-intent` 或 `removed` |

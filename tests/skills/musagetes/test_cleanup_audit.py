@@ -148,6 +148,70 @@ class CleanupAuditTests(unittest.TestCase):
         self.entry['source']['path'] = '../outside.flac'
         self.assertBlocked()
 
+    def test_delete_after_verification_allows_verified_original_cleanup_and_protects_preserved_originals(self):
+        self.output.write_bytes(b'verified retagged flac')
+        orig_entry = {
+            'id': 'orig-track',
+            'role': 'original',
+            'source': self.ref(self.original),
+            'quarantine': '.musagetes/quarantine/orig-track.flac',
+            'outputs': [self.ref(self.output)],
+            'reason': 'album COMPLETED with verified PCM equivalence',
+            'stage': 'prepared',
+            'equivalence': {'method': 'bytes'},
+            'audit': None,
+        }
+        proof = {
+            'source': orig_entry['source'],
+            'outputs': orig_entry['outputs'],
+            'source_digest': 'c' * 64,
+            'output_digest': 'c' * 64,
+            'method': 'pcm',
+            'command': 'ffmpeg decode pcm check',
+        }
+        proof_file = self.file('.musagetes/orig-pcm.json', json.dumps(proof).encode())
+        orig_entry['equivalence'] = {'method': 'pcm', 'evidence': self.ref(proof_file)}
+        manifest = {
+            'schema_version': 1,
+            'original_policy': 'delete-after-verification',
+            'originals': [],
+            'entries': [orig_entry],
+        }
+        res = cleanup.audit(self.root, manifest)
+        self.assertTrue(res['ok'], res)
+        self.assertEqual(res['original_policy'], 'delete-after-verification')
+        self.assertEqual(res['entries'][0]['action'], 'QUARANTINE')
+
+        # Explicitly listed originals remain protected even under delete-after-verification.
+        protected_manifest = copy.deepcopy(manifest)
+        protected_manifest['originals'] = [self.ref(self.original)]
+        self.assertFalse(cleanup.audit(self.root, protected_manifest)['ok'])
+
+        # Walk the full crash-safe quarantine -> reconcile -> remove-intent -> remove -> complete lifecycle.
+        q_path = self.root / orig_entry['quarantine']
+        self.original.rename(q_path)
+        self.assertEqual(cleanup.audit(self.root, manifest)['entries'][0]['action'], 'RECONCILE')
+        orig_entry['audit'] = {
+            'snapshot': self.ref(self.file('.musagetes/events/000003.json', b'{"ok":true}')),
+            'report': self.ref(self.file('.musagetes/report-orig.json', b'{"ok":true}')),
+            'binding': cleanup.binding(orig_entry),
+        }
+        orig_entry['stage'] = 'audited'
+        self.assertEqual(cleanup.audit(self.root, manifest)['entries'][0]['action'], 'RECORD_REMOVE_INTENT')
+        orig_entry['stage'] = 'remove-intent'
+        self.assertEqual(cleanup.audit(self.root, manifest)['entries'][0]['action'], 'REMOVE_QUARANTINE')
+        q_path.unlink()
+        done = cleanup.audit(self.root, manifest)
+        self.assertTrue(done['ok'], done)
+        self.assertEqual(done['entries'][0]['action'], 'COMPLETE')
+        self.assertEqual(done['removed_ids'], ['orig-track'])
+        self.assertFalse(self.original.exists())
+        self.assertTrue(self.output.exists())
+
+        # Missing surviving output blocks original cleanup.
+        self.output.unlink()
+        self.assertFalse(cleanup.audit(self.root, manifest)['ok'])
+
 
 if __name__ == '__main__':
     unittest.main()

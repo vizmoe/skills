@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read-only recovery audit for duplicate working/review copies, never a deleter."""
+"""Read-only recovery audit for verified replaced originals and duplicate working/review copies, never a deleter."""
 from __future__ import annotations
 
 import argparse
@@ -130,16 +130,18 @@ def _resolve_entry_action(source, quarantine, stage):
     return 'COMPLETE'
 
 
-def _audit_entry(root, entry, candidates, issues, state_dirs):
+def _audit_entry(root, entry, candidates, issues, state_dirs, original_policy):
     result = {'id': entry.get('id') if isinstance(entry, dict) else None, 'action': 'REVIEW_REQUIRED'}
     try:
         require(not issues, 'Resolve manifest-wide errors first.')
-        require(entry['role'] in ('working', 'review'), 'Only proven working/review duplicates are supported.')
+        allowed_roles = ('original', 'working', 'review') if original_policy == 'delete-after-verification' else ('working', 'review')
+        require(entry['role'] in allowed_roles,
+                'Only proven working/review duplicates (or verified originals under delete-after-verification) are supported.')
         require(isinstance(entry['reason'], str) and entry['reason'].strip(), 'Missing cleanup reason.')
         stage = entry['stage']
         require(stage in ('prepared', 'quarantined', 'audited', 'remove-intent', 'removed'), 'Invalid journal stage.')
         require(not is_protected(entry['source']['path'], state_dirs)
-                and is_protected(entry['quarantine'], state_dirs), 'Use a work source and protected quarantine.')
+                and is_protected(entry['quarantine'], state_dirs), 'Use a source outside state and protected quarantine.')
         for ref in entry['outputs']:
             require(not is_protected(ref['path'], state_dirs), 'Surviving outputs must be published outside state.')
             verify(root, ref)
@@ -158,11 +160,17 @@ def _audit_entry(root, entry, candidates, issues, state_dirs):
 
 
 def audit(root: Path, manifest: dict, state_dirs=None) -> dict:
-    require(isinstance(manifest, dict) and set(manifest) == {'schema_version', 'originals', 'entries'}
+    require(isinstance(manifest, dict)
+            and set(manifest) <= {'schema_version', 'originals', 'entries', 'original_policy'}
+            and {'schema_version', 'originals', 'entries'} <= set(manifest)
             and type(manifest['schema_version']) is int and manifest['schema_version'] == 1,
-            'Expected schema_version 1, originals and entries.')
-    require(isinstance(manifest['originals'], list) and manifest['originals']
-            and isinstance(manifest['entries'], list) and manifest['entries'], 'Lists must be nonempty.')
+            'Expected schema_version 1, originals, entries and optional original_policy.')
+    original_policy = manifest.get('original_policy', 'preserve')
+    require(original_policy in ('preserve', 'delete-after-verification'),
+            'original_policy must be preserve or delete-after-verification.')
+    require(isinstance(manifest['originals'], list)
+            and (original_policy == 'delete-after-verification' or bool(manifest['originals']))
+            and isinstance(manifest['entries'], list) and manifest['entries'], 'Lists must be valid and entries nonempty.')
     entries = manifest['entries']
     issues = []
     try:
@@ -170,8 +178,9 @@ def audit(root: Path, manifest: dict, state_dirs=None) -> dict:
     except (ValueError, OSError) as error:
         issues.append(str(error))
         candidates = set()
-    results = [_audit_entry(root, entry, candidates, issues, state_dirs) for entry in entries]
-    return {'scope': 'cleanup_files_and_evidence_bindings_only', 'ok': not issues and all('issue' not in r for r in results),
+    results = [_audit_entry(root, entry, candidates, issues, state_dirs, original_policy) for entry in entries]
+    return {'scope': 'cleanup_files_and_evidence_bindings_only', 'original_policy': original_policy,
+            'ok': not issues and all('issue' not in r for r in results),
             'entries': results, 'issues': issues,
             'removed_ids': sorted(r['id'] for r in results if r['action'] == 'COMPLETE')}
 

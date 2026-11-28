@@ -59,6 +59,10 @@ describe("reference rule table parser", () => {
       forbidden: ["Literature.Light Novel", "Literature.Manga"],
       requiresPrefix: "Arts.",
     });
+    expect(naming.scope).toEqual({
+      "book-types": "all-series",
+      "standalone-books": "keep-edition-title",
+    });
     expect(naming.kinds).toEqual([
       "main",
       "side-story",
@@ -167,6 +171,23 @@ describe("reference rule table parser", () => {
       "utf8",
     );
     await expect(readBilingualTranslationRules(copied4)).rejects.toMatchObject({
+      code: "RULE_TABLE_INVALID",
+    });
+
+    const tmp5 = await fs.mkdtemp(path.join(os.tmpdir(), "quillbind-rules-5-"));
+    tempDirs.push(tmp5);
+    const copied5 = path.join(tmp5, "references");
+    await fs.cp(refsDir, copied5, { recursive: true });
+    const namingMd = path.join(copied5, "naming.md");
+    await fs.writeFile(
+      namingMd,
+      (await fs.readFile(namingMd, "utf8")).replace(
+        "| `book-types` | `all-series` |",
+        "| `book-types` | `light-novel-only` |",
+      ),
+      "utf8",
+    );
+    await expect(readNamingRules(copied5)).rejects.toMatchObject({
       code: "RULE_TABLE_INVALID",
     });
   });
@@ -386,6 +407,24 @@ describe("delivery audit helper", () => {
     const okRes = await runDeliveryCli(["verify-naming", "--plan", planPath]);
     expect(okRes.rc).toBe(0);
     expect(okRes.payload.sourceVerification).toBe("verified-on-disk");
+
+    const legacyPlanPath = path.join(root, "legacy-plan.json");
+    const parsedPlan = JSON.parse(await fs.readFile(planPath, "utf8")) as {
+      operation: string;
+    };
+    expect(parsedPlan.operation).toBe("series-naming-plan");
+    await fs.writeFile(
+      legacyPlanPath,
+      JSON.stringify({ ...parsedPlan, operation: "light-novel-naming-plan" }),
+      "utf8",
+    );
+    const legacyOkRes = await runDeliveryCli([
+      "verify-naming",
+      "--plan",
+      legacyPlanPath,
+    ]);
+    expect(legacyOkRes.rc).toBe(0);
+    expect(legacyOkRes.payload.sourceVerification).toBe("verified-on-disk");
 
     await fs.writeFile(
       path.join(root, "某系列 (01).epub"),

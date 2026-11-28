@@ -116,7 +116,7 @@ Bind each target file path and SHA-256, recording old/new values only for select
 
 | Field | Adoption rule |
 | --- | --- |
-| Title & contributors | Matched edition title and split contributor roles (`aut`, `trl`, `ill`, `edt`, `ant`, `art`, `pht`); apply [whole-series naming](naming.md) only when light-novel naming is in scope. Never guess original-script names from translations. |
+| Title & contributors | Matched edition title and split contributor roles (`aut`, `trl`, `ill`, `edt`, `ant`, `art`, `pht`); apply [whole-series naming](naming.md) whenever series naming is in scope across any book type. Never guess original-script names from translations. |
 | Description | Work synopsis only under [describe the work, not the file](#describe-the-work-not-the-file); never import retailer/community scores. |
 | Language / script | Match actual book text (`zh-Hans`, `zh-Hant`, `ja`, `en`); never convert text during metadata maintenance. |
 | Tags | Canonical labels from [tag management](tags.md) supported by content and type-specific source. |

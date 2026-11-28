@@ -103,7 +103,7 @@ async function success(data: unknown) {
   expect(report.libraryWritten).toBe(false);
   expect(report.sourceVerification).toBe("declared-only");
   expect(report.schemaVersion).toBe(1);
-  expect(report.operation).toBe("light-novel-naming-plan");
+  expect(report.operation).toBe("series-naming-plan");
   expect(report.status).toBe("reviewable");
   return Object.fromEntries(
     (report.books as Array<Record<string, any>>).map((b) => [b.id, b]),
@@ -117,7 +117,72 @@ async function failure(data: unknown, messageFragment: string) {
   expect(report.message).toContain(messageFragment);
 }
 
-describe("edition-aware light novel naming helper", () => {
+describe("edition-aware whole-series naming helper", () => {
+  it("applies series naming consistently across non-light-novel book types and formats", async () => {
+    const fiction = inventory(
+      [
+        {
+          ...book("v1", { number: "1", title: "地球往事" }),
+          source: {
+            path: "/synthetic/three-body-1.epub",
+            sha256: "b".repeat(64),
+          },
+        },
+        {
+          ...book("v2", { number: "2", title: "黑暗森林" }),
+          source: {
+            path: "/synthetic/three-body-2.epub",
+            sha256: "c".repeat(64),
+          },
+        },
+      ],
+      "三體",
+    );
+    const fictionOut = await success(fiction);
+    expect(Object.values(fictionOut).map((b) => b.filenameStem)).toEqual([
+      "三體 (01) 地球往事",
+      "三體 (02) 黑暗森林",
+    ]);
+
+    const manga = inventory(
+      [
+        {
+          ...book("m1", { number: "1" }),
+          source: { path: "/synthetic/manga-1.cbz", sha256: "d".repeat(64) },
+        },
+        {
+          ...book("m2", { number: "2", title: "特別篇" }),
+          source: { path: "/synthetic/manga-2.cbz", sha256: "e".repeat(64) },
+        },
+      ],
+      "某漫畫",
+    );
+    const mangaOut = await success(manga);
+    expect(Object.values(mangaOut).map((b) => b.filenameStem)).toEqual([
+      "某漫畫 (01)",
+      "某漫畫 (02) 特別篇",
+    ]);
+
+    const technical = inventory(
+      [
+        {
+          ...book("t1", { number: "1", title: "Fundamental Algorithms" }),
+          source: { path: "/synthetic/taocp-1.pdf", sha256: "f".repeat(64) },
+        },
+        {
+          ...book("t2", { number: "2", title: "Seminumerical Algorithms" }),
+          source: { path: "/synthetic/taocp-2.pdf", sha256: "1".repeat(64) },
+        },
+      ],
+      "The Art of Computer Programming",
+    );
+    const technicalOut = await success(technical);
+    expect(Object.values(technicalOut).map((b) => b.filenameStem)).toEqual([
+      "The Art of Computer Programming (01) Fundamental Algorithms",
+      "The Art of Computer Programming (02) Seminumerical Algorithms",
+    ]);
+  });
+
   it("preserves official main and subseries title text", async () => {
     const data = inventory(
       [

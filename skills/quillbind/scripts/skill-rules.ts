@@ -10,6 +10,7 @@ export interface WorkKindRule {
 }
 
 export interface NamingRules {
+  scope: Record<string, string>;
   kinds: string[];
   bases: string[];
 }
@@ -190,6 +191,25 @@ export async function readNamingRules(
     path.join(referencesDir, "naming.md"),
     "utf8",
   );
+  const scopeRows = parseMarkdownSectionTables(content, "Naming scope");
+  const scope: Record<string, string> = {};
+  for (const row of scopeRows) {
+    const key = singleCode(row["Scope"], "Scope");
+    checkRule(
+      !Object.hasOwn(scope, key),
+      `Duplicate naming scope declaration: ${key}`,
+    );
+    scope[key] = singleCode(row["Policy"], "Policy");
+  }
+  checkRule(
+    scope["book-types"] === "all-series",
+    'naming.md must declare scope "book-types" as "all-series"',
+  );
+  checkRule(
+    scope["standalone-books"] === "keep-edition-title",
+    'naming.md must declare scope "standalone-books" as "keep-edition-title"',
+  );
+
   const kindRows = parseMarkdownSectionTables(content, "Supported work kinds");
   const kinds = kindRows.map((row) =>
     singleCode(row["Work kind"], "Work kind"),
@@ -229,7 +249,7 @@ export async function readNamingRules(
       `naming.md must declare numbering basis "${expected}"`,
     );
   }
-  return { kinds, bases };
+  return { scope, kinds, bases };
 }
 
 export async function readBibliographyRules(

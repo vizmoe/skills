@@ -1,6 +1,6 @@
 # Normalize story series in existing files
 
-Use this workflow when Series membership and reading order are in scope, sourcing facts from [bibliography by book type](bibliography.md) without touching Calibre's database, titles, filenames, tags, ISBNs, ratings or body content. Light-novel filename/title unification is a separate [whole-series naming](naming.md) operation.
+Use this workflow when Series membership and reading order are in scope, sourcing facts from [bibliography by book type](bibliography.md) without touching Calibre's database, titles, filenames, tags, ISBNs, ratings or body content. Whole-series filename/title unification across all book types is a separate [whole-series naming](naming.md) operation.
 
 ## Decide membership and order
 

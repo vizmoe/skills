@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   readBibliographyRules,
+  readBilingualTranslationRules,
   readDeliveryRules,
   readNamingRules,
   readParallelWorkflowRules,
@@ -39,7 +40,7 @@ async function runDeliveryCli(
 describe("reference rule table parser", () => {
   it("parses all reference rule tables and detects table mutations", async () => {
     const refsDir = path.join(SKILL_DIR, "references");
-    const [tags, naming, bibliography, delivery, parallel, pdf] =
+    const [tags, naming, bibliography, delivery, parallel, pdf, bilingual] =
       await Promise.all([
         readWorkTypeTagRules(refsDir),
         readNamingRules(refsDir),
@@ -47,6 +48,7 @@ describe("reference rule table parser", () => {
         readDeliveryRules(refsDir),
         readParallelWorkflowRules(refsDir),
         readPdfRules(refsDir),
+        readBilingualTranslationRules(refsDir),
       ]);
 
     expect(tags["light-novel"]).toEqual({
@@ -93,6 +95,12 @@ describe("reference rule table parser", () => {
     ).toBe("forbidden");
     expect(pdf.imageOperations["super-resolution"]?.allowed).toBe(true);
     expect(pdf.imageOperations["generative-redraw"]?.allowed).toBe(false);
+    expect(bilingual.rules["external-api-key"]).toBe("forbidden");
+    expect(bilingual.rules["default-mode"]).toBe("bilingual");
+    expect(bilingual.rules["shard-execution"]).toBe("worker-subagent");
+    expect(bilingual.rules["independent-verification"]).toBe(
+      "verifier-required",
+    );
 
     const tmp1 = await fs.mkdtemp(path.join(os.tmpdir(), "quillbind-rules-1-"));
     tempDirs.push(tmp1);
@@ -142,6 +150,23 @@ describe("reference rule table parser", () => {
       "utf8",
     );
     await expect(readPdfRules(copied3)).rejects.toMatchObject({
+      code: "RULE_TABLE_INVALID",
+    });
+
+    const tmp4 = await fs.mkdtemp(path.join(os.tmpdir(), "quillbind-rules-4-"));
+    tempDirs.push(tmp4);
+    const copied4 = path.join(tmp4, "references");
+    await fs.cp(refsDir, copied4, { recursive: true });
+    const bilingualMd = path.join(copied4, "bilingual-translation.md");
+    await fs.writeFile(
+      bilingualMd,
+      (await fs.readFile(bilingualMd, "utf8")).replace(
+        "| `external-api-key` | `forbidden` |",
+        "| `external-api-key` | `optional` |",
+      ),
+      "utf8",
+    );
+    await expect(readBilingualTranslationRules(copied4)).rejects.toMatchObject({
       code: "RULE_TABLE_INVALID",
     });
   });
@@ -655,6 +680,173 @@ describe("delivery audit helper", () => {
     ]) {
       expect(
         codes.has(expectedCode),
+        `Expected issue code ${expectedCode}`,
+      ).toBe(true);
+    }
+  });
+
+  it("audits on-disk bilingual EPUB translation and independent verification evidence", async () => {
+    const root = await fs.mkdtemp(
+      path.join(os.tmpdir(), "quillbind-delivery-bilingual-"),
+    );
+    tempDirs.push(root);
+
+    const srcEpub = path.join(root, "source.epub");
+    const outEpub = path.join(root, "bilingual.epub");
+    await Promise.all([
+      fs.writeFile(srcEpub, "source-epub-bytes"),
+      fs.writeFile(outEpub, "bilingual-epub-bytes"),
+    ]);
+    const [srcSha, outSha] = await Promise.all([
+      fs.readFile(srcEpub).then(sha256),
+      fs.readFile(outEpub).then(sha256),
+    ]);
+    const planSha = "c".repeat(64);
+
+    const verPath = path.join(root, "translation-verification.json");
+    const verBytes = Buffer.from(
+      JSON.stringify({
+        schemaVersion: 1,
+        kind: "quillbind-translation-verification",
+        sourceSha256: srcSha,
+        planSha256: planSha,
+        verifierId: "verifier-01",
+        verifiedAt: "2026-11-28T00:00:00Z",
+        shards: [
+          {
+            shardId: "shard-001",
+            translatedBy: "worker-01",
+            verifiedBy: "verifier-01",
+            contentSha256: "d".repeat(64),
+            status: "verified",
+            unresolved: [],
+          },
+        ],
+      }),
+    );
+    await fs.writeFile(verPath, verBytes);
+    const verSha = sha256(verBytes);
+
+    const repPath = path.join(root, "translation.json");
+    await fs.writeFile(
+      repPath,
+      JSON.stringify({
+        status: "pass",
+        operation: "epub-translate-build",
+        source: srcEpub,
+        sourceSha256: srcSha,
+        output: outEpub,
+        outputSha256: outSha,
+        planSha256: planSha,
+        reproducible: true,
+        validation: { status: "pass" },
+        verification: {
+          verifierId: "verifier-01",
+          verificationFileSha256: verSha,
+          shardCount: 1,
+        },
+      }),
+    );
+
+    const goodDelivery = path.join(root, "good-bilingual.json");
+    await fs.writeFile(
+      goodDelivery,
+      JSON.stringify({
+        schemaVersion: 1,
+        status: "completed",
+        items: [
+          {
+            source: { path: srcEpub, sha256: srcSha },
+            final: { path: outEpub, sha256: outSha },
+            translationReport: repPath,
+            translationVerificationReport: verPath,
+          },
+        ],
+      }),
+    );
+    const okRes = await runDeliveryCli(["audit", "--input", goodDelivery]);
+    expect(okRes.rc, JSON.stringify(okRes.payload)).toBe(0);
+    expect(okRes.payload.ok).toBe(true);
+
+    // Negative cases: unbacked claim, self-approval, unresolved item, non-reproducible build
+    const badVerPath = path.join(root, "bad-trans-ver.json");
+    await fs.writeFile(
+      badVerPath,
+      JSON.stringify({
+        schemaVersion: 1,
+        kind: "quillbind-translation-verification",
+        sourceSha256: srcSha,
+        planSha256: planSha,
+        verifierId: "worker-01",
+        verifiedAt: "2026-11-28T00:00:00Z",
+        shards: [
+          {
+            shardId: "shard-001",
+            translatedBy: "worker-01",
+            verifiedBy: "worker-01",
+            contentSha256: "d".repeat(64),
+            status: "rejected",
+            unresolved: [{ reason: "idiom unclear" }],
+          },
+        ],
+      }),
+    );
+    const badRepPath = path.join(root, "bad-translation.json");
+    await fs.writeFile(
+      badRepPath,
+      JSON.stringify({
+        status: "pass",
+        operation: "epub-translate-build",
+        source: srcEpub,
+        sourceSha256: srcSha,
+        output: outEpub,
+        outputSha256: outSha,
+        planSha256: planSha,
+        reproducible: false,
+        validation: { status: "fail" },
+        verification: {
+          verifierId: "worker-01",
+          verificationFileSha256: "0".repeat(64),
+        },
+      }),
+    );
+    const badDelivery = path.join(root, "bad-bilingual.json");
+    await fs.writeFile(
+      badDelivery,
+      JSON.stringify({
+        schemaVersion: 1,
+        status: "completed",
+        items: [
+          {
+            source: { path: srcEpub, sha256: srcSha },
+            final: { path: outEpub, sha256: outSha },
+            bilingualTranslation: { mode: "bilingual" },
+          },
+          {
+            source: { path: srcEpub, sha256: srcSha },
+            final: { path: outEpub, sha256: outSha },
+            translationReport: badRepPath,
+            translationVerificationReport: badVerPath,
+          },
+        ],
+      }),
+    );
+    const badRes = await runDeliveryCli(["audit", "--input", badDelivery]);
+    expect(badRes.rc).toBe(1);
+    const badCodes = new Set(
+      (badRes.payload.issues as Array<{ code: string }>).map((i) => i.code),
+    );
+    for (const expectedCode of [
+      "TRANSLATION_EVIDENCE_REPORT_MISSING",
+      "TRANSLATION_NOT_REPRODUCIBLE",
+      "TRANSLATION_VALIDATION_FAILED",
+      "TRANSLATION_VERIFICATION_HASH_MISMATCH",
+      "TRANSLATION_SELF_APPROVAL_FORBIDDEN",
+      "TRANSLATION_SHARD_UNVERIFIED",
+      "TRANSLATION_UNRESOLVED_ITEMS",
+    ]) {
+      expect(
+        badCodes.has(expectedCode),
         `Expected issue code ${expectedCode}`,
       ).toBe(true);
     }

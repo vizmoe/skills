@@ -114,6 +114,17 @@
       "protected": ["original PDF"]
     },
     {
+      "id": "bilingual-translation",
+      "prompt": "将 {epub} 在不依赖外部 API Key 的前提下，通过 coordinator 分类账本、worker subagent 分片翻译和独立 verifier 核验，制作为中英双语 EPUB 并完成校验，保留原文件。",
+      "expected": [
+        "undecided translation plan is blocked until signatures are classified",
+        "shards round-trip through worker Markdown files with atomic inline markers preserved",
+        "self-approved verification is rejected and independent verifier record is required",
+        "bilingual EPUB passes internal validation, lintCss, EPUBCheck, and sampled reading QA with original unchanged"
+      ],
+      "protected": ["original EPUB"]
+    },
+    {
       "id": "release-handoff",
       "prompt": "根据 {config} 将 {raw} 制作为新书 {output}。完成后给我成品路径、哈希、清晰报告和仍需关注的事项。",
       "expected": [

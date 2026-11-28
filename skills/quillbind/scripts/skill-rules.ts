@@ -68,6 +68,10 @@ export interface PdfRules {
   imageOperations: Record<string, ImageOperationRule>;
 }
 
+export interface BilingualTranslationRules {
+  rules: Record<string, string>;
+}
+
 const defaultReferencesDir = fileURLToPath(
   new URL("../references", import.meta.url),
 );
@@ -472,4 +476,41 @@ export async function readPdfRules(
     );
   }
   return { frontmatter, imageOperations };
+}
+
+export async function readBilingualTranslationRules(
+  referencesDir: string = defaultReferencesDir,
+): Promise<BilingualTranslationRules> {
+  const content = await fs.readFile(
+    path.join(referencesDir, "bilingual-translation.md"),
+    "utf8",
+  );
+  const rows = parseMarkdownSectionTables(
+    content,
+    "Bilingual translation workflow rules",
+  );
+  const rules: Record<string, string> = {};
+  for (const row of rows) {
+    const key = singleCode(row["Rule"], "Rule");
+    checkRule(
+      !Object.hasOwn(rules, key),
+      `Duplicate bilingual translation rule: ${key}`,
+    );
+    rules[key] = singleCode(row["Setting"], "Setting");
+  }
+  const requiredSettings: Record<string, string> = {
+    "external-api-key": "forbidden",
+    "default-mode": "bilingual",
+    "plan-classification": "coordinator-reviewed",
+    "shard-execution": "worker-subagent",
+    "independent-verification": "verifier-required",
+    "bilingual-css": "lint-compliant",
+  };
+  for (const [key, expected] of Object.entries(requiredSettings)) {
+    checkRule(
+      rules[key] === expected,
+      `bilingual-translation.md must keep "${key}" set to "${expected}"`,
+    );
+  }
+  return { rules };
 }

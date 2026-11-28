@@ -132,6 +132,15 @@ function appendSubjectAndFormatLists(
   if (Array.isArray(item.shards)) {
     lines.push(`Shards: ${item.shards.length}`);
   }
+  if (typeof item.targetLanguage === "string") {
+    lines.push(`Target language: ${item.targetLanguage}`);
+  }
+  if (
+    typeof item.undecidedSignatures === "number" &&
+    item.undecidedSignatures > 0
+  ) {
+    lines.push(`Undecided signatures: ${item.undecidedSignatures}`);
+  }
   if (Array.isArray(item.unverifiedPages) && item.unverifiedPages.length > 0) {
     lines.push(
       `Pages requiring verification: ${item.unverifiedPages.join(", ")}`,

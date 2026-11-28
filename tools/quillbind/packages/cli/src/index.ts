@@ -46,6 +46,12 @@ import {
   buildEpubFromPdfSpec,
   convertPdfToEpub,
   repairScannedPdf,
+  isTranslationMode,
+  createTranslationPlan,
+  initTranslationShards,
+  validateTranslationShard,
+  mergeTranslationShards,
+  checkTranslationMerged,
   enrichEpub,
   packageManga,
   checkNotes,
@@ -104,6 +110,11 @@ const HELP = [
   "quillbind manga package <scan-directory|file.zip|file.cbz> --bookwalker LOCK.json --output volume.cbz [--page-order ORDER.json] [--reading-direction rtl|ltr]",
   "quillbind epub enrich <file.epub> --bookwalker LOCK.json --output enriched.epub",
   "quillbind epub convert <file.epub|file.mobi|file.azw3|file.pdf> [--theme literature|technical] [--spec SPEC.json] [--verification VER.json] [--render-manifest MANIFEST.json] [--to simplified|traditional|china|taiwan|hongkong] --output converted.epub [--online]",
+  "quillbind epub translate-plan <file.epub> --target-lang <bcp47> --output <plan.json> [--mode bilingual|target-only] [--exclude-tags sup,code,pre] [--only-docs PATHS] [--exclude-docs PATHS] [--token-budget N] [--auto-classify]",
+  "quillbind epub translate-shard-init <plan.json> --output <shards-dir> [--format md|json] [--glossary GLOSSARY.json] [--token-budget N]",
+  "quillbind epub translate-validate-shard <shard-file-or-dir> [--plan PLAN.json]",
+  "quillbind epub translate-merge <plan.json> --shards <paths> --output <merged.json>",
+  "quillbind epub translate-check <merged.json> [--plan PLAN.json] [--glossary GLOSSARY.json] [--verification VERIFICATION.json]",
   "quillbind pdf inspect <file.pdf> [--pages RANGE] [--shard-size N | --token-budget N] [--render-dir DIR] [--dpi N] [--tiles]",
   "quillbind pdf init-spec <file.pdf> --output SPEC.json [--theme literature|technical] [--pages RANGE] [--shard-size N | --token-budget N] [--render-dir DIR] [--dpi N] [--tiles] [--assets-dir DIR]",
   "quillbind pdf shard-init <base-spec.json> --output SHARDS_DIR [--format md|json] [--render-manifest MANIFEST.json]",
@@ -189,6 +200,13 @@ try {
       spec: { type: "string" },
       backup: { type: "string" },
       release: { type: "boolean" },
+      "target-lang": { type: "string" },
+      mode: { type: "string" },
+      "exclude-tags": { type: "string" },
+      "only-docs": { type: "string" },
+      "exclude-docs": { type: "string" },
+      "auto-classify": { type: "boolean" },
+      glossary: { type: "string" },
     },
   });
   jsonMode = !!values.json;
@@ -267,28 +285,55 @@ try {
       "ARGUMENT_CONFLICT",
       "--spec is supported by epub convert and pdf repair-ocr only",
     );
+  const isEpubTranslate =
+    command === "epub" && (subcommand ?? "").startsWith("translate-");
+  if (
+    !isEpubTranslate &&
+    [
+      values["target-lang"],
+      values.mode,
+      values["exclude-tags"],
+      values["only-docs"],
+      values["exclude-docs"],
+      values["auto-classify"],
+      values.glossary,
+    ].some((value) => value !== undefined)
+  )
+    fail(
+      "ARGUMENT_CONFLICT",
+      "Translation options are supported by epub translate-* commands only",
+    );
   if (
     command !== "pdf" &&
     !(command === "epub" && subcommand === "convert") &&
+    !isEpubTranslate &&
     (values.verification !== undefined ||
       values["render-manifest"] !== undefined)
   )
     fail(
       "ARGUMENT_CONFLICT",
-      "--verification and --render-manifest are supported by pdf commands and epub convert only",
+      "--verification and --render-manifest are supported by pdf commands, epub convert and epub translate-* only",
+    );
+  if (
+    command !== "pdf" &&
+    !isEpubTranslate &&
+    [values["token-budget"], values.format, values.shards].some(
+      (value) => value !== undefined,
+    )
+  )
+    fail(
+      "ARGUMENT_CONFLICT",
+      "--token-budget, --format and --shards are supported by pdf and epub translate-* commands only",
     );
   if (
     command !== "pdf" &&
     [
       values.pages,
       values["shard-size"],
-      values["token-budget"],
       values["render-dir"],
       values.dpi,
       values.tiles,
       values["assets-dir"],
-      values.format,
-      values.shards,
       values.deskew,
       values.denoise,
       values.sharpen,
@@ -833,7 +878,86 @@ try {
             output: required(values.output, "--output"),
             signal: abort.signal,
           });
-        else fail("COMMAND_UNKNOWN", "Unknown EPUB operation");
+        else if (subcommand === "translate-plan") {
+          const parsedMode =
+            values.mode === undefined
+              ? undefined
+              : isTranslationMode(values.mode)
+                ? values.mode
+                : fail(
+                    "ARGUMENT_CONFLICT",
+                    "--mode must be bilingual or target-only",
+                  );
+          const budget =
+            values["token-budget"] === undefined
+              ? undefined
+              : /^\d+$/.test(values["token-budget"]) &&
+                  Number(values["token-budget"]) > 0
+                ? Number(values["token-budget"])
+                : fail(
+                    "ARGUMENT_CONFLICT",
+                    "--token-budget must be a positive integer",
+                  );
+          const splitCsv = (raw: string | undefined) =>
+            raw
+              ? raw
+                  .split(",")
+                  .map((s) => s.trim())
+                  .filter(Boolean)
+              : undefined;
+          output = await createTranslationPlan(
+            file,
+            required(values.output, "--output"),
+            {
+              targetLanguage: required(values["target-lang"], "--target-lang"),
+              mode: parsedMode,
+              excludeTags: splitCsv(values["exclude-tags"]),
+              onlyDocs: splitCsv(values["only-docs"]),
+              excludeDocs: splitCsv(values["exclude-docs"]),
+              tokenBudget: budget,
+              autoClassify: values["auto-classify"],
+            },
+          );
+        } else if (subcommand === "translate-shard-init") {
+          const fmt = values.format ?? "md";
+          if (fmt !== "md" && fmt !== "json")
+            fail("ARGUMENT_CONFLICT", "--format must be md or json");
+          const budget =
+            values["token-budget"] === undefined
+              ? undefined
+              : /^\d+$/.test(values["token-budget"]) &&
+                  Number(values["token-budget"]) > 0
+                ? Number(values["token-budget"])
+                : fail(
+                    "ARGUMENT_CONFLICT",
+                    "--token-budget must be a positive integer",
+                  );
+          output = await initTranslationShards(
+            file,
+            required(values.output, "--output"),
+            {
+              format: fmt,
+              glossary: values.glossary,
+              tokenBudget: budget,
+            },
+          );
+        } else if (subcommand === "translate-validate-shard") {
+          output = await validateTranslationShard(file, {
+            plan: values.plan,
+          });
+        } else if (subcommand === "translate-merge") {
+          output = await mergeTranslationShards(
+            file,
+            required(values.shards, "--shards"),
+            required(values.output, "--output"),
+          );
+        } else if (subcommand === "translate-check") {
+          output = await checkTranslationMerged(file, {
+            plan: values.plan,
+            glossary: values.glossary,
+            verification: values.verification,
+          });
+        } else fail("COMMAND_UNKNOWN", "Unknown EPUB operation");
         break;
       }
       case "pdf": {
